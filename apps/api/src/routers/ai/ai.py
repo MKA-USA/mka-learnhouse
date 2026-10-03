@@ -120,6 +120,20 @@ async def activity_chat_event_generator(
         # Send done event immediately (without waiting for follow-ups)
         yield f"data: {json.dumps({'type': 'done', 'aichat_uuid': aichat_uuid, 'activity_uuid': activity_uuid})}\n\n"
 
+        # Jev output guardrails: post-stream audit for PII, inappropriate content
+        from src.services.ai.jev.guardrails import check_response_guardrails
+        guardrail_result = await check_response_guardrails(
+            full_response,
+            user_question=user_message,
+        )
+        if guardrail_result is not None and not guardrail_result.passed:
+            logger.warning(
+                "Activity chat response flagged by guardrails: %s (chat=%s, scores=%s)",
+                guardrail_result.reason,
+                aichat_uuid,
+                guardrail_result.scores,
+            )
+
         # Generate follow-up suggestions and send as separate event
         follow_ups = await generate_follow_up_suggestions(
             full_response,

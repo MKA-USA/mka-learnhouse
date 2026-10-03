@@ -105,6 +105,21 @@ async def rag_chat_event_generator(
         # Send done event
         yield f"data: {json.dumps({'type': 'done', 'aichat_uuid': aichat_uuid})}\n\n"
 
+        # Jev output guardrails: post-stream audit for PII, inappropriate content, hallucinations
+        from src.services.ai.jev.guardrails import check_response_guardrails
+        guardrail_result = await check_response_guardrails(
+            full_response,
+            user_question=user_message,
+            source_context=context_text[:2000] if context_text else "",
+        )
+        if guardrail_result is not None and not guardrail_result.passed:
+            logger.warning(
+                "RAG response flagged by guardrails: %s (chat=%s, scores=%s)",
+                guardrail_result.reason,
+                aichat_uuid,
+                guardrail_result.scores,
+            )
+
         # Generate follow-up suggestions
         follow_ups = await generate_follow_up_suggestions(
             full_response,
