@@ -247,8 +247,8 @@
     padding: 0;
     margin: 0;
     scrollbar-gutter: stable;
-    font-family: var(--font-default, 'Wix Madefor Text'), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
-    letter-spacing: -0.02em;
+    font-family: var(--font-default, 'Poppins'), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+    letter-spacing: -0.01em;
   }
 
   /* Companion to the same override in @layer base. This declaration has to
@@ -379,30 +379,46 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 0 0% 3.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 0 0% 3.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 0 0% 3.9%;
-    --primary: 0 0% 9%;
-    --primary-foreground: 0 0% 98%;
-    --secondary: 0 0% 96.1%;
-    --secondary-foreground: 0 0% 9%;
-    --muted: 0 0% 96.1%;
-    --muted-foreground: 0 0% 45.1%;
-    --accent: 0 0% 96.1%;
-    --accent-foreground: 0 0% 9%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 89.8%;
-    --input: 0 0% 89.8%;
-    --ring: 0 0% 3.9%;
-    --chart-1: 12 76% 61%;
-    --chart-2: 173 58% 39%;
-    --chart-3: 197 37% 24%;
-    --chart-4: 43 74% 66%;
-    --chart-5: 27 87% 67%;
+    /* MKA USA Brand Palette */
+    --mka-deep: #022f40;
+    --mka-periwinkle: #737cbb;
+    --mka-sky: #8ab1c7;
+    --mka-green: #78c197;
+    --mka-peach: #fcd0a1;
+    --mka-raspberry: #da4167;
+    --mka-cream: #f7f2eb;
+    --brand-muted: #5d6470;
+
+    /* MKA Brand Font Stacks */
+    --brand-font-display: "Fraunces", Georgia, serif;
+    --brand-font-body: "Poppins", system-ui, sans-serif;
+    --brand-font-mono: "Sono", ui-monospace, monospace;
+
+    /* MKA semantic surface tokens */
+    --background: 34 50% 95%;         /* Cream #F7F2EB */
+    --foreground: 197 93% 13%;        /* Deep Teal #022F40 */
+    --card: 34 50% 95%;               /* Cream */
+    --card-foreground: 197 93% 13%;   /* Deep Teal */
+    --popover: 34 50% 95%;
+    --popover-foreground: 197 93% 13%;
+    --primary: 197 93% 13%;           /* Deep Teal #022F40 */
+    --primary-foreground: 34 50% 95%; /* Cream on Deep */
+    --secondary: 234 29% 59%;         /* Periwinkle #737CBB */
+    --secondary-foreground: 34 50% 95%;
+    --muted: 34 36% 91%;              /* Cream darkened ~5% */
+    --muted-foreground: 220 8% 40%;   /* Slate #5D6470 */
+    --accent: 197 36% 66%;            /* Sky #8AB1C7 */
+    --accent-foreground: 197 93% 13%;
+    --destructive: 350 65% 55%;       /* Raspberry #DA4167 */
+    --destructive-foreground: 34 50% 95%;
+    --border: 34 30% 86%;
+    --input: 34 30% 86%;
+    --ring: 197 93% 13%;
+    --chart-1: 197 93% 13%;  /* Deep Teal */
+    --chart-2: 234 29% 59%;  /* Periwinkle */
+    --chart-3: 143 36% 62%;  /* Green */
+    --chart-4: 34 97% 81%;   /* Peach */
+    --chart-5: 350 65% 55%;  /* Raspberry */
     --radius: 0.5rem;
 
     /* Z-Index Layering System */
@@ -432,30 +448,31 @@
     --z-max: 9999;
   }
   .dark {
-    --background: 0 0% 3.9%;
-    --foreground: 0 0% 98%;
-    --card: 0 0% 3.9%;
-    --card-foreground: 0 0% 98%;
-    --popover: 0 0% 3.9%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 0 0% 98%;
-    --primary-foreground: 0 0% 9%;
-    --secondary: 0 0% 14.9%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 0 0% 14.9%;
-    --muted-foreground: 0 0% 63.9%;
-    --accent: 0 0% 14.9%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 14.9%;
-    --input: 0 0% 14.9%;
-    --ring: 0 0% 83.1%;
-    --chart-1: 220 70% 50%;
-    --chart-2: 160 60% 45%;
-    --chart-3: 30 80% 55%;
-    --chart-4: 280 65% 60%;
-    --chart-5: 340 75% 55%;}}
+    --background: 197 93% 10%;        /* Deep Teal darkened */
+    --foreground: 34 50% 95%;         /* Cream */
+    --card: 197 93% 12%;
+    --card-foreground: 34 50% 95%;
+    --popover: 197 93% 12%;
+    --popover-foreground: 34 50% 95%;
+    --primary: 34 50% 95%;            /* Cream on dark */
+    --primary-foreground: 197 93% 13%;
+    --secondary: 234 29% 45%;
+    --secondary-foreground: 34 50% 95%;
+    --muted: 197 30% 18%;
+    --muted-foreground: 34 20% 65%;
+    --accent: 197 36% 40%;
+    --accent-foreground: 34 50% 95%;
+    --destructive: 350 65% 45%;
+    --destructive-foreground: 34 50% 95%;
+    --border: 197 20% 22%;
+    --input: 197 20% 22%;
+    --ring: 34 50% 95%;
+    --chart-1: 197 50% 50%;
+    --chart-2: 234 40% 60%;
+    --chart-3: 143 40% 50%;
+    --chart-4: 34 60% 65%;
+    --chart-5: 350 55% 50%;
+  }
 
 @layer base {
   * {
@@ -464,11 +481,11 @@
   html,
   body {
     @apply bg-background text-foreground;
-    font-family: var(--font-default, 'Wix Madefor Text'), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
-    letter-spacing: -0.02em;
+    font-family: var(--font-default, 'Poppins'), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+    letter-spacing: -0.01em;
   }
 
-  /* The -0.02em tracking above is tuned for Latin. Arabic is a cursive script
+  /* The -0.01em tracking above is tuned for Latin. Arabic is a cursive script
      where letters join along a baseline, and negative tracking crushes those
      joins — in some renderers it breaks them outright. Keyed on :lang() as well
      as [dir] so Arabic content inside an English UI is covered too.

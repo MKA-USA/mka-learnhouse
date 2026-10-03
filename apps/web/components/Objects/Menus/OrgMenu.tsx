@@ -159,7 +159,7 @@ export const OrgMenu = (props: any) => {
                   {org?.logo_image ? (
                     <img
                       src={`${getOrgLogoMediaDirectory(org.org_uuid, org?.logo_image)}`}
-                      alt="Learnhouse"
+                      alt="MKA Ilm"
                       style={{ width: 'auto', height: '100%' }}
                       className="rounded-md"
                     />
@@ -560,8 +560,8 @@ const CopilotMenuButton = ({
 const LearnHouseLogo = ({ logoFilter }: { logoFilter: string }) => {
   return (
     <Image
-      src="/lrn-text.svg"
-      alt="LearnHouse logo"
+      src="/logos/mka-usa-long-dark.svg"
+      alt="MKA Ilm"
       width={133}
       height={40}
       style={{ height: 'auto', filter: logoFilter }}

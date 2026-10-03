@@ -21,7 +21,7 @@ export function AuthFooter({ className = '' }: { className?: string }) {
   return (
     <div className={`pb-8 pt-6 text-center px-6 ${className}`}>
       <p className="text-[13px] text-black/30 font-medium">
-        {t('auth.terms_text', { defaultValue: "By continuing, you agree to LearnHouse's" })}{' '}
+        {t('auth.terms_text', { defaultValue: "By continuing, you agree to MKA Ilm's" })}{' '}
         <Link
           href={TERMS_URL}
           target="_blank"
@@ -62,7 +62,7 @@ export function CopyrightFooter({
     <footer className={`w-full py-6 px-6 ${className}`}>
       <div className="flex flex-col sm:flex-row items-center justify-center gap-x-5 gap-y-2 text-[13px] font-medium">
         <p className={base}>
-          {t('common.copyright', { defaultValue: '© {{year}} LearnHouse, Inc.', year })}
+          {t('common.copyright', { defaultValue: '© {{year}} MKA Ilm', year })}
         </p>
         <nav className="flex items-center gap-x-5">
           <Link

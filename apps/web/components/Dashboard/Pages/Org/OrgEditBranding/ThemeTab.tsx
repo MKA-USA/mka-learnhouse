@@ -17,7 +17,7 @@ import FontSelector from './FontSelector'
 import { BrandingSection, SaveBar } from './BrandingShared'
 import { PublicHeaderVignette } from './BrandingVignettes'
 
-const SWATCHES = ['#111827', '#1d4ed8', '#0f766e', '#7c3aed', '#be123c', '#d97706', '#f5f5f4']
+const SWATCHES = ['#022F40', '#737CBB', '#8AB1C7', '#78C197', '#FCD0A1', '#DA4167', '#5D6470']
 
 export default function ThemeTab() {
   const { t } = useTranslation()
