@@ -250,6 +250,23 @@ async def api_rag_chat(
     # Get or create chat session
     chat_session = get_chat_session_history(chat_request.aichat_uuid)
 
+    # Jev intent classification: route questions that don't need course content
+    # directly to the LLM, skipping the embedding + vector search entirely.
+    effective_mode = chat_request.mode or "course_only"
+    from src.services.ai.jev.router import classify_question
+    course_name_for_intent = ""
+    if course_id:
+        _course_row = (await db_session.execute(
+            select(Course.name).where(Course.id == course_id)
+        )).scalar_one_or_none()
+        course_name_for_intent = _course_row or ""
+    intent = await classify_question(
+        chat_request.message,
+        course_name=course_name_for_intent,
+    )
+    if intent is not None and intent.intent == "general_knowledge" and not intent.needs_rag:
+        effective_mode = "general"
+
     # Perform RAG query with streaming
     stream, sources = await query_course_rag_stream(
         question=chat_request.message,
@@ -257,7 +274,7 @@ async def api_rag_chat(
         db_session=db_session,
         message_history=chat_session["message_history"],
         course_id=course_id,
-        mode=chat_request.mode or "course_only",
+        mode=effective_mode,
     )
 
     return StreamingResponse(
