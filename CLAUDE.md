@@ -68,3 +68,64 @@ At the start of EVERY session, before any code work:
 - **After merging a PR**: re-index to capture new code
 - **Persistent artifact**: `.codebase-memory/graph.db.zst` is committed so teammates bootstrap from it instead of full re-indexing
 - **Manual rebuild**: ask "rebuild the codebase graph" or run `scripts/rebuild-codebase-graph.sh`
+
+## Upstream Fork Policy (CRITICAL)
+
+This project is a fork of an open-source tool. **Never modify upstream files in ways that would break our ability to pull new releases.**
+
+### Before ANY file modification:
+
+1. **Check if the file is upstream-owned** — use `git log --follow -- <file>` to see if it exists in upstream history
+2. **Classify the change** using the fork-safety decision framework:
+   - **Safe**: New files, config files, agent instructions, custom extensions in isolated directories
+   - **Risky**: Modifications to upstream source files — requires explicit approval
+   - **Blocked**: Changes that would cause merge conflicts with upstream — find an extension point instead
+
+3. **If modifying an upstream file is unavoidable**:
+   - Document the change in `.codebase-memory/upstream-modifications.md`
+   - Explain why no extension point exists
+   - Provide the exact diff so it can be re-applied after pulling upstream
+
+### Fork-Safe Design Patterns:
+
+- **Extension points**: Use hooks, plugins, or wrapper modules instead of modifying core files
+- **Separation**: Custom features go in clearly separated directories (e.g., `custom/`, `extensions/`)
+- **Configuration over code**: Prefer config changes over code modifications
+- **Override patterns**: Use inheritance, composition, or dependency injection to extend behavior
+
+### Jev Fork-Safety Check (Optional):
+
+If Jev/TypeSafe is available, classify changes before implementing:
+
+```python
+# Example Jev classification for fork safety
+state = {
+    "file_path": "apps/web/services/payments/stripe.ts",
+    "change_description": "Adding custom payment gateway integration",
+    "is_upstream_file": True,
+    "change_type": "feature_addition"
+}
+
+questions = {
+    "would_break_pull": {
+        "type": "noul",
+        "instructions": "Would this change cause merge conflicts when pulling upstream updates?",
+        "criteria": {
+            "true": "modifies core logic, changes function signatures, alters imports",
+            "false": "adds new files, extends via config, uses extension points"
+        }
+    },
+    "change_category": {
+        "type": "choice",
+        "instructions": "What category does this change fall into?",
+        "criteria": {
+            "safe_extension": "new file, custom extension, isolated feature",
+            "upstream_modification": "modifies existing upstream file",
+            "config_only": "configuration, environment, documentation",
+            "blocked": "would break pullability, needs redesign"
+        }
+    }
+}
+```
+
+**When in doubt, ask the user before modifying upstream files.**
