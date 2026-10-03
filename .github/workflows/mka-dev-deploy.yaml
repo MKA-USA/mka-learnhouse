@@ -34,16 +34,15 @@ jobs:
         run: bun install --frozen-lockfile
         working-directory: ./apps/web
 
-      # Baseline on dev currently fails lint:strict (32 errors) and one test
-      # (rtl-guard). Non-blocking until the backlog is fixed; then remove
-      # continue-on-error to make these real gates.
+      # lint:strict still has a backlog (32 errors); non-blocking until fixed,
+      # then remove continue-on-error. Tests are a hard gate: the rtl-guard
+      # test catches broken CSS that would otherwise fail the Docker build.
       - name: Lint (strict)
         continue-on-error: true
         run: bun run lint:strict
         working-directory: ./apps/web
 
       - name: Tests
-        continue-on-error: true
         run: bun test tests
         working-directory: ./apps/web
 
