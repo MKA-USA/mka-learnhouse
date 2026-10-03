@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react'
 import CopilotBubble from '@components/Copilot/CopilotBubble'
 import Image from 'next/image'
 import Link from 'next/link'
+import mkaLogo from '@public/logos/mka-usa-long-dark.svg'
 import { useQuery } from '@tanstack/react-query'
 import { queryKeys } from '@/lib/query/keys'
 import { getUriWithOrg } from '@services/config/config'
@@ -560,7 +561,8 @@ const CopilotMenuButton = ({
 const LearnHouseLogo = ({ logoFilter }: { logoFilter: string }) => {
   return (
     <Image
-      src="/logos/mka-usa-long-dark.svg"
+      unoptimized
+      src={mkaLogo}
       alt="MKA Ilm"
       width={133}
       height={40}
