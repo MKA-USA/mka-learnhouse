@@ -51,7 +51,6 @@ jobs:
         continue-on-error: true
         run: bun test tests
         working-directory: ./apps/web
-        working-directory: ./apps/web
 
       - name: Restart dev service in Coolify
         env:
