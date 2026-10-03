@@ -1,8 +1,8 @@
 """
 RAG query service.
 
-Handles vector similarity search and streaming LLM responses
-grounded in course content.
+Handles vector similarity search, optional Jev reranking, and streaming
+LLM responses grounded in course content.
 """
 
 import logging
@@ -11,6 +11,7 @@ from typing import AsyncGenerator, Optional
 from sqlalchemy import text
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from config.config import get_learnhouse_config
 from src.services.ai.rag.embedding_service import embed_single_text
 from src.services.ai.base import ask_ai_stream
 from src.services.ai.llm import model_for_tier
@@ -18,6 +19,20 @@ from src.services.ai.llm import model_for_tier
 logger = logging.getLogger(__name__)
 
 TOP_K = 5
+
+
+def _resolve_rag_limits(top_k: int) -> tuple[int, int]:
+    """Return (retrieve_k, final_k) honouring Jev config when available.
+
+    When Jev reranking is active we fetch more candidates from vector search
+    than the caller asked for, rerank them, then trim to the original top_k.
+    When Jev is unavailable the two values are identical — no behaviour change.
+    """
+    jev_cfg = get_learnhouse_config().jev_config
+    if jev_cfg is not None and jev_cfg.enabled and jev_cfg.rerank_enabled:
+        retrieve_k = max(top_k, jev_cfg.rerank_candidates)
+        return retrieve_k, top_k
+    return top_k, top_k
 
 
 async def query_course_rag(
@@ -28,7 +43,8 @@ async def query_course_rag(
     top_k: int = TOP_K,
 ) -> dict:
     """
-    Retrieve relevant course content via vector similarity search.
+    Retrieve relevant course content via vector similarity search,
+    optionally reranked by Jev for semantic precision.
 
     Args:
         question: The user's question
@@ -40,6 +56,8 @@ async def query_course_rag(
     Returns:
         {context: str, sources: list[dict]}
     """
+    retrieve_k, final_k = _resolve_rag_limits(top_k)
+
     # Embed the question
     query_embedding = await embed_single_text(question)
 
@@ -62,7 +80,7 @@ async def query_course_rag(
             "query_embedding": embedding_str,
             "org_id": org_id,
             "course_id": course_id,
-            "top_k": top_k,
+            "top_k": retrieve_k,
         }
     else:
         sql = text("""
@@ -79,13 +97,17 @@ async def query_course_rag(
         params = {
             "query_embedding": embedding_str,
             "org_id": org_id,
-            "top_k": top_k,
+            "top_k": retrieve_k,
         }
 
     results = (await db_session.execute(sql, params)).fetchall()
 
     if not results:
         return {"context": "", "sources": []}
+
+    # Optional Jev reranking: score all retrieved chunks, keep the best final_k
+    if retrieve_k > final_k:
+        results = await _jev_rerank(question, results, final_k)
 
     # Build numbered context and deduplicated source list
     context_parts = []
@@ -119,6 +141,31 @@ async def query_course_rag(
 
     context = "\n\n---\n\n".join(context_parts)
     return {"context": context, "sources": sources}
+
+
+async def _jev_rerank(question: str, results: list, final_k: int) -> list:
+    """Rerank vector-search results via Jev.  Returns the original list
+    unchanged (with a warning log) if Jev is unavailable or fails."""
+    from src.services.ai.jev.client import jev_rerank_chunks
+
+    jev_cfg = get_learnhouse_config().jev_config
+    if jev_cfg is None:
+        return results[:final_k]
+
+    chunk_texts = [row.chunk_text for row in results]
+    reranked = await jev_rerank_chunks(
+        question,
+        chunk_texts,
+        timeout_seconds=jev_cfg.timeout_seconds,
+    )
+
+    if reranked is None:
+        logger.debug("Jev reranking unavailable; using vector ordering")
+        return results[:final_k]
+
+    # Map Jev's ranked indices back to the original result rows
+    reordered = [results[r.index] for r in reranked if r.index < len(results)]
+    return reordered[:final_k]
 
 
 async def query_course_rag_stream(

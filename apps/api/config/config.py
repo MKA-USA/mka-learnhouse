@@ -29,6 +29,15 @@ class Judge0Config(BaseModel):
     client_secret: str | None
 
 
+class JevConfig(BaseModel):
+    enabled: bool = False
+    api_key: str | None = None
+    rerank_enabled: bool = True
+    rerank_candidates: int = 10
+    rerank_top_k: int = 5
+    timeout_seconds: float = 5.0
+
+
 class GeneralConfig(BaseModel):
     development_mode: bool
     sentry_config: SentryConfig
@@ -154,6 +163,7 @@ class LearnHouseConfig(BaseModel):
     payments_config: InternalPaymentsConfig
     tinybird_config: TinybirdConfig | None
     judge0_config: Judge0Config | None
+    jev_config: JevConfig | None
 
 
 def _env_bool(env_value, yaml_value):
@@ -554,6 +564,50 @@ def get_learnhouse_config() -> LearnHouseConfig:
             client_secret=judge0_client_secret,
         )
 
+    # Jev (TypeSafe) config — auto-enabled when API key is set
+    env_jev_api_key = os.environ.get("LEARNHOUSE_JEV_API_KEY")
+    env_jev_enabled = os.environ.get("LEARNHOUSE_JEV_ENABLED")
+
+    jev_yaml = yaml_config.get("jev_config", {}) or {}
+    jev_api_key = env_jev_api_key or jev_yaml.get("api_key")
+    jev_enabled = (
+        env_jev_enabled.lower() in ("true", "1", "yes")
+        if env_jev_enabled
+        else jev_yaml.get("enabled", False)
+    )
+    _jev_rerank = os.environ.get("LEARNHOUSE_JEV_RERANK_ENABLED")
+    jev_rerank_enabled = (
+        _jev_rerank.lower() in ("true", "1", "yes")
+        if _jev_rerank
+        else jev_yaml.get("rerank_enabled", True)
+    )
+    _jev_candidates = os.environ.get("LEARNHOUSE_JEV_RERANK_CANDIDATES")
+    jev_rerank_candidates = (
+        int(_jev_candidates) if _jev_candidates
+        else jev_yaml.get("rerank_candidates", 10)
+    )
+    _jev_top_k = os.environ.get("LEARNHOUSE_JEV_RERANK_TOP_K")
+    jev_rerank_top_k = (
+        int(_jev_top_k) if _jev_top_k
+        else jev_yaml.get("rerank_top_k", 5)
+    )
+    _jev_timeout = os.environ.get("LEARNHOUSE_JEV_TIMEOUT_SECONDS")
+    jev_timeout = (
+        float(_jev_timeout) if _jev_timeout
+        else jev_yaml.get("timeout_seconds", 5.0)
+    )
+
+    jev_config = None
+    if jev_enabled and jev_api_key:
+        jev_config = JevConfig(
+            enabled=True,
+            api_key=jev_api_key,
+            rerank_enabled=jev_rerank_enabled,
+            rerank_candidates=jev_rerank_candidates,
+            rerank_top_k=jev_rerank_top_k,
+            timeout_seconds=jev_timeout,
+        )
+
     # Payments config
     env_stripe_secret_key = os.environ.get("LEARNHOUSE_STRIPE_SECRET_KEY")
     env_stripe_publishable_key = os.environ.get("LEARNHOUSE_STRIPE_PUBLISHABLE_KEY")
@@ -753,6 +807,7 @@ def get_learnhouse_config() -> LearnHouseConfig:
         ),
         tinybird_config=tinybird_config,
         judge0_config=judge0_config,
+        jev_config=jev_config,
     )
 
     return config
