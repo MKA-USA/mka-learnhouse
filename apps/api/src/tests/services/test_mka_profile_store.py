@@ -109,7 +109,7 @@ async def test_validate_signup_profile_precheck_conflict(db):
 @pytest.mark.asyncio
 async def test_save_signup_profile_none_is_noop(db):
     u = await _mk_user(db, 1)
-    await save_signup_profile(db, u.id, None)
+    await save_signup_profile(db, u, None)
     assert await get_profile(db, u.id) is None
 
 

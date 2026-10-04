@@ -248,7 +248,7 @@ async def validate_signup_profile(
 
 
 async def save_signup_profile(
-    db_session: AsyncSession, user_id: int, data: Optional[MkaProfileIn]
+    db_session: AsyncSession, user, data: Optional[MkaProfileIn]
 ) -> None:
     """Run right after the user commit.
 
@@ -258,11 +258,15 @@ async def save_signup_profile(
     """
     if data is None:
         return
+    user_id = user.id  # read before upsert_profile: its rollback() expires `user`
     try:
         await upsert_profile(db_session, user_id, data)
     except HTTPException as exc:
         if exc.status_code != 409:
             raise
+        # The IntegrityError path rolled back, expiring `user`; the caller keeps
+        # using it (org link, UserRead), so reload it before returning.
+        await db_session.refresh(user)
         logger.warning(
             "MKA profile not saved at signup (conflict); user %s left to the profile gate",
             user_id,

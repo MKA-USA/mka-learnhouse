@@ -279,7 +279,7 @@ async def create_user(
     db_session.add(user)
     await db_session.commit()
     await db_session.refresh(user)
-    await save_signup_profile(db_session, user.id, mka_profile)  # MKA fork
+    await save_signup_profile(db_session, user, mka_profile)  # MKA fork
 
     # Link user and organization
     user_organization = UserOrganization(
@@ -509,7 +509,7 @@ async def create_user_without_org(
     db_session.add(user)
     await db_session.commit()
     await db_session.refresh(user)
-    await save_signup_profile(db_session, user.id, mka_profile)  # MKA fork
+    await save_signup_profile(db_session, user, mka_profile)  # MKA fork
 
     user_read = UserRead.model_validate(user)
 

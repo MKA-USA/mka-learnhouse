@@ -119,11 +119,108 @@ async def test_amc_race_after_user_commit_does_not_fail_signup(mock_request, db,
             mock_request, db, admin_user,
             _body("r1", mka_profile={"majlis": "Zion", "amc_id": "77"}), org.id,
         )
-    user = (await db.execute(select(User).where(User.id == created.id))).scalars().first()
+    from src.db.user_organizations import UserOrganization
+
+    uid = created.id
+    user = (await db.execute(select(User).where(User.id == uid))).scalars().first()
     assert user is not None
-    rows = (await db.execute(select(MkaUserProfile).where(MkaUserProfile.user_id == created.id))).scalars().all()
+    link = (await db.execute(
+        select(UserOrganization).where(
+            UserOrganization.user_id == uid, UserOrganization.org_id == org.id
+        )
+    )).scalars().first()
+    assert link is not None
+    rows = (await db.execute(select(MkaUserProfile).where(MkaUserProfile.user_id == uid))).scalars().all()
     assert rows == []
-    assert await profile_status(db, created.id) == {"complete": False}
+    assert await profile_status(db, uid) == {"complete": False}
+
+
+async def _seed_amc_holder(db, amc_id):
+    """A different, already-registered user who owns `amc_id`."""
+    from datetime import datetime
+
+    from src.services.users.mka_profile import MkaProfileIn, upsert_profile
+
+    holder = User(
+        username="holder", first_name="H", last_name="O", email="holder@test.com",
+        password="x", user_uuid="user_holder",
+        creation_date=str(datetime.now()), update_date=str(datetime.now()),
+    )
+    db.add(holder)
+    await db.commit()
+    await db.refresh(holder)
+    await upsert_profile(db, holder.id, MkaProfileIn(majlis="Zion", amc_id=amc_id))
+
+
+def _blind_to_conflict_until_commit(monkeypatch):
+    """Simulate a real AMC race.
+
+    `_amc_taken` is consulted 3 times on a signup that loses the race:
+      1. validate_signup_profile (before the user row exists)
+      2. the pre-check inside upsert_profile
+      3. the re-check after the IntegrityError rollback
+    Calls 1-2 must NOT see the conflict (the other signup "hasn't committed yet"),
+    so the DB unique index is what rejects the insert (real IntegrityError and a
+    real rollback()). Call 3 and later report the truth.
+    """
+    from src.services.users import mka_profile as mp
+
+    real = mp._amc_taken
+    calls = {"n": 0}
+
+    async def stub(db_session, amc_id, exclude_user_id):
+        calls["n"] += 1
+        if calls["n"] <= 2:
+            return False
+        return await real(db_session, amc_id, exclude_user_id)
+
+    monkeypatch.setattr(mp, "_amc_taken", stub)
+
+
+@pytest.mark.asyncio
+async def test_real_amc_race_after_user_commit_keeps_account_and_org_link(
+    mock_request, db, admin_user, org, monkeypatch
+):
+    from src.db.user_organizations import UserOrganization
+
+    org_id = org.id  # the rollback expires fixture instances too; keep a plain id
+    await _seed_amc_holder(db, "7777")
+    _blind_to_conflict_until_commit(monkeypatch)
+    with _signup_patches():
+        created = await create_user(
+            mock_request, db, admin_user,
+            _body("r4", mka_profile={"majlis": "Zion", "amc_id": "7777"}), org_id,
+        )
+    assert created.email == "r4@test.com"
+    assert created.user_uuid
+    uid = created.id
+    user = (await db.execute(select(User).where(User.id == uid))).scalars().first()
+    assert user is not None and user.email == "r4@test.com"
+    link = (await db.execute(
+        select(UserOrganization).where(
+            UserOrganization.user_id == uid, UserOrganization.org_id == org_id
+        )
+    )).scalars().first()
+    assert link is not None
+    rows = (await db.execute(select(MkaUserProfile).where(MkaUserProfile.user_id == uid))).scalars().all()
+    assert rows == []
+    assert await profile_status(db, uid) == {"complete": False}
+
+
+@pytest.mark.asyncio
+async def test_real_amc_race_without_org_keeps_account(mock_request, db, admin_user, monkeypatch):
+    await _seed_amc_holder(db, "7778")
+    _blind_to_conflict_until_commit(monkeypatch)
+    with _signup_patches():
+        created = await create_user_without_org(
+            mock_request, db, admin_user,
+            _body("r5", mka_profile={"majlis": "Zion", "amc_id": "7778"}),
+        )
+    assert created.email == "r5@test.com"
+    uid = created.id
+    rows = (await db.execute(select(MkaUserProfile).where(MkaUserProfile.user_id == uid))).scalars().all()
+    assert rows == []
+    assert await profile_status(db, uid) == {"complete": False}
 
 
 @pytest.mark.asyncio
