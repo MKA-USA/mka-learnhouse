@@ -68,6 +68,13 @@ describe("applyMkaServerErrors", () => {
     });
   });
 
+  test("422 item carrying field+message+msg (current backend shape)", () => {
+    expect(run(422, [{ field: "amc_id", message: "digits only", msg: "digits only" }])).toEqual({
+      ok: true,
+      set: { "mka_profile.amc_id": "digits only" },
+    });
+  });
+
   test("422 {loc,msg} strips Value error prefix", () => {
     expect(run(422, [{ loc: ["body", "mka_profile", "majlis"], msg: "Value error, Unknown Majlis" }])).toEqual({
       ok: true,

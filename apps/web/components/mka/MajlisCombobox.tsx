@@ -22,6 +22,7 @@ type Props = {
   options: MkaOptions['majlis']
   id?: string
   invalid?: boolean
+  'aria-describedby'?: string
   disabled?: boolean
   contentClassName?: string
   contentStyle?: React.CSSProperties
@@ -33,6 +34,7 @@ export default function MajlisCombobox({
   options,
   id,
   invalid,
+  'aria-describedby': ariaDescribedBy,
   disabled,
   contentClassName,
   contentStyle,
@@ -57,6 +59,7 @@ export default function MajlisCombobox({
           role="combobox"
           aria-expanded={open}
           aria-invalid={invalid || undefined}
+          aria-describedby={ariaDescribedBy}
           disabled={disabled}
           className={cn(
             'w-full justify-between font-normal',

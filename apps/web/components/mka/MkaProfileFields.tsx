@@ -40,6 +40,9 @@ export default function MkaProfileFields({
     staleTime: Infinity,
   })
   const region = options?.majlis.find((m) => m.name === values.majlis)?.region
+  // aria-describedby target, only while the field's error paragraph is rendered
+  const errId = (f: keyof MkaProfileValues) =>
+    errors[f] ? `${idPrefix}-${f}-error` : undefined
 
   return (
     <div className="space-y-4">
@@ -51,13 +54,18 @@ export default function MkaProfileFields({
           onChange={(v) => onChange('majlis', v)}
           options={options?.majlis ?? []}
           invalid={!!errors.majlis}
+          aria-describedby={errId('majlis')}
           disabled={disabled || !options}
         />
         {region && <p className="text-xs text-muted-foreground">Region: {region}</p>}
         {isError && (
           <p className="text-xs text-destructive">Couldn&apos;t load Majlis list. Refresh to retry.</p>
         )}
-        {errors.majlis && <p className="text-xs text-destructive">{errors.majlis}</p>}
+        {errors.majlis && (
+          <p id={errId('majlis')} role="alert" className="text-xs text-destructive">
+            {errors.majlis}
+          </p>
+        )}
       </div>
 
       <div className="space-y-1.5">
@@ -71,9 +79,14 @@ export default function MkaProfileFields({
           value={values.mobile}
           disabled={disabled}
           aria-invalid={!!errors.mobile || undefined}
+          aria-describedby={errId('mobile')}
           onChange={(e) => onChange('mobile', e.target.value)}
         />
-        {errors.mobile && <p className="text-xs text-destructive">{errors.mobile}</p>}
+        {errors.mobile && (
+          <p id={errId('mobile')} role="alert" className="text-xs text-destructive">
+            {errors.mobile}
+          </p>
+        )}
       </div>
 
       <div className="space-y-1.5">
@@ -86,9 +99,14 @@ export default function MkaProfileFields({
           value={values.amc_id}
           disabled={disabled}
           aria-invalid={!!errors.amc_id || undefined}
+          aria-describedby={errId('amc_id')}
           onChange={(e) => onChange('amc_id', e.target.value)}
         />
-        {errors.amc_id && <p className="text-xs text-destructive">{errors.amc_id}</p>}
+        {errors.amc_id && (
+          <p id={errId('amc_id')} role="alert" className="text-xs text-destructive">
+            {errors.amc_id}
+          </p>
+        )}
       </div>
 
       <div className="space-y-1.5">
@@ -98,10 +116,18 @@ export default function MkaProfileFields({
           onValueChange={(v) => onChange('tanzeem', v === NONE ? '' : v)}
           disabled={disabled}
         >
-          <SelectTrigger id={`${idPrefix}-tanzeem`} className="w-full">
+          <SelectTrigger
+            id={`${idPrefix}-tanzeem`}
+            className="w-full"
+            aria-invalid={!!errors.tanzeem || undefined}
+            aria-describedby={errId('tanzeem')}
+          >
             <SelectValue />
           </SelectTrigger>
-          <SelectContent>
+          {/* ui/select.tsx sets zIndex var(--z-modal-content) (220) via inline style, below the
+              profile gate's dialog (calc(var(--z-popover) - 10) = 240); props spread after it,
+              so this overrides it and the list opens above the gate. It only sets zIndex. */}
+          <SelectContent style={{ zIndex: 'var(--z-popover)' }}>
             <SelectItem value={NONE}>Not specified</SelectItem>
             {(options?.tanzeem ?? []).map((t) => (
               <SelectItem key={t.value} value={t.value}>
@@ -110,7 +136,11 @@ export default function MkaProfileFields({
             ))}
           </SelectContent>
         </Select>
-        {errors.tanzeem && <p className="text-xs text-destructive">{errors.tanzeem}</p>}
+        {errors.tanzeem && (
+          <p id={errId('tanzeem')} role="alert" className="text-xs text-destructive">
+            {errors.tanzeem}
+          </p>
+        )}
       </div>
     </div>
   )
