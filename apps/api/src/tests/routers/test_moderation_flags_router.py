@@ -79,6 +79,16 @@ class TestRbac:
         assert r.status_code == 200
         assert r.json()["total"] == 1
 
+    async def test_mfa_check_failure_fails_closed(self, client, db, org, admin_user, regular_user):
+        """An unexpected error in the MFA check must never grant access."""
+        await _flag(db, org, regular_user)
+        CURRENT["user"] = admin_user
+        with patch("src.security.org_auth.enforce_org_mfa", side_effect=RuntimeError("boom")):
+            with pytest.raises(RuntimeError):
+                await client.get(f"{BASE}/orgs/{org.id}")
+            with pytest.raises(RuntimeError):
+                await client.get(f"{BASE}/orgs/{org.id}/by-content?content_uuid=x")
+
     async def test_cross_org_staff_denied(self, client, db, org, other_org, admin_user, regular_user):
         await _flag(db, org, regular_user)
         CURRENT["user"] = admin_user  # admin of org, NOT of other_org

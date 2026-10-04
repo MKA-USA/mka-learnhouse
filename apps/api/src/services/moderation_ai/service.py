@@ -55,14 +55,10 @@ async def require_moderation_staff(
         raise HTTPException(status_code=404, detail="Organization not found")
     if not await is_moderation_staff(request, user, org, db_session):
         raise HTTPException(status_code=403, detail="Moderation staff only")
-    try:
-        from src.security.org_auth import enforce_org_mfa
+    from src.security.org_auth import enforce_org_mfa
 
-        await enforce_org_mfa(user.id, org.id, db_session)  # type: ignore[attr-defined,arg-type]
-    except HTTPException:
-        raise
-    except Exception:  # noqa: BLE001
-        pass
+    # Fail closed: an unexpected error here must deny access, not grant it.
+    await enforce_org_mfa(user.id, org.id, db_session)  # type: ignore[attr-defined,arg-type]
     return org
 
 
@@ -269,14 +265,10 @@ async def require_flag_reader(
         is_staff = False
     else:
         raise HTTPException(status_code=403, detail="Moderation staff only")
-    try:
-        from src.security.org_auth import enforce_org_mfa
+    from src.security.org_auth import enforce_org_mfa
 
-        await enforce_org_mfa(user.id, org.id, db_session)  # type: ignore[attr-defined,arg-type]
-    except HTTPException:
-        raise
-    except Exception:  # noqa: BLE001
-        pass
+    # Fail closed: an unexpected error here must deny access, not grant it.
+    await enforce_org_mfa(user.id, org.id, db_session)  # type: ignore[attr-defined,arg-type]
     return org, is_staff
 
 
