@@ -244,3 +244,24 @@ Still open:
 - **Alembic**: single head `mka_20261004_user_profile` today; after upstream merges run `alembic heads` and add a fork merge migration if there are two.
 - **Unverified at runtime** (no browser/Postgres run): dark-mode render of the gate and combobox, popover list above the gate, dialog centering with the overridden `style`, mouse-wheel scroll in the Majlis list, focus handoff gate -> legacy dialog, Postgres partial unique index behavior (tests run SQLite).
 - **Test environment**: the shared API venv lacks `greenlet` (tests ran with a `PYTHONPATH` shim), and the full API suite is long-running; only focused suites were run. Some unrelated tests fail pre-existing (see task-8 report).
+
+## 12. Signup bot protection (Turnstile)
+
+**Before**: upstream ran Cloudflare Turnstile only when the deployment mode was SaaS. MKA must not enable SaaS mode (free-plan limits on the org, email verification, Google SSO hidden), so the existing protection was dormant even with keys set.
+
+**Now**: fork-only rules in `apps/web/lib/mka-turnstile.ts`, hooked into three upstream files (logged in `.codebase-memory/upstream-modifications.md`).
+- Widget active when `NEXT_PUBLIC_TURNSTILE_SITE_KEY` is non-empty.
+- Server enforces (signup route and `/api/turnstile/verify`) only when BOTH `TURNSTILE_SECRET_KEY` and the site key are set. Requiring both prevents the lockout where only the secret is set: no widget renders, so every signup would 403 "missing_token". Only the site key set means the widget shows but nothing is enforced; only the secret set means neither.
+- The signup 403 shape and messages are unchanged. In SaaS mode verification still runs exactly once. The disposable-email gate and the Loops sync remain SaaS-only.
+- Env var names (web service): `NEXT_PUBLIC_TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY`. `server-wrapper.js` copies `NEXT_PUBLIC_*` into `process.env` and `runtime-config.json` at container start, so the server reads the site key at runtime.
+- The Cloudflare Turnstile widget must list the site hostname(s) (hostname-bound).
+- One image rebuild is needed for this code change; afterwards key changes need only a restart.
+- Once the site key is set the widget also appears on the login, forgot-password and reset-password forms (verified through `/api/turnstile/verify`).
+- Custom-domain exclusion is deliberately NOT applied (upstream `isCustomDomainRequest()` / `LH_custom_domain` can be true for a deployment's own host, which would silently disable protection).
+- Upstream `verifyTurnstile()` FAILS OPEN on Cloudflare or network errors (and when no secret is set); unchanged.
+
+**Residual gaps**
+- Next-proxy only: a direct POST to the FastAPI `/api/v1/users/...` endpoints bypasses Turnstile.
+- Google SSO account creation is not covered.
+- The backend signup rate limiter `check_signup_rate_limit` exists but is unused; enabling it is a one-line hook if wanted.
+- Unverified at runtime: widget rendering, the 403 path with a bad token, SaaS-mode regression (no app or Cloudflare keys in this environment).

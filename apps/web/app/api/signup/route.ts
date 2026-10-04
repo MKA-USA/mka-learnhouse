@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerAPIUrl } from '@services/config/config'
 import { isSaaSMode, isCustomDomainRequest } from '@lib/saas'
 import { verifyTurnstile, clientIpFromHeaders } from '@lib/turnstile'
+import { isMkaTurnstileEnforced } from '@lib/mka-turnstile' // MKA fork
 import { validateSignupEmail } from '@services/emails/disposableEmail'
 import { addContactWithLoops, sendLoopsEvent, LOOPS_SIGNED_USERS_GROUP } from '@services/emails/loops'
 
@@ -66,12 +67,26 @@ export async function POST(request: NextRequest) {
   // this route is a thin proxy to the backend user-create endpoint.
   const saas = await isSaaSMode()
 
+  // MKA fork: Turnstile runs whenever both keys are set, independent of SaaS mode.
+  let mkaTurnstileDone = false // MKA fork
+  if (isMkaTurnstileEnforced()) { // MKA fork
+    const mkaTurnstile = await verifyTurnstile(turnstileToken, clientIpFromHeaders(request.headers)) // MKA fork
+    if (!mkaTurnstile.ok) { // MKA fork
+      const detail = // MKA fork
+        mkaTurnstile.reason === 'missing_token' // MKA fork
+          ? 'Please complete the verification challenge.' // MKA fork
+          : 'Verification failed. Please try again.' // MKA fork
+      return NextResponse.json({ detail }, { status: 403 }) // MKA fork
+    } // MKA fork
+    mkaTurnstileDone = true // MKA fork
+  } // MKA fork
+
   if (saas) {
     // 1. Turnstile — allowed through automatically when no secret is set. Skipped
     // on org custom domains: the hostname-locked widget can't render there, so the
     // client sends no token and the challenge is disabled end-to-end (matches the
     // client widget + the /api/turnstile/verify route).
-    if (!(await isCustomDomainRequest())) {
+    if (!mkaTurnstileDone && !(await isCustomDomainRequest())) { // MKA fork: skip if already verified above
       const turnstile = await verifyTurnstile(turnstileToken, clientIpFromHeaders(request.headers))
       if (!turnstile.ok) {
         const detail =

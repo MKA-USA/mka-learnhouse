@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { isSaaSMode, isCustomDomainRequest } from '@lib/saas'
 import { verifyTurnstile, clientIpFromHeaders } from '@lib/turnstile'
+import { isMkaTurnstileEnforced } from '@lib/mka-turnstile' // MKA fork
 
 // Standalone Turnstile verification endpoint, used by the auth forms that call
 // the backend DIRECTLY (login / forgot-password / reset-password) — they verify
@@ -12,7 +13,7 @@ export async function POST(request: NextRequest) {
   // Off outside SaaS — never challenge OSS/self-hosted users. Also off on org
   // custom domains, where the hostname-locked Turnstile widget can't render, so
   // the client sends no token and would otherwise be blocked here.
-  if (!(await isSaaSMode()) || (await isCustomDomainRequest())) {
+  if (!isMkaTurnstileEnforced() && (!(await isSaaSMode()) || (await isCustomDomainRequest()))) { // MKA fork: enforced when both keys set
     return NextResponse.json({ ok: true })
   }
 
