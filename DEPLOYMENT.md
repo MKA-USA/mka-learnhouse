@@ -124,6 +124,26 @@ Actions is enabled on this fork for deploying dev and prod.
 - If a change needs a new or changed environment variable, say so explicitly. It must be added in Coolify for each environment. It cannot be shipped through git.
 - Database migrations run against real prod data on the first prod start after the next hourly deploy. Flag any migration in your PR description and test it on dev first.
 
+## Email and Google SSO environment variables (Coolify, per environment)
+
+Set these in Coolify for each environment (dev and prod). Values and secrets never go in the repo. Env changes take effect after a restart of the service; no rebuild is needed.
+
+**Email (Brevo SMTP)**
+- `LEARNHOUSE_EMAIL_PROVIDER=smtp`
+- `LEARNHOUSE_SYSTEM_EMAIL_ADDRESS`
+- `LEARNHOUSE_SYSTEM_EMAIL_SENDER_NAME`
+- `LEARNHOUSE_SMTP_HOST=smtp-relay.brevo.com`
+- `LEARNHOUSE_SMTP_PORT=587`
+- `LEARNHOUSE_SMTP_USERNAME`
+- `LEARNHOUSE_SMTP_PASSWORD`
+- `LEARNHOUSE_SMTP_USE_TLS=true`
+
+**Google SSO**
+- `LEARNHOUSE_GOOGLE_CLIENT_ID`
+- `LEARNHOUSE_GOOGLE_CLIENT_SECRET`
+- Authorized redirect URI per environment: `https://<domain>/auth/callback/google`. Use separate OAuth clients and redirects for dev and prod.
+- `MKA_GOOGLE_ALLOWED_DOMAINS=mkausa.org` is REQUIRED in both environments. If unset, anyone with a Google account can sign in. Comma-separated for several domains; exact match only (no subdomains). Enforced server-side in `apps/api/src/services/auth/mka_domain_guard.py`.
+
 ## Reference
 
 - Upstream: LearnHouse (`learnhouse/learnhouse`). This fork tracks it but ships its own image built from this repo.
