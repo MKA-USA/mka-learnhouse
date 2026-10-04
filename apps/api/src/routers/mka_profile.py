@@ -6,9 +6,10 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.core.events.database import get_db_session
 from src.db.user_organizations import UserOrganization
-from src.db.users import APITokenUser, SuperadminAPITokenUser
+from src.db.users import APITokenUser, SuperadminAPITokenUser, User
 from src.security.auth import get_authenticated_user
-from src.security.org_auth import is_org_admin
+from src.security.org_auth import get_user_org
+from src.security.rbac.constants import is_admin
 from src.security.superadmin import is_user_superadmin
 from src.services.users.mka_profile import (
     MkaProfileIn,
@@ -66,12 +67,14 @@ async def api_put_user(
     db_session: AsyncSession = Depends(get_db_session),
 ) -> dict:
     """Full replace of a user's profile (majlis required; omitted or null
-    optional fields clear stored values). Org admins may edit members of the
-    org named by `org_id`; superadmins may edit anyone."""
+    optional fields clear stored values). Org ADMINS (not maintainers) may
+    edit members of the org named by `org_id`; superadmins may edit anyone."""
     caller = _uid(current_user)
-    if not await is_user_superadmin(caller, db_session):
-        # 403 before any membership lookup so non-admins learn nothing.
-        if not await is_org_admin(caller, org_id, db_session):
+    superadmin = await is_user_superadmin(caller, db_session)
+    if not superadmin:
+        # 403 before any lookup of the target so non-admins learn nothing.
+        caller_org = await get_user_org(caller, org_id, db_session)
+        if caller_org is None or not is_admin(caller_org.role_id):
             raise HTTPException(status_code=403, detail="Admin access required")
         member = (
             await db_session.execute(
@@ -83,5 +86,7 @@ async def api_put_user(
         ).scalars().first()
         if member is None:
             raise HTTPException(status_code=404, detail="User not found in this organization")
+    if await db_session.get(User, user_id) is None:
+        raise HTTPException(status_code=404, detail="User not found")
     await upsert_profile(db_session, user_id, body)
     return await profile_status(db_session, user_id)
