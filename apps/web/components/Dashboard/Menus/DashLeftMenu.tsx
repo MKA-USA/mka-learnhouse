@@ -24,6 +24,7 @@ import {
   DotsThree,
   UsersThree,
   Shield,
+  ShieldCheck,
   UserPlus,
   ClipboardText,
   Palette,
@@ -81,6 +82,7 @@ import PlanBadge from '@components/Dashboard/Shared/PlanRestricted/PlanBadge'
 import { usePlan } from '@components/Hooks/usePlan'
 import { planMeetsRequirement } from '@services/plans/plans'
 import useAdminStatus from '@components/Hooks/useAdminStatus'
+import useCanModerate from '@components/Hooks/useCanModerate'
 import { useLHAnalytics, AnalyticsEvent } from '@services/analytics'
 import OnboardingSidebarBox from '@components/Dashboard/Onboarding/OnboardingSidebarBox'
 import { useOnboarding } from '@components/Hooks/useOnboarding'
@@ -195,6 +197,7 @@ function DashLeftMenu() {
   // Only org managers (admins/superadmins) see billing surfaces — non-admins
   // shouldn't manage the plan/subscription.
   const { canManageOrg } = useAdminStatus()
+  const { canModerate } = useCanModerate()
 
   if (!org || !session) return null
   const planLabel =
@@ -519,6 +522,15 @@ function DashLeftMenu() {
                 label={t('common.playgrounds')}
                 isCollapsed={isCollapsed}
                 active={isActivePath('/dash/playgrounds')}
+              />
+            )}
+            {canModerate && (
+              <MenuLink
+                href="/dash/moderation"
+                icon={<ShieldCheck size={20} weight="fill" />}
+                label={t('moderation.nav')}
+                isCollapsed={isCollapsed}
+                active={isActivePath('/dash/moderation')}
               />
             )}
             {/* Users with hover menu */}

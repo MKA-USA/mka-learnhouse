@@ -21,6 +21,7 @@ import {
 } from "@components/ui/dropdown-menu"
 import UserAvatar from '@components/Objects/UserAvatar'
 import { CommentUpvoteButton } from './CommentUpvoteButton'
+import { ModerationFlagIndicator } from '@components/Dashboard/Moderation/ModerationFlagIndicator'
 
 dayjs.extend(relativeTime)
 
@@ -202,6 +203,7 @@ export function CommentCard({ comment, canManage = false, onDeleted, onUpdated }
                 <div className="flex items-center gap-2 mb-0.5">
                   <span className="font-medium text-gray-900 text-sm">{authorName}</span>
                   <span className="text-gray-400 text-xs">{timeAgo}</span>
+                  <ModerationFlagIndicator contentType="discussion_comment" contentUuid={comment.comment_uuid} isStaff={canManage} />
                 </div>
                 <p className="text-sm text-gray-700 whitespace-pre-wrap" dir="auto">
                   {comment.content}
