@@ -29,6 +29,8 @@ interface SignupBody {
   bio?: string
   /** Answers to the org's admin-defined signup fields, keyed by field key. */
   custom_fields?: Record<string, unknown>
+  // MKA fork
+  mka_profile?: { majlis?: string; mobile?: string | null; amc_id?: string | null; tanzeem?: string | null }
   turnstileToken?: string | null
   inviteCode?: string
 }
@@ -53,6 +55,7 @@ export async function POST(request: NextRequest) {
     last_name,
     bio,
     custom_fields,
+    mka_profile, // MKA fork
   } = body
 
   if (!email || !password || !username) {
@@ -107,6 +110,17 @@ export async function POST(request: NextRequest) {
     last_name,
     bio,
     ...(custom_fields ? { custom_fields } : {}),
+    // MKA fork: forward only the four known profile keys (never spread client input)
+    ...(mka_profile && typeof mka_profile === 'object'
+      ? {
+          mka_profile: {
+            majlis: mka_profile.majlis,
+            mobile: mka_profile.mobile,
+            amc_id: mka_profile.amc_id,
+            tanzeem: mka_profile.tanzeem,
+          },
+        }
+      : {}),
   }
 
   let url: string
