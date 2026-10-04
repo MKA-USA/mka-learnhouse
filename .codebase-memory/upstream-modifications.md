@@ -537,23 +537,28 @@ Re-apply checklist: the `useState` hook, the button and the dialog mount all ref
 ### Turnstile signup protection without SaaS mode (`apps/web/lib/mka-turnstile.ts`)
 
 - **Date**: 2026-10-04
-- **Reason**: Upstream only runs Cloudflare Turnstile when the deployment is SaaS (which would put the MKA org on free-plan limits, require email verification and hide Google SSO). The fork activates it when the keys are configured instead. Logic is fork-only in `apps/web/lib/mka-turnstile.ts` (pure rules + `isMkaTurnstileEnforced()` wrapper); tests in `apps/web/tests/mka-turnstile.test.mjs`. Spec: section 12 of `docs/superpowers/specs/2026-10-04-mka-profile-fields-design.md`.
-- **Hooks (3 upstream files, 8 `MKA fork` lines in TurnstileWidget/verify + a 13-line block in signup)**: `TurnstileWidget.tsx` (`isTurnstileConfigured()` returns true when the site key is set), `app/api/signup/route.ts` (verify before the `if (saas)` block when both keys are set; the inner SaaS verify is skipped via `mkaTurnstileDone` so it never runs twice; the disposable-email gate stays SaaS-only), `app/api/turnstile/verify/route.ts` (the short-circuit no longer applies when both keys are set).
-- **Custom-domain ruling**: the fork rule ignores `isCustomDomainRequest()` / `LH_custom_domain` (see spec section 12).
-- **Diff** (`git diff 74807657..HEAD`; the `route.ts` diff also contains the earlier `mka_profile` hooks logged in section A):
+- **Reason**: Upstream only runs Cloudflare Turnstile when the deployment is SaaS (which would put the MKA org on free-plan limits, require email verification and hide Google SSO). The fork activates it OUTSIDE SaaS when the keys are configured. In SaaS mode behavior is exactly upstream. Logic is fork-only in `apps/web/lib/mka-turnstile.ts` (pure rules `isMkaTurnstileApplicable`, `mkaTurnstileActiveFor`, `mkaTurnstileEnforcedFor`, wrapper `isMkaTurnstileEnforced(mode)`); tests in `apps/web/tests/mka-turnstile.test.mjs`. Spec: section 12 of `docs/superpowers/specs/2026-10-04-mka-profile-fields-design.md`.
+- **Hooks (3 upstream files)**: `TurnstileWidget.tsx` (`isTurnstileConfigured()` short-circuits true when non-SaaS and the site key is set), `app/api/signup/route.ts` (a `!saas && enforced` verify block before `if (saas)`; the SaaS block is untouched, so verification can never run twice), `app/api/turnstile/verify/route.ts` (SaaS keeps the upstream condition; non-SaaS skips unless both keys are set).
+- **Custom domain**: ignored only outside SaaS (it can be true for a single-org deployment's own host and would disable protection); SaaS keeps upstream's exclusion.
+- **Stale upstream comments**: comments in `TurnstileWidget.tsx` and the verify route still say "SaaS-only"; stale for this fork, left unedited to avoid merge noise.
+- **Diff** (`git diff 74807657..HEAD`; the `signup/route.ts` diff is limited to the Turnstile hunks, the `mka_profile` hooks are logged in section A):
 
 ```diff
 diff --git a/apps/web/app/api/signup/route.ts b/apps/web/app/api/signup/route.ts
-@@ -2,6 +2,7 @@
+@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
+ import { getServerAPIUrl } from '@services/config/config'
+ import { isSaaSMode, isCustomDomainRequest } from '@lib/saas'
  import { verifyTurnstile, clientIpFromHeaders } from '@lib/turnstile'
 +import { isMkaTurnstileEnforced } from '@lib/mka-turnstile' // MKA fork
  import { validateSignupEmail } from '@services/emails/disposableEmail'
-@@ -63,12 +67,26 @@ export async function POST(request: NextRequest) {
+ import { addContactWithLoops, sendLoopsEvent, LOOPS_SIGNED_USERS_GROUP } from '@services/emails/loops'
+ 
+@@ -63,6 +67,18 @@ export async function POST(request: NextRequest) {
+   // this route is a thin proxy to the backend user-create endpoint.
    const saas = await isSaaSMode()
  
-+  // MKA fork: Turnstile runs whenever both keys are set, independent of SaaS mode.
-+  let mkaTurnstileDone = false // MKA fork
-+  if (isMkaTurnstileEnforced()) { // MKA fork
++  // MKA fork: outside SaaS, Turnstile runs when both keys are set (SaaS = upstream block below).
++  if (!saas && isMkaTurnstileEnforced('oss')) { // MKA fork
 +    const mkaTurnstile = await verifyTurnstile(turnstileToken, clientIpFromHeaders(request.headers)) // MKA fork
 +    if (!mkaTurnstile.ok) { // MKA fork
 +      const detail = // MKA fork
@@ -562,30 +567,53 @@ diff --git a/apps/web/app/api/signup/route.ts b/apps/web/app/api/signup/route.ts
 +          : 'Verification failed. Please try again.' // MKA fork
 +      return NextResponse.json({ detail }, { status: 403 }) // MKA fork
 +    } // MKA fork
-+    mkaTurnstileDone = true // MKA fork
 +  } // MKA fork
 +
    if (saas) {
--    if (!(await isCustomDomainRequest())) {
-+    if (!mkaTurnstileDone && !(await isCustomDomainRequest())) { // MKA fork: skip if already verified above
+     // 1. Turnstile — allowed through automatically when no secret is set. Skipped
+     // on org custom domains: the hostname-locked widget can't render there, so the
 diff --git a/apps/web/app/api/turnstile/verify/route.ts b/apps/web/app/api/turnstile/verify/route.ts
+--- a/apps/web/app/api/turnstile/verify/route.ts
++++ b/apps/web/app/api/turnstile/verify/route.ts
 @@ -1,6 +1,7 @@
+ import { NextRequest, NextResponse } from 'next/server'
+ import { isSaaSMode, isCustomDomainRequest } from '@lib/saas'
  import { verifyTurnstile, clientIpFromHeaders } from '@lib/turnstile'
 +import { isMkaTurnstileEnforced } from '@lib/mka-turnstile' // MKA fork
-@@ -12,7 +13,7 @@ export async function POST(request: NextRequest) {
+ 
+ // Standalone Turnstile verification endpoint, used by the auth forms that call
+ // the backend DIRECTLY (login / forgot-password / reset-password) — they verify
+@@ -12,7 +13,8 @@ export async function POST(request: NextRequest) {
+   // Off outside SaaS — never challenge OSS/self-hosted users. Also off on org
+   // custom domains, where the hostname-locked Turnstile widget can't render, so
+   // the client sends no token and would otherwise be blocked here.
 -  if (!(await isSaaSMode()) || (await isCustomDomainRequest())) {
-+  if (!isMkaTurnstileEnforced() && (!(await isSaaSMode()) || (await isCustomDomainRequest()))) { // MKA fork: enforced when both keys set
++  // MKA fork: SaaS keeps the upstream condition; outside SaaS skip unless both keys are set.
++  if ((await isSaaSMode()) ? await isCustomDomainRequest() : !isMkaTurnstileEnforced('oss')) { // MKA fork
+     return NextResponse.json({ ok: true })
+   }
+ 
 diff --git a/apps/web/components/Auth/TurnstileWidget.tsx b/apps/web/components/Auth/TurnstileWidget.tsx
+--- a/apps/web/components/Auth/TurnstileWidget.tsx
++++ b/apps/web/components/Auth/TurnstileWidget.tsx
 @@ -1,5 +1,6 @@
+ 'use client'
  import { getConfig, getDeploymentMode } from '@services/config/config'
-+import { isTurnstileActive } from '@lib/mka-turnstile' // MKA fork
++import { mkaTurnstileActiveFor } from '@lib/mka-turnstile' // MKA fork
+ import { Turnstile, type TurnstileInstance } from '@marsidev/react-turnstile'
+ import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
+ 
 @@ -34,6 +35,7 @@ function isOnCustomDomain(): boolean {
+  * `useTurnstileRequired`) to avoid hydration mismatches.
+  */
  export function isTurnstileConfigured(): boolean {
-+  if (isTurnstileActive(getTurnstileSiteKey())) return true // MKA fork: site key alone activates (no SaaS requirement)
++  if (mkaTurnstileActiveFor({ mode: getDeploymentMode(), siteKey: getTurnstileSiteKey() })) return true // MKA fork: non-SaaS only
    return getTurnstileSiteKey().length > 0 && getDeploymentMode() === 'saas' && !isOnCustomDomain()
+ }
+ 
 ```
 
-- **Re-apply**: `grep -rn "MKA fork" apps/web/app/api/signup apps/web/app/api/turnstile apps/web/components/Auth/TurnstileWidget.tsx`. If upstream restructures the signup block, keep the order: fork verify first, flag, then the SaaS block skips its own verify.
+- **Re-apply**: `grep -rn "MKA fork" apps/web/app/api/signup apps/web/app/api/turnstile apps/web/components/Auth/TurnstileWidget.tsx`.
 
 ---
 

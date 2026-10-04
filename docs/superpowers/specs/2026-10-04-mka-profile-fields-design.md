@@ -250,15 +250,17 @@ Still open:
 **Before**: upstream ran Cloudflare Turnstile only when the deployment mode was SaaS. MKA must not enable SaaS mode (free-plan limits on the org, email verification, Google SSO hidden), so the existing protection was dormant even with keys set.
 
 **Now**: fork-only rules in `apps/web/lib/mka-turnstile.ts`, hooked into three upstream files (logged in `.codebase-memory/upstream-modifications.md`).
-- Widget active when `NEXT_PUBLIC_TURNSTILE_SITE_KEY` is non-empty.
-- Server enforces (signup route and `/api/turnstile/verify`) only when BOTH `TURNSTILE_SECRET_KEY` and the site key are set. Requiring both prevents the lockout where only the secret is set: no widget renders, so every signup would 403 "missing_token". Only the site key set means the widget shows but nothing is enforced; only the secret set means neither.
-- The signup 403 shape and messages are unchanged. In SaaS mode verification still runs exactly once. The disposable-email gate and the Loops sync remain SaaS-only.
-- Env var names (web service): `NEXT_PUBLIC_TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY`. `server-wrapper.js` copies `NEXT_PUBLIC_*` into `process.env` and `runtime-config.json` at container start, so the server reads the site key at runtime.
+- **SaaS mode behaves exactly like upstream**: the fork logic applies only when NOT SaaS; SaaS goes through the unchanged upstream code (including its custom-domain exclusion).
+- Outside SaaS the widget is active when `NEXT_PUBLIC_TURNSTILE_SITE_KEY` is non-empty.
+- Outside SaaS the server enforces (signup route and `/api/turnstile/verify`) only when BOTH `TURNSTILE_SECRET_KEY` and the site key are set. Requiring both prevents the lockout where only the secret is set: no widget renders, so every signup would 403 "missing_token". Only the site key set means the widget shows but nothing is enforced; only the secret set means neither.
+- The signup 403 shape and messages are unchanged. The disposable-email gate and the Loops sync remain SaaS-only.
+- Custom-domain exclusion is ignored ONLY outside SaaS: upstream `isCustomDomainRequest()` / the `LH_custom_domain` cookie can be true for a deployment's own host, which would silently disable protection on MKA's primary domain.
+- Env var names (web service): `NEXT_PUBLIC_TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY`. `server-wrapper.js` copies `NEXT_PUBLIC_*` into `process.env` and `runtime-config.json` at container start. The server reads the site key through a variable key (`process.env[SITE_KEY_VAR]`) so it is never inlined at build time; key changes need only a restart.
 - The Cloudflare Turnstile widget must list the site hostname(s) (hostname-bound).
 - One image rebuild is needed for this code change; afterwards key changes need only a restart.
 - Once the site key is set the widget also appears on the login, forgot-password and reset-password forms (verified through `/api/turnstile/verify`).
-- Custom-domain exclusion is deliberately NOT applied (upstream `isCustomDomainRequest()` / `LH_custom_domain` can be true for a deployment's own host, which would silently disable protection).
 - Upstream `verifyTurnstile()` FAILS OPEN on Cloudflare or network errors (and when no secret is set); unchanged.
+- Upstream comments in `TurnstileWidget.tsx` and the verify route still say "SaaS-only"; they are stale for this fork and were left unedited.
 
 **Residual gaps**
 - Next-proxy only: a direct POST to the FastAPI `/api/v1/users/...` endpoints bypasses Turnstile.

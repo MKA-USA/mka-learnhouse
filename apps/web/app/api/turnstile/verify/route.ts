@@ -13,7 +13,8 @@ export async function POST(request: NextRequest) {
   // Off outside SaaS — never challenge OSS/self-hosted users. Also off on org
   // custom domains, where the hostname-locked Turnstile widget can't render, so
   // the client sends no token and would otherwise be blocked here.
-  if (!isMkaTurnstileEnforced() && (!(await isSaaSMode()) || (await isCustomDomainRequest()))) { // MKA fork: enforced when both keys set
+  // MKA fork: SaaS keeps the upstream condition; outside SaaS skip unless both keys are set.
+  if ((await isSaaSMode()) ? await isCustomDomainRequest() : !isMkaTurnstileEnforced('oss')) { // MKA fork
     return NextResponse.json({ ok: true })
   }
 

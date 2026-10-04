@@ -1,6 +1,6 @@
 'use client'
 import { getConfig, getDeploymentMode } from '@services/config/config'
-import { isTurnstileActive } from '@lib/mka-turnstile' // MKA fork
+import { mkaTurnstileActiveFor } from '@lib/mka-turnstile' // MKA fork
 import { Turnstile, type TurnstileInstance } from '@marsidev/react-turnstile'
 import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 
@@ -35,7 +35,7 @@ function isOnCustomDomain(): boolean {
  * `useTurnstileRequired`) to avoid hydration mismatches.
  */
 export function isTurnstileConfigured(): boolean {
-  if (isTurnstileActive(getTurnstileSiteKey())) return true // MKA fork: site key alone activates (no SaaS requirement)
+  if (mkaTurnstileActiveFor({ mode: getDeploymentMode(), siteKey: getTurnstileSiteKey() })) return true // MKA fork: non-SaaS only
   return getTurnstileSiteKey().length > 0 && getDeploymentMode() === 'saas' && !isOnCustomDomain()
 }
 
