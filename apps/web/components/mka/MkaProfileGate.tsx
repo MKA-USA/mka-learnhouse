@@ -76,8 +76,10 @@ export default function MkaProfileGate() {
     <Dialog open>
       <DialogContent
         className="bg-background text-foreground border-border [&>button:last-child]:hidden sm:max-w-md"
-        // dialog.tsx spreads {...props} AFTER its own style, so a style prop replaces
-        // it wholesale: the centering/animation props must be repeated here.
+        // ui/dialog.tsx sets zIndex/translate/willChange/backfaceVisibility inline itself and
+        // spreads {...props} AFTER them, so passing `style` REPLACES them wholesale. They are
+        // repeated here on purpose (zIndex overridden). Coupling: re-check the `style` block near
+        // the top of DialogContent in apps/web/components/ui/dialog.tsx after upstream merges.
         style={{
           zIndex: 'calc(var(--z-popover) - 10)',
           translate: '-50% -50%',
