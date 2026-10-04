@@ -109,6 +109,7 @@ Prefix `/mka/profile` (NOT `/users/me/...`, to avoid colliding with `PUT /{user_
   needed on the signup page).
 - `GET /mka/profile/me` → the caller's profile or `{complete: false}`. Dependency: `get_authenticated_user`.
 - `PUT /mka/profile/me` → validate, derive Region, upsert; 409 on AMC conflict, 422 on bad input.
+  - **AMC ID is admin-managed once set** (user decision; Salesforce will later be the source of official details). `upsert_profile(..., actor="self"|"admin")`, default `"self"`. Self paths (`PUT /me`, signup, gate): if the stored row already has an `amc_id`, it is KEPT whatever is submitted (no error; the response shows the stored value); a first-time `amc_id` is allowed (still 409 if taken). The admin path (`PUT /user/{id}`) can set, change and clear it (still 409 on conflict). Majlis, mobile and Tanzeem behave the same for both.
 - Admin edit of another user's profile: `PUT /mka/profile/user/{user_id}?org_id=<org>`.
   - Allowed: ADMIN-role members of `org_id` (maintainers are NOT allowed); platform superadmins unrestricted.
   - A nonexistent target, or (for non-superadmins) a target who is not a member of `org_id`, returns 404. Non-admins get 403 BEFORE any target lookup (no existence oracle).
@@ -154,7 +155,8 @@ New fork-only files in `apps/web/components/mka/`:
   Stacking: `dialog.tsx` sets `zIndex`, `translate`, `willChange`, `backfaceVisibility` as an inline `style` and spreads `{...props}` after it, so the gate's own `style` REPLACES it. The gate therefore sets z-index `calc(var(--z-popover) - 10)` (= 240, above the legacy dialog at `--z-modal` 210 and below popovers at 250 so the Majlis list stays visible) and REPEATS the other three properties. Coupling: re-check `ui/dialog.tsx` after upstream merges (§4 checklist).
   Renders only when session is authenticated and `GET /mka/profile/me` says incomplete. Includes a
   sign-out escape so a user is never trapped. Not rendered on `/auth/*` routes.
-- `services/mka/profile.ts` — thin client for the three endpoints.
+- `MkaProfileEditDialog.tsx` — admin dialog (props `open, onOpenChange, userId, orgId, displayName, onSaved?`). Loads the member via `GET /mka/profile/user/{id}?org_id=` (react-query, `enabled: open`; "No profile yet" starts from empty values), edits with `MkaProfileFields` (AMC editable), saves the FULL object with `PUT` (never partial), maps 409 onto the AMC field and 403 to "Only organization admins can edit profiles.", toasts, invalidates, calls `onSaved`, closes. Normal dismissible dialog; token classes override `dialog.tsx`'s white classes like the gate; no z-index override needed (dialog 210, Majlis popover and Tanzeem select 250). Rendered only while open. Hooked into `OrgUsers.tsx` (members table) with an "Edit profile" row button shown when `canManageOrg` (org admin / superadmin, the strictest signal `useAdminStatus` exposes); the backend remains ADMIN-only.
+- `services/mka/profile.ts` — thin client for the three endpoints plus admin `getMemberMkaProfile` / `putMemberMkaProfile` and `profileToValues`.
 
 ### Component sourcing policy (research, verified 2026-10-04)
 - **Primary base: official shadcn/ui** (`new-york`, Radix) via the repo's own `components.json`.
@@ -230,11 +232,12 @@ Still open:
 - Minimum/maximum AMC ID length, if one exists. Until told, only the 1–15 digit sanity cap applies.
 
 ## 11. Known limitations & residual risks
-- **AMC ID squatting**: IDs are unverified and first-come unique; someone can claim another member's ID. Mitigation: admins can edit/clear any profile (full-replace PUT).
+- **AMC ID squatting**: IDs are unverified and first-come unique; at signup or the gate a member can claim another member's unregistered ID. Exposure is now limited to that first-time entry (after it is stored members cannot change it), and admins can fix it from the Users table dialog. AMC ID is treated as admin-managed once set; Salesforce is expected to become the source of official details later.
 - **AMC enumeration**: the 409 at public signup reveals whether an AMC ID is registered. Inherent to unique IDs; consider signup rate limiting.
 - **Cross-org edit**: the profile is one global row per user, so an admin of ANY org the target belongs to can edit it. Fine for single-org MKA; hardening option: require admin of every org the target belongs to.
 - **Maintainers cannot edit profiles** (ADMIN role only).
-- **Admin UI deferred**: editing profiles from the admin UI is not built (API only: GET + PUT `/mka/profile/user/{id}`); it belongs to the reporting sub-project.
+- **Admin edit UI shipped** (Users table dialog, §6). Still sub-project 2: profile columns in the Users table and in the CSV export, and reporting.
+- **Admin dialog unverified at runtime**: dialog rendering, dark mode, Majlis/Tanzeem popover layering inside it, and the row button's placement/width in the actions cell.
 - **Popover `modal` not applied**: the Popover `modal` approach for wheel scrolling inside the gate was NOT applied; the list uses an `onWheel` stopPropagation workaround. Wheel scrolling in the Majlis list is on the manual-check list.
 - **Two dialogs**: the legacy `CompleteSignupFields` and the gate can both open; the gate content sits above (z 240 vs 210).
 - **Docs example**: `docs/content/guides/build-learning-platform/do-it-yourself.mdx:442` (`POST /users/{org.id}`) now needs `mka_profile` on this fork; upstream doc not edited.

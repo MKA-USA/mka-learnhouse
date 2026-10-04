@@ -445,6 +445,65 @@ index 20a72e4e..9bd71b07 100644
  }
 ```
 
+##### `apps/web/components/Dashboard/Pages/Users/OrgUsers/OrgUsers.tsx` (admin profile edit, 4 `MKA fork` markers)
+
+Why no extension point: the members table has no row-action slot or plugin API, so a button in the actions cell and a dialog mount are the minimum. Logic lives in the fork-only `components/mka/MkaProfileEditDialog.tsx`. The button shows only for `canManageOrg` (organizations.action_update: org admin / superadmin), the strictest signal `useAdminStatus` offers; the backend still enforces ADMIN-only and the dialog shows its 403 message. Verbatim `git diff 74807657..HEAD`:
+
+```diff
+diff --git a/apps/web/components/Dashboard/Pages/Users/OrgUsers/OrgUsers.tsx b/apps/web/components/Dashboard/Pages/Users/OrgUsers/OrgUsers.tsx
+index e683a01a..594b7bb6 100644
+--- a/apps/web/components/Dashboard/Pages/Users/OrgUsers/OrgUsers.tsx
++++ b/apps/web/components/Dashboard/Pages/Users/OrgUsers/OrgUsers.tsx
+@@ -25,6 +25,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
+ import { queryKeys } from '@/lib/query/keys'
+ import { readSignupFields } from '@services/settings/org'
+ import { useTranslation } from 'react-i18next'
++import MkaProfileEditDialog from '@components/mka/MkaProfileEditDialog' // MKA fork
+ import {
+   Select,
+   SelectContent,
+@@ -81,6 +82,7 @@ function OrgUsers() {
+   // Per-student analytics (integrated into this Users list)
+   const [analyticsUserId, setAnalyticsUserId] = useState<number | null>(null)
+   const [comparing, setComparing] = useState(false)
++  const [mkaEdit, setMkaEdit] = useState<{ id: number; name: string } | null>(null) // MKA fork
+ 
+   const buildQuery = () => {
+     const params = new URLSearchParams()
+@@ -757,6 +759,18 @@ function OrgUsers() {
+                                 <ExternalLink className="w-3.5 h-3.5" />
+                               </Link>
+                             </ToolTip>
++                          {/* MKA fork: admin-only (canManageOrg = org admin / superadmin) */}
++                          {canManageOrg && (
++                            <button
++                              onClick={() => setMkaEdit({ id: user.user.id, name: `${user.user.first_name} ${user.user.last_name}`.trim() || user.user.username })}
++                              className="inline-flex items-center gap-1.5 h-8 px-3 bg-white text-gray-600 hover:bg-indigo-50 hover:text-indigo-600 rounded-md text-xs font-medium nice-shadow transition-all"
++                              aria-label="Edit profile"
++                              title="Edit profile"
++                            >
++                              <User className="w-3.5 h-3.5" />
++                              <span>Edit profile</span>
++                            </button>
++                          )}
+                           {canManageOrg && (
+                             <ConfirmationModal
+                               confirmationButtonText={t('dashboard.users.active_users.modals.remove_user.button')}
+@@ -826,6 +840,10 @@ function OrgUsers() {
+ 
+       {/* Per-student analytics (integrated into the Users tab) */}
+       <UserDossierModal userId={analyticsUserId} onOpenChange={(o) => !o && setAnalyticsUserId(null)} />
++      {/* MKA fork: admin edit of a member's Majlis/mobile/AMC ID/Tanzeem */}
++      {mkaEdit && org?.id && (
++        <MkaProfileEditDialog open onOpenChange={(o) => !o && setMkaEdit(null)} userId={mkaEdit.id} orgId={org.id} displayName={mkaEdit.name} />
++      )}
+       <Dialog open={comparing} onOpenChange={setComparing}>
+         <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto bg-[#f8f8f8] p-6 sm:p-8">
+           <h2 className="font-bold text-xl tracking-tight mb-4">{t('dashboard.users.analytics.compare_students')}</h2>
+```
+
+Re-apply checklist: the `useState` hook, the button and the dialog mount all reference `canManageOrg`, `org` and the row variable `user` (`user.user.id/first_name/last_name/username`); if upstream renames them, adapt the three spots. Also count: `OrgUsers.tsx` 4 `MKA fork` markers.
+
 #### B. Upstream tests edited (upstream-test-edit)
 
 - `apps/api/src/tests/services/test_signup_custom_fields_flow.py` (+9 lines) and `apps/api/src/tests/services/test_users_service.py` (+5 lines): every pre-existing non-OAuth `UserCreate(...)` now passes `mka_profile={"majlis": "Zion"}`, because the signup hook rejects non-OAuth creation without a Majlis. The pattern is one added kwarg line each time. After a merge, any new upstream test that creates a non-OAuth `UserCreate` needs the same kwarg. Regenerate with `git diff 74807657..HEAD -- <file>`.
@@ -456,13 +515,13 @@ index 20a72e4e..9bd71b07 100644
 #### D. Fork-only new files (no merge risk)
 
 - API: `apps/api/src/services/users/mka_profile.py`, `apps/api/src/db/mka_user_profile.py`, `apps/api/src/routers/mka_profile.py`, `apps/api/migrations/versions/mka_20261004_user_profile.py`
-- API tests: `src/tests/services/test_mka_profile_{domain,store,signup,gdpr}.py`, `src/tests/routers/test_mka_profile_router.py`
-- Web: `apps/web/components/mka/{MajlisCombobox,MkaProfileFields,MkaProfileGate}.tsx`, `apps/web/services/mka/profile.ts`, `apps/web/tests/mka-profile-validation.test.mjs`
+- API tests: `src/tests/services/test_mka_profile_{domain,store,signup,gdpr,amc_rule}.py`, `src/tests/routers/test_mka_profile_router.py`
+- Web: `apps/web/components/mka/{MajlisCombobox,MkaProfileFields,MkaProfileGate,MkaProfileEditDialog}.tsx`, `apps/web/services/mka/profile.ts`, `apps/web/tests/mka-profile-{validation,admin}.test.mjs`
 - Docs: `docs/superpowers/specs/2026-10-04-mka-profile-fields-design.md`, `docs/superpowers/plans/2026-10-04-mka-profile-fields.md`
 
 #### E. Re-apply after upstream merge (checklist)
 
-1. `grep -rn "MKA fork" apps` and confirm every hook above survives. Added `MKA fork` lines per file in this feature: `users.py` 1; `users.py` 5; `admin.py` 3; `router.py` 2; `route.ts` 3; `OpenSignup.tsx` 7; `InviteOnlySignUp.tsx` 7; `layout.tsx` 2; `client.ts` 1. (`services/users/users.py` also carries the 2026-10-03 Google-only hooks, counted separately.) Recount against the diffs above.
+1. `grep -rn "MKA fork" apps` and confirm every hook above survives. Added `MKA fork` lines per file in this feature: `users.py` 1; `users.py` 5; `admin.py` 3; `router.py` 2; `route.ts` 3; `OpenSignup.tsx` 7; `InviteOnlySignUp.tsx` 7; `layout.tsx` 2; `client.ts` 1; `OrgUsers.tsx` 4. (`services/users/users.py` also carries the 2026-10-03 Google-only hooks, counted separately.) Recount against the diffs above.
 2. `alembic heads` (apps/api, venv) must print exactly one head; today `mka_20261004_user_profile`. If upstream adds a migration and two heads appear, add a fork merge migration (prefix `mka_`) merging both. Never edit upstream migrations.
 3. Re-check `apps/web/components/ui/dialog.tsx`: `MkaProfileGate.tsx` repeats dialog.tsx's inline `style` properties on purpose (passing `style` replaces them wholesale).
 4. Run the focused tests: `src/tests/services/test_mka_profile_*.py`, `src/tests/routers/test_mka_profile_router.py`, `test_signup_custom_fields_flow.py`, `test_users_service.py`; web: `bun test tests` and eslint on the files above.
