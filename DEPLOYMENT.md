@@ -142,7 +142,16 @@ Set these in Coolify for each environment (dev and prod). Values and secrets nev
 - `LEARNHOUSE_GOOGLE_CLIENT_ID`
 - `LEARNHOUSE_GOOGLE_CLIENT_SECRET`
 - Authorized redirect URI per environment: `https://<domain>/auth/callback/google`. Use separate OAuth clients and redirects for dev and prod.
-- `MKA_GOOGLE_ALLOWED_DOMAINS=mkausa.org` is REQUIRED in both environments. If unset, anyone with a Google account can sign in. Comma-separated for several domains; exact match only (no subdomains). Enforced server-side in `apps/api/src/services/auth/mka_domain_guard.py`.
+- Google sign-in is open to everyone: any Google account (including personal Gmail) may sign in, which is how public learners join.
+
+**Google-only domains (mkausa.org)**
+- `MKA_GOOGLE_ONLY_DOMAINS=mkausa.org` — set in BOTH dev and prod. Comma-separated, case-insensitive, exact domain match only (no subdomains). Read at request time; restart after changing.
+- Any account with an `@mkausa.org` address can authenticate ONLY through Google, so suspending the user in Google Workspace removes their access. Password login, signup, invite signup, password reset (request and completion), magic links, and email changes into or out of the domain are all refused for these addresses (403, "Accounts with an mkausa.org email must sign in with Google"; reset/magic-link requests return the normal generic success response and send nothing).
+- Google sign-in with an `@mkausa.org` address additionally requires Google's Workspace `hd` claim to equal `mkausa.org`; a consumer Google account that merely uses an @mkausa.org address is rejected.
+- If unset or empty there is no enforcement and mkausa.org users can still use passwords.
+- Existing mkausa.org accounts with a password keep working through Google (matched by email); only their password login is blocked.
+- Limitation: suspending a user in Google does not revoke a LearnHouse session already issued (access token 8 h, refresh up to 30 days of inactivity, `LEARNHOUSE_AUTH_REFRESH_TOKEN_DAYS`, minimum 14). See the session notes in the project history.
+- Implementation: `apps/api/src/services/auth/mka_google_only.py`; hook sites listed in `.codebase-memory/upstream-modifications.md`.
 
 ## Reference
 

@@ -13,21 +13,57 @@ Each entry should include:
 
 ## Current Modifications
 
-### apps/api/src/services/auth/utils.py (Google SSO domain allowlist)
+### Google-only email domains (`MKA_GOOGLE_ONLY_DOMAINS`)
 
 - **Date**: 2026-10-03
-- **Reason**: `signWithGoogle` has no hook between establishing the verified email and the user lookup/creation, so the allowlist check must be called inline. All logic lives in the new file `apps/api/src/services/auth/mka_domain_guard.py` (env `MKA_GOOGLE_ALLOWED_DOMAINS`; unset = no restriction).
-- **Diff** (2 added lines):
+- **Reason**: Google SSO stays open to all, but addresses in the configured domains (mkausa.org) must authenticate only via Google (so Workspace suspension removes access) and must carry the Workspace `hd` claim. No extension points exist in these upstream functions, so each gets a 1-2 line call. All logic is in the new fork-only file `apps/api/src/services/auth/mka_google_only.py`; tests in `apps/api/src/tests/services/auth/test_mka_google_only.py`. Unset env = no-op.
+- **Hook sites and diffs**:
 
+1. `apps/api/src/services/auth/utils.py` (Google path, `hd` requirement)
 ```diff
- from src.db.user_audit_events import UserAuditEventType
-+from src.services.auth.mka_domain_guard import enforce_allowed_google_domain
-@@ in signWithGoogle
-     user_email = google_email.strip().lower()
-+    enforce_allowed_google_domain(user_email, google_user.get("hd"))  # MKA fork
++from src.services.auth.mka_google_only import require_workspace_hd  # MKA fork
+@@ in signWithGoogle, directly after `user_email = google_email.strip().lower()`
++    require_workspace_hd(user_email, google_user.get("hd"))  # MKA fork
+```
+2. `apps/api/src/services/auth/session.py` (central chokepoint: password login, magic-link verify, email-verification auto-signin, admin magic link all pass through it)
+```diff
+-from src.security.session_context import AMR_CLAIM, SORG_CLAIM, session_claims
++from src.security.session_context import AMR_CLAIM, AUTH_METHOD_GOOGLE, SORG_CLAIM, session_claims
++from src.services.auth.mka_google_only import block_non_google_auth  # MKA fork
+@@ first lines of issue_session_or_challenge body (after docstring)
++    if amr != AUTH_METHOD_GOOGLE:  # MKA fork
++        block_non_google_auth(user.email)
+```
+3. `apps/api/src/routers/auth.py` (early login block, before password verification; magic-link request)
+```diff
++from src.services.auth.mka_google_only import block_non_google_auth, is_google_only_email  # MKA fork
+@@ login(), before "# Step 2: Authenticate"
++    block_non_google_auth(username)  # MKA fork
+@@ magic_link_request(), right after `generic = {...}`
++    if is_google_only_email(str(body.email)):  # MKA fork
++        return generic
+```
+4. `apps/api/src/services/users/users.py` (email/password signup incl. invite signup, which calls create_user; email change)
+```diff
++from src.services.auth.mka_google_only import block_email_change, block_non_google_auth  # MKA fork
+@@ create_user() and create_user_without_org(), first statement of body
++    if not is_oauth:  # MKA fork
++        block_non_google_auth(user_object.email)
+@@ update_user(), just before "# Update user; strip protected fields..."
++    block_email_change(user.email, user_object.email)  # MKA fork
+```
+5. `apps/api/src/services/users/password_reset.py` (4 functions)
+```diff
++from src.services.auth.mka_google_only import block_non_google_auth, is_google_only_email  # MKA fork
+@@ send_reset_password_code() and send_reset_password_code_platform(), first statement
++    if is_google_only_email(email):  # MKA fork: issue nothing, same response
++        return "If an account with that email exists, a reset code has been sent"
+@@ change_password_with_reset_code() and change_password_with_reset_code_platform(), first statement
++    block_non_google_auth(email)  # MKA fork
 ```
 
-- **Re-apply after pulling upstream**: if a conflict occurs, add the import at the top of `utils.py`, and add the call directly after `user_email = google_email.strip().lower()` in `signWithGoogle` (before any DB lookup). Confirm with `grep -n enforce_allowed_google_domain apps/api/src/services/auth/utils.py` and run `uv run pytest src/tests/services/auth/test_mka_domain_guard.py` in apps/api.
+- **Not hooked (by design)**: `services/admin/admin.py` admin-API user creation with a password and `services/setup/setup.py` first-run setup (operator actions; the password cannot be used to log in for these domains anyway, since login is blocked at hooks 2 and 3); `update_user_password` (logged-in change; resulting password is unusable for login).
+- **Re-apply after pulling upstream**: re-add each hook at the location named above. Verify with `grep -rn "MKA fork" apps/api/src` (expect 17 lines, including the new module docstring) and run `uv run pytest src/tests/services/auth/test_mka_google_only.py` in apps/api.
 - **Upstream PR**: none
 
 

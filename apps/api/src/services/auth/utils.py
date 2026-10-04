@@ -15,7 +15,7 @@ from src.services.security.rate_limiting import get_client_ip
 from src.services.security.account_lockout import update_login_info
 from src.services.audit.audit import record_audit_event
 from src.db.user_audit_events import UserAuditEventType
-from src.services.auth.mka_domain_guard import enforce_allowed_google_domain
+from src.services.auth.mka_google_only import require_workspace_hd  # MKA fork
 
 
 logger = logging.getLogger(__name__)
@@ -161,7 +161,7 @@ async def signWithGoogle(
         )
     # Normalise to lower-case to match the DB unique-ish invariant on email.
     user_email = google_email.strip().lower()
-    enforce_allowed_google_domain(user_email, google_user.get("hd"))  # MKA fork
+    require_workspace_hd(user_email, google_user.get("hd"))  # MKA fork
 
     # Match existing accounts case-insensitively. Local email/password signups
     # store the email exactly as submitted (no lower-casing), so an account

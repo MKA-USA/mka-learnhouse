@@ -51,6 +51,7 @@ from src.services.users.email_verification import (
     resend_verification_email,
 )
 from src.services.auth.session import issue_session_or_challenge
+from src.services.auth.mka_google_only import block_non_google_auth, is_google_only_email  # MKA fork
 from src.security.session_context import (
     AUTH_METHOD_GOOGLE,
     AUTH_METHOD_PASSWORD,
@@ -504,6 +505,8 @@ async def login(
             },
         )
 
+    block_non_google_auth(username)  # MKA fork: Google-only domains cannot use passwords
+
     # Step 2: Authenticate. authenticate_user does its own user lookup and
     # runs a dummy Argon2 verify on the unknown-user path, so the two failure
     # modes take the same wall-clock time. Anything that only runs for known
@@ -935,6 +938,8 @@ async def magic_link_request(
         )
 
     generic = {"detail": "If an account exists for that email, a login link has been sent."}
+    if is_google_only_email(str(body.email)):  # MKA fork
+        return generic
 
     org = await resolve_org(body.org_slug, db_session)
     # If the request is scoped to an org that does not offer magic-link login,
