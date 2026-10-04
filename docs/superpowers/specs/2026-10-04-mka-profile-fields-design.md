@@ -1,6 +1,6 @@
 # MKA Profile Fields (Majlis / Region) — Sub-project 1: Capture & Store
 
-Status: DRAFT for user review. Date: 2026-10-04. Branch context: `dev`.
+Status: IMPLEMENTED on branch `worktree-mka-profile-fields` (spec synced to what shipped; see §11 for limitations). Date: 2026-10-04. Branch context: `dev`.
 Sub-project 2 (reporting: CSV, admin filters, analytics breakdowns) is a separate spec built on this one.
 
 ## 1. Goal (JTBD)
@@ -41,6 +41,7 @@ model/table is modified (the `User` model is among the likeliest files to confli
 - Unique index on `amc_id` WHERE `amc_id IS NOT NULL` (partial; Postgres). Tests run SQLite, where
   NULLs are already distinct under a plain unique index, so the model declares a plain unique
   index and the Postgres migration makes it partial.
+- Write order: validation (incl. the AMC pre-check) runs BEFORE the user row is created; the profile row is written right AFTER the user commit (the real `create_user` commits the user and the org link separately, so it is not one transaction). See §7.
 - A user with no row = "profile incomplete" (this is what triggers the gate). Rows are only
   written complete (majlis + region always present).
 
@@ -79,16 +80,27 @@ PII: mobile and AMC ID are PII. Returned only to the owner and org admins; never
    → resolve conflicts preferring upstream, re-apply hooks from the log → `alembic heads` → run the
    fork tests.
 
-### Upstream files that will receive hooks (complete list)
+### Upstream files that received hooks (complete list, as shipped)
 | File | Hook |
 |---|---|
-| `apps/api/src/services/users/users.py` | in `create_user`, `create_user_with_invite`, `create_user_without_org`: one call to `mka_profile.apply_signup_profile(...)` |
-| `apps/api/src/db/users.py` | `UserCreate`: one optional field `mka_profile: dict \| None = None` (verify the stripping logic at db/users.py:28-36 so it is not leaked into `extra_metadata`) |
-| `apps/api/src/router registry` (file where routers are included; locate via graph) | one `include_router` line for the fork router |
-| `apps/web/app/api/signup/route.ts` | forward `mka_profile` to the API (near existing `custom_fields` forward, line ~109) |
-| `apps/web/app/auth/signup/OpenSignup.tsx`, `InviteOnlySignUp.tsx` | render `<MkaProfileFields/>` + add to Formik values/validation |
-| `apps/web/app/orgs/[orgslug]/layout.tsx` (line ~48) | mount `<MkaProfileGate/>` |
-| `apps/web/app/(hub)/layout.tsx` | mount `<MkaProfileGate/>` (covers org-less pages) |
+| `apps/api/src/services/users/users.py` | only `create_user` and `create_user_without_org` (not `create_user_with_invite`, which calls `create_user`): `validate_signup_profile(...)` before `User.model_validate`, `save_signup_profile(...)` after the user commit/refresh; plus one import |
+| `apps/api/src/db/users.py` | `UserCreate`: one optional field `mka_profile: Optional[dict] = None` |
+| `apps/api/src/router.py` | one import + one `include_router` (prefix `/mka/profile`) for the fork router |
+| `apps/web/app/api/signup/route.ts` | coerces and forwards only four string/null keys (`majlis`, `mobile`, `amc_id`, `tanzeem`); never spreads client input |
+| `apps/web/app/auth/signup/OpenSignup.tsx`, `InviteOnlySignUp.tsx` | Formik value + validation, `<MkaProfileFields/>`, API-shaped body via `mkaValuesToBody`, server errors mapped by the fork helper `applyMkaServerErrors` |
+| `apps/web/app/orgs/[orgslug]/layout.tsx` | mounts `<MkaProfileGate />` immediately before `<CompleteSignupFields />`. This is the ONLY gate mount point: the `app/(hub)/layout.tsx` is SaaS-only org management (404s on oss/ee) and is deliberately not hooked |
+| `apps/e2e/core/client.ts` | `createStudent` sends `mka_profile: { majlis: 'Zion' }` so e2e user creation passes the new required-Majlis rule |
+
+Edited upstream tests: `test_signup_custom_fields_flow.py` and `test_users_service.py` pass `mka_profile={"majlis": "Zion"}` on non-OAuth `UserCreate`. Added upstream-directory file: `apps/web/components/ui/command.tsx` (shadcn, hand-created from `shadcn view command`). Everything is logged with exact diffs in `.codebase-memory/upstream-modifications.md`.
+
+### Upstream sync checklist
+After `git fetch upstream && git merge upstream/main`:
+1. `grep -rn "MKA fork" apps` and confirm every logged hook is still present (counts are listed in the log).
+2. `alembic heads` (apps/api venv): exactly one head (`mka_20261004_user_profile` today). If two, add a fork merge migration chained after upstream's; never edit upstream migrations.
+3. Run `python -m pytest src/tests -q` in `apps/api` (long-running; at minimum the MKA profile tests, `test_signup_custom_fields_flow.py`, `test_users_service.py`), then `bunx tsc --noEmit`, `bun run lint:strict`, `bun test tests` in `apps/web`.
+4. If upstream adds its own `components/ui/command.tsx`: take upstream's, run `bunx shadcn@latest diff command`, re-check `MajlisCombobox.tsx`.
+5. Re-check `apps/web/components/ui/dialog.tsx` (inline `style` block in `DialogContent`): the gate repeats those properties on purpose (§6).
+6. Any new upstream test creating a non-OAuth `UserCreate` needs `mka_profile={"majlis": "Zion"}`.
 
 ## 5. API (fork-only router `apps/api/src/routers/mka_profile.py`)
 
@@ -97,8 +109,11 @@ Prefix `/mka/profile` (NOT `/users/me/...`, to avoid colliding with `PUT /{user_
   needed on the signup page).
 - `GET /mka/profile/me` → the caller's profile or `{complete: false}`. Dependency: `get_authenticated_user`.
 - `PUT /mka/profile/me` → validate, derive Region, upsert; 409 on AMC conflict, 422 on bad input.
-- Admin edit of another user's profile: `PUT /mka/profile/{user_id}` guarded by the existing org-admin
-  permission check pattern (identify the correct dependency via the graph when planning). Region re-derives.
+- Admin edit of another user's profile: `PUT /mka/profile/user/{user_id}?org_id=<org>`.
+  - Allowed: ADMIN-role members of `org_id` (maintainers are NOT allowed); platform superadmins unrestricted.
+  - A nonexistent target, or (for non-superadmins) a target who is not a member of `org_id`, returns 404. Non-admins get 403 BEFORE any target lookup (no existence oracle).
+  - API-token callers get 403 (also excluded at router level by `get_non_api_token_user`).
+  - Full-replace PUT semantics: omitted optional fields are cleared (an admin can clear a squatted AMC ID). Region re-derives; AMC conflict is 409.
 
 Signup (email / invite / org-less): server requires a valid Majlis when `is_oauth` is false;
 missing/invalid → 422 before the user row is created. Google (`is_oauth=True`) skips it; the gate
@@ -131,8 +146,9 @@ New fork-only files in `apps/web/components/mka/`:
   Fallback if `Command` proves awkward: a plain `ui/select` with `SelectGroup` per Region (zero new
   files, keyboard type-ahead only, no touch search).
 - `MkaProfileGate.tsx` — non-dismissible `Dialog`: `onInteractOutside` / `onEscapeKeyDown`
-  `preventDefault`, close X hidden via class on `DialogContent` (`dialog.tsx` renders its own
-  `Cross2Icon`, so confirm the selector at implementation; do NOT edit `dialog.tsx`).
+  `preventDefault`, close X hidden via `[&>button:last-child]:hidden` on `DialogContent` (`dialog.tsx` is not edited).
+  Theming: token classes (`bg-background text-foreground border-border`) passed through `cn`, overriding `dialog.tsx`'s hardcoded white classes.
+  Stacking: `dialog.tsx` sets `zIndex`, `translate`, `willChange`, `backfaceVisibility` as an inline `style` and spreads `{...props}` after it, so the gate's own `style` REPLACES it. The gate therefore sets z-index `calc(var(--z-popover) - 10)` (= 240, above the legacy dialog at `--z-modal` 210 and below popovers at 250 so the Majlis list stays visible) and REPEATS the other three properties. Coupling: re-check `ui/dialog.tsx` after upstream merges (§4 checklist).
   Renders only when session is authenticated and `GET /mka/profile/me` says incomplete. Includes a
   sign-out escape so a user is never trapped. Not rendered on `/auth/*` routes.
 - `services/mka/profile.ts` — thin client for the three endpoints.
@@ -173,7 +189,7 @@ precedence; the legacy dialog may mount after the profile is complete).
 ## 7. Flows
 
 - Email/invite/org-less signup: form (with profile fields) → Next route → API `create_user*`
-  → profile row written in the same DB transaction as the user.
+  → profile validated BEFORE the user row (incl. the AMC pre-check) and written right AFTER the user commit. A rare AMC race (409 after the user commit) is logged without PII and swallowed, the user object is refreshed, and the gate collects the profile on first load.
 - Google signup: `/auth/callback/google` → `signWithGoogle` → user created (no profile) → first
   page load → gate → `PUT /mka/profile/me`.
 - Existing users: no row → gate on next load.
@@ -209,3 +225,14 @@ Decided (user, 2026-10-04):
 Still open:
 - Side table (§2) vs columns on `User`: proceeding with the side table unless the user objects.
 - Minimum/maximum AMC ID length, if one exists. Until told, only the 1–15 digit sanity cap applies.
+
+## 11. Known limitations & residual risks
+- **AMC ID squatting**: IDs are unverified and first-come unique; someone can claim another member's ID. Mitigation: admins can edit/clear any profile (full-replace PUT).
+- **AMC enumeration**: the 409 at public signup reveals whether an AMC ID is registered. Inherent to unique IDs; consider signup rate limiting.
+- **Cross-org edit**: the profile is one global row per user, so an admin of ANY org the target belongs to can edit it. Fine for single-org MKA; hardening option: require admin of every org the target belongs to.
+- **Maintainers cannot edit profiles** (ADMIN role only).
+- **Two dialogs**: the legacy `CompleteSignupFields` and the gate can both open; the gate content sits above (z 240 vs 210).
+- **Docs example**: `docs/content/guides/build-learning-platform/do-it-yourself.mdx:442` (`POST /users/{org.id}`) now needs `mka_profile` on this fork; upstream doc not edited.
+- **Alembic**: single head `mka_20261004_user_profile` today; after upstream merges run `alembic heads` and add a fork merge migration if there are two.
+- **Unverified at runtime** (no browser/Postgres run): dark-mode render of the gate and combobox, popover list above the gate, dialog centering with the overridden `style`, mouse-wheel scroll in the Majlis list, focus handoff gate -> legacy dialog, Postgres partial unique index behavior (tests run SQLite).
+- **Test environment**: the shared API venv lacks `greenlet` (tests ran with a `PYTHONPATH` shim), and the full API suite is long-running; only focused suites were run. Some unrelated tests fail pre-existing (see task-8 report).
