@@ -76,6 +76,11 @@ PII: mobile and AMC ID are PII. Returned only to the owner and org admins; never
    (currently `b1c2d3e4f5a6`; **re-run `alembic heads` in the API venv first** — `alembic` was not
    on PATH in the exploration shell). After each upstream merge run `alembic heads`; if >1, add a
    fork merge migration. Never edit upstream migrations.
+   Nothing runs Alembic automatically here: the API bootstraps missing tables (and the model's
+   `__table_args__` indexes) with `SQLModel.metadata.create_all` at startup. The `mka_` migration is
+   therefore idempotent (inspector guards on table and each index name, which must match the model),
+   so a manual `alembic upgrade head` is safe on such databases
+   (tested in `src/tests/services/test_mka_migration_idempotent.py`).
 6. Sync routine (documented in this spec, run by humans): `git fetch upstream && git merge upstream/main`
    → resolve conflicts preferring upstream, re-apply hooks from the log → `alembic heads` → run the
    fork tests.
