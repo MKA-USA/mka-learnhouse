@@ -15,6 +15,7 @@ from src.security.features_utils.usage import (
 )
 from src.core.deployment_mode import get_deployment_mode
 from src.services.users.usergroups import add_users_to_usergroup
+from src.services.auth.mka_google_only import block_email_change, block_non_google_auth  # MKA fork
 from src.services.users.emails import (
     send_account_creation_email,
 )
@@ -176,6 +177,8 @@ async def create_user(
     is_oauth: bool = False,
     signup_provider: str = "email",
 ):
+    if not is_oauth:  # MKA fork
+        block_non_google_auth(user_object.email)
     # Validate password complexity (skip for OAuth users who have empty passwords)
     if user_object.password and not is_oauth:
         validation_result = validate_password_complexity(user_object.password)
@@ -424,6 +427,8 @@ async def create_user_without_org(
     is_oauth: bool = False,
     signup_provider: str = "email",
 ):
+    if not is_oauth:  # MKA fork
+        block_non_google_auth(user_object.email)
     # Validate password complexity (skip for OAuth users who have empty passwords)
     if user_object.password and not is_oauth:
         validation_result = validate_password_complexity(user_object.password)
@@ -563,6 +568,8 @@ async def update_user(
             status_code=400,
             detail="Email or username is already in use",
         )
+
+    block_email_change(user.email, user_object.email)  # MKA fork
 
     # Update user; strip protected fields to prevent privilege escalation.
     # email_verified is also protected so changing the email cannot leave

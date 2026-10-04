@@ -1,12 +1,20 @@
 import '../styles/globals.css'
 import React from 'react'
 import Providers from '@components/Providers'
-import { Wix_Madefor_Text, Tajawal } from 'next/font/google'
+import { Poppins, Fraunces, Tajawal } from 'next/font/google'
 
-const wixMadeforText = Wix_Madefor_Text({
+const poppins = Poppins({
   subsets: ['latin'],
+  weight: ['400', '500', '600', '700'],
   display: 'swap',
   variable: '--font-default',
+})
+
+const fraunces = Fraunces({
+  subsets: ['latin'],
+  weight: ['300', '400', '500', '600', '700'],
+  display: 'swap',
+  variable: '--font-display',
 })
 
 // Wix Madefor Text has no Arabic subset, so Arabic would otherwise fall back to
@@ -39,7 +47,7 @@ export default function RootLayout({
   // no-JS baseline for crawlers; the script overwrites it for everyone else.
   return (
     <html
-      className={`${wixMadeforText.variable} ${tajawal.variable}`}
+      className={`${poppins.variable} ${fraunces.variable} ${tajawal.variable}`}
       lang="en"
       suppressHydrationWarning
     >
