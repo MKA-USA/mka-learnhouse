@@ -1,189 +1,108 @@
-"""Tests for Jev content moderation (jev/moderation.py)."""
+"""Tests for jev/moderation.py."""
 
-import sys
-from dataclasses import dataclass
-from unittest.mock import MagicMock, patch
+import pytest
 
-from config.config import JevConfig
-
-
-@dataclass
-class _FakeNoulAnswer:
-    noul: float
-
-
-@dataclass
-class _FakeScoreAnswer:
-    score: float
-    confidence: float
+from src.services.ai.jev.moderation import integrity_level, moderate_content
+from src.tests.services.test_jev_support import (
+    FakeClient,
+    cfg,
+    jev_env,
+    noul,
+    response,
+    score,
+)
 
 
-@dataclass
-class _FakeResponse:
-    answers: dict
+def _resp(pii=0.1, tox=0.1, spam=0.1, integrity=None):
+    ans = {"pii": noul(pii), "toxicity": noul(tox), "spam": noul(spam)}
+    if integrity is not None:
+        ans["academic_integrity"] = integrity
+    return response(ans)
 
 
-class TestModerateContent:
-    async def test_returns_none_when_disabled(self):
-        from src.services.ai.jev.moderation import moderate_content
+class TestModerate:
+    async def test_allow_clean(self):
+        fake = FakeClient(_resp())
+        with jev_env(client=fake):
+            r = await moderate_content("hello", kind="forum_post")
+        assert r.action == "allow" and r.reasons == [] and r.academic_integrity is None
+        assert "academic_integrity" not in fake.system_one.call_args.kwargs["questions"]
 
-        with patch("src.services.ai.jev.moderation.get_learnhouse_config") as mock_cfg:
-            mock_cfg.return_value.jev_config = None
-            result = await moderate_content("Some content")
-            assert result is None
+    @pytest.mark.parametrize("field,kw", [("pii", "pii"), ("toxicity", "tox"), ("spam", "spam")])
+    async def test_flag(self, field, kw):
+        fake = FakeClient(_resp(**{kw: 0.9}))
+        with jev_env(client=fake):
+            r = await moderate_content("x")
+        assert r.action == "flag" and getattr(r, field) == 0.9
 
-    async def test_passes_clean_content(self):
-        from src.services.ai.jev.moderation import moderate_content
+    async def test_never_blocks(self):
+        fake = FakeClient(_resp(pii=1, tox=1, spam=1, integrity=score(2, 3)))
+        with jev_env(client=fake):
+            r = await moderate_content("x", kind="assignment_submission")
+        assert r.action in {"allow", "flag"} and r.action == "flag"
 
-        jev = JevConfig(enabled=True, api_key="k")
+    @pytest.mark.parametrize("raw,level,action", [
+        (0.66, "low", "allow"),      # norm 0.33
+        (0.68, "medium", "allow"),   # norm 0.34
+        (1.32, "medium", "allow"),   # norm 0.66
+        (1.34, "high", "flag"),      # norm 0.67
+        (0.0, "low", "allow"),
+        (2.0, "high", "flag"),
+    ])
+    async def test_integrity_boundaries(self, raw, level, action):
+        fake = FakeClient(_resp(integrity=score(raw, 3)))
+        with jev_env(client=fake):
+            r = await moderate_content("essay", kind="assignment_submission")
+        assert r.integrity_level == level and r.action == action
 
-        fake_answers = {
-            "has_pii": _FakeNoulAnswer(noul=0.05),
-            "is_toxic": _FakeNoulAnswer(noul=0.02),
-            "is_spam": _FakeNoulAnswer(noul=0.01),
-        }
-        fake_response = _FakeResponse(answers=fake_answers)
+    def test_integrity_level_exact_thresholds(self):
+        assert integrity_level(0.33) == "low"
+        assert integrity_level(0.34) == "medium"
+        assert integrity_level(0.66) == "medium"
+        assert integrity_level(0.67) == "high"
+        assert integrity_level(None) == "low"
 
-        mock_client = MagicMock()
-        mock_client.system_one.return_value = fake_response
+    async def test_missing_answers_none(self):
+        fake = FakeClient(response({"pii": noul(0.1)}))
+        with jev_env(client=fake):
+            assert await moderate_content("x") is None
 
-        mock_ts_module = MagicMock()
-        mock_ts_module.Noul = MagicMock
-        mock_ts_module.Score = MagicMock
-        mock_ts_module.TypeSafeClient = MagicMock
+    async def test_missing_integrity_for_assignment_none(self):
+        fake = FakeClient(_resp())
+        with jev_env(client=fake):
+            assert await moderate_content("x", kind="assignment_submission") is None
 
-        with (
-            patch("src.services.ai.jev.moderation.get_learnhouse_config") as mock_cfg,
-            patch("src.services.ai.jev.moderation._build_client", return_value=mock_client),
-            patch.dict(sys.modules, {"typesafe_sdk": mock_ts_module}),
-        ):
-            mock_cfg.return_value.jev_config = jev
-            result = await moderate_content("This is a clean educational post about Python.")
+    async def test_disabled_none(self):
+        fake = FakeClient(_resp())
+        with jev_env(cfg(enabled=False), fake):
+            assert await moderate_content("x") is None
+        fake.system_one.assert_not_called()
 
-        assert result is not None
-        assert result["passed"] is True
-        assert result["has_pii"] is False
-        assert result["is_toxic"] is False
-        assert result["is_spam"] is False
+    async def test_org_not_allowed_none(self):
+        fake = FakeClient(_resp())
+        with jev_env(cfg(allowed_org_ids=[1]), fake):
+            assert await moderate_content("x", org_id=2) is None
+            assert await moderate_content("x", org_id=1) is not None
 
-    async def test_flags_pii(self):
-        from src.services.ai.jev.moderation import moderate_content
+    async def test_exception_none(self):
+        fake = FakeClient(side_effect=RuntimeError("x"))
+        with jev_env(client=fake):
+            assert await moderate_content("x") is None
 
-        jev = JevConfig(enabled=True, api_key="k")
+    async def test_timeout_none(self):
+        import asyncio
 
-        fake_answers = {
-            "has_pii": _FakeNoulAnswer(noul=0.95),
-            "is_toxic": _FakeNoulAnswer(noul=0.02),
-            "is_spam": _FakeNoulAnswer(noul=0.01),
-        }
-        fake_response = _FakeResponse(answers=fake_answers)
+        async def slow(**_):
+            await asyncio.sleep(5)
 
-        mock_client = MagicMock()
-        mock_client.system_one.return_value = fake_response
+        fake = FakeClient()
+        fake.system_one.side_effect = slow
+        with jev_env(cfg(timeout=0.05), fake):
+            assert await moderate_content("x") is None
 
-        mock_ts_module = MagicMock()
-        mock_ts_module.Noul = MagicMock
-        mock_ts_module.Score = MagicMock
-        mock_ts_module.TypeSafeClient = MagicMock
-
-        with (
-            patch("src.services.ai.jev.moderation.get_learnhouse_config") as mock_cfg,
-            patch("src.services.ai.jev.moderation._build_client", return_value=mock_client),
-            patch.dict(sys.modules, {"typesafe_sdk": mock_ts_module}),
-        ):
-            mock_cfg.return_value.jev_config = jev
-            result = await moderate_content("Contact me at john@example.com or 555-1234")
-
-        assert result is not None
-        assert result["passed"] is False
-        assert result["has_pii"] is True
-        assert "personally identifiable information" in result["reasons"][0]
-
-    async def test_flags_toxic_content(self):
-        from src.services.ai.jev.moderation import moderate_content
-
-        jev = JevConfig(enabled=True, api_key="k")
-
-        fake_answers = {
-            "has_pii": _FakeNoulAnswer(noul=0.05),
-            "is_toxic": _FakeNoulAnswer(noul=0.9),
-            "is_spam": _FakeNoulAnswer(noul=0.01),
-        }
-        fake_response = _FakeResponse(answers=fake_answers)
-
-        mock_client = MagicMock()
-        mock_client.system_one.return_value = fake_response
-
-        mock_ts_module = MagicMock()
-        mock_ts_module.Noul = MagicMock
-        mock_ts_module.Score = MagicMock
-        mock_ts_module.TypeSafeClient = MagicMock
-
-        with (
-            patch("src.services.ai.jev.moderation.get_learnhouse_config") as mock_cfg,
-            patch("src.services.ai.jev.moderation._build_client", return_value=mock_client),
-            patch.dict(sys.modules, {"typesafe_sdk": mock_ts_module}),
-        ):
-            mock_cfg.return_value.jev_config = jev
-            result = await moderate_content("Some toxic content here")
-
-        assert result is not None
-        assert result["passed"] is False
-        assert result["is_toxic"] is True
-
-    async def test_checks_academic_integrity_for_assignments(self):
-        from src.services.ai.jev.moderation import moderate_content
-
-        jev = JevConfig(enabled=True, api_key="k")
-
-        fake_answers = {
-            "has_pii": _FakeNoulAnswer(noul=0.05),
-            "is_toxic": _FakeNoulAnswer(noul=0.02),
-            "is_spam": _FakeNoulAnswer(noul=0.01),
-            "academic_integrity": _FakeScoreAnswer(score=0.85, confidence=0.7),
-        }
-        fake_response = _FakeResponse(answers=fake_answers)
-
-        mock_client = MagicMock()
-        mock_client.system_one.return_value = fake_response
-
-        mock_ts_module = MagicMock()
-        mock_ts_module.Noul = MagicMock
-        mock_ts_module.Score = MagicMock
-        mock_ts_module.TypeSafeClient = MagicMock
-
-        with (
-            patch("src.services.ai.jev.moderation.get_learnhouse_config") as mock_cfg,
-            patch("src.services.ai.jev.moderation._build_client", return_value=mock_client),
-            patch.dict(sys.modules, {"typesafe_sdk": mock_ts_module}),
-        ):
-            mock_cfg.return_value.jev_config = jev
-            result = await moderate_content(
-                "This assignment is about machine learning...",
-                context="assignment_submission",
-            )
-
-        assert result is not None
-        assert result["passed"] is False
-        assert result["academic_integrity"] == "high"
-        assert "academic integrity" in result["reasons"][0]
-
-    async def test_returns_none_on_timeout(self):
-        from src.services.ai.jev.moderation import moderate_content
-
-        jev = JevConfig(enabled=True, api_key="k")
-
-        def _slow_call():
-            import time
-            time.sleep(5)
-
-        mock_client = MagicMock()
-        mock_client.system_one.side_effect = _slow_call
-
-        with (
-            patch("src.services.ai.jev.moderation.get_learnhouse_config") as mock_cfg,
-            patch("src.services.ai.jev.moderation._build_client", return_value=mock_client),
-        ):
-            mock_cfg.return_value.jev_config = jev
-            result = await moderate_content("test", timeout_seconds=0.05)
-            assert result is None
+    async def test_content_truncated_and_empty_skipped(self):
+        fake = FakeClient(_resp())
+        with jev_env(client=fake):
+            await moderate_content("a" * 9000)
+            assert len(fake.system_one.call_args.kwargs["state"]["content"]) == 3000
+            assert await moderate_content("   ") is None

@@ -116,21 +116,19 @@ async def generate_quiz(
         output_type=GeneratedQuiz,
     )
 
-    # Jev quiz quality validation: check each question before returning
-    from src.services.ai.jev.quality import validate_quiz_question
-    for q in generated.questions:
-        answers_list = [{"answer": a.answer, "correct": a.correct} for a in q.answers]
-        validation = await validate_quiz_question(
-            q.question,
-            answers_list,
-            course_content=context,
-        )
-        if validation is not None and not validation["passed"]:
-            logger.warning(
-                "Quiz question failed validation: %s (issues: %s)",
-                q.question[:100],
-                validation["issues"],
-            )
+    # Optional Jev quiz validation (log-only, opt-in, never fails generation)
+    from src.services.ai.jev_integration import validate_generated_quiz
+    await validate_generated_quiz(
+        [
+            {
+                "question": q.question,
+                "answers": [{"answer": a.answer, "correct": a.correct} for a in q.answers],
+            }
+            for q in generated.questions
+        ],
+        org_id=org_id,
+        course_content=context,
+    )
 
     block_quiz = _to_block_quiz(generated)
 

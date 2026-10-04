@@ -98,6 +98,52 @@ optional: the feature stays disabled or uses a runtime fallback when the variabl
 | `LEARNHOUSE_AI_EMBEDDING_MODEL` | Optional embedding model override. | model id | provider default, such as `gemini-embedding-001`, `text-embedding-3-small`, or `nomic-embed-text` | API |
 | `LEARNHOUSE_AI_EMBEDDING_DIMENSIONS` | Embedding vector size. Changing this requires a matching database migration and re-index. | integer | `768` | API |
 
+### Jev (TypeSafe / Cloudflare Clef) AI add-ons
+
+Optional, off by default. Jev is a hosted decision model from TypeSafe used for retrieval reranking, opt-in intent routing for general-knowledge questions, post-response guardrail audits, and quiz validation. Everything is opt-in per organization: with an empty `LEARNHOUSE_JEV_ALLOWED_ORG_IDS`, Jev is disabled for every organization. YAML equivalents live under a `jev_config:` block (`enabled`, `api_key`, `timeout`, `allowed_org_ids`, `quiz_validation_enabled`, `guardrails_enabled`, `intent_routing_enabled`, `provider`, `model`, `cloudflare_account_id`, and a `models:` map with keys `rerank`, `guardrails`, `moderation`, `intent`, `quiz`); env vars take precedence. Invalid numeric or list values are ignored with a warning and the default is used.
+
+| Variable | Description | Type | Default / required | Used by |
+| --- | --- | --- | --- | --- |
+| `LEARNHOUSE_JEV_ENABLED` | Master switch for Jev. Also requires an API key. | boolean | `false` | API |
+| `LEARNHOUSE_JEV_API_KEY` | The single secret: a TypeSafe API key (`typesafe` provider) or a Cloudflare API token (`cloudflare` provider). | secret string | unset; required when enabled | API |
+| `LEARNHOUSE_JEV_PROVIDER` | Backend for the AI judgments: `typesafe` (TypeSafe Jev) or `cloudflare` (Cloudflare Workers AI Clef). An invalid value logs a warning and uses `typesafe`. | string | `typesafe` | API |
+| `LEARNHOUSE_JEV_MODEL` | Model for every capability. `typesafe`: unset uses the SDK default. `cloudflare`: `clef-flash` (9B, faster, about 1.3s) or `clef` (27B, about 1.9s). | string | unset (`clef-flash` on Cloudflare) | API |
+| `LEARNHOUSE_JEV_CLOUDFLARE_ACCOUNT_ID` | Cloudflare account ID that runs Workers AI. Required for the `cloudflare` provider; if it or the API token is missing, Jev is disabled with a warning. | string | unset | API |
+| `LEARNHOUSE_JEV_MODEL_RERANK`, `_GUARDRAILS`, `_MODERATION`, `_INTENT`, `_QUIZ` | Optional per-capability model override (full variable name, for example `LEARNHOUSE_JEV_MODEL_RERANK`). Precedence: override, then `LEARNHOUSE_JEV_MODEL`, then the provider default. | string | unset | API |
+| `LEARNHOUSE_JEV_TIMEOUT` | Per-call timeout in seconds. On timeout the feature falls back to its normal behavior. | float | `3.0` | API |
+| `LEARNHOUSE_JEV_ALLOWED_ORG_IDS` | Comma-separated organization IDs allowed to use Jev. | list of integers | empty (disabled for everyone) | API |
+| `LEARNHOUSE_JEV_QUIZ_VALIDATION` | Log-only validation of AI-generated quizzes. | boolean | `false` | API |
+| `LEARNHOUSE_JEV_GUARDRAILS` | Background audit of AI chat responses (log-only, never blocks or alters a response). | boolean | `true` when Jev is enabled | API |
+| `LEARNHOUSE_JEV_INTENT_ROUTING` | Opt-in. When a chat request carries no explicit `mode` and Jev is confident the question is general knowledge, switch the chat to `general` mode. Retrieval still runs; only the course-only grounding is loosened so the model may answer from its own knowledge. An explicit `mode` (including `course_only`) is never overridden. | boolean | `false` | API |
+
+**Providers.** With `typesafe` (default) requests go to TypeSafe-hosted Jev (about 0.5s). With `cloudflare`, requests go to Cloudflare Workers AI (`POST https://api.cloudflare.com/client/v4/accounts/<account_id>/ai/run/@cf/cloudflare/<model>`) and are processed on Cloudflare infrastructure instead; no data goes to TypeSafe. Clef has a 65,536-token context, accepts 1 to 64 questions per request, and the API truncates state sent to it. Both providers feed the same code paths, so behavior and fail-open semantics are identical. Only text is sent; images are not used yet.
+
+**Cloudflare production setup.** Create a dedicated Cloudflare API token scoped to Workers AI only (Read and Edit) for your Cloudflare account, not an account-wide or OAuth token. Supply it through an environment variable or your secret manager, never in a committed YAML file. If your deployment tool or orchestrator generates the container environment from a compose file that lists variables explicitly, each new variable must be passed through the API service, for example:
+
+```yaml
+- 'LEARNHOUSE_JEV_PROVIDER=${LEARNHOUSE_JEV_PROVIDER:-}'
+- 'LEARNHOUSE_JEV_MODEL=${LEARNHOUSE_JEV_MODEL:-}'
+- 'LEARNHOUSE_JEV_CLOUDFLARE_ACCOUNT_ID=${LEARNHOUSE_JEV_CLOUDFLARE_ACCOUNT_ID:-}'
+- 'LEARNHOUSE_JEV_MODEL_RERANK=${LEARNHOUSE_JEV_MODEL_RERANK:-}'
+- 'LEARNHOUSE_JEV_MODEL_GUARDRAILS=${LEARNHOUSE_JEV_MODEL_GUARDRAILS:-}'
+- 'LEARNHOUSE_JEV_MODEL_MODERATION=${LEARNHOUSE_JEV_MODEL_MODERATION:-}'
+- 'LEARNHOUSE_JEV_MODEL_INTENT=${LEARNHOUSE_JEV_MODEL_INTENT:-}'
+- 'LEARNHOUSE_JEV_MODEL_QUIZ=${LEARNHOUSE_JEV_MODEL_QUIZ:-}'
+```
+
+**Data flow and privacy.** For allowed organizations only, the API sends the following to the configured provider (TypeSafe or Cloudflare Workers AI): a truncated copy of the student's question (and a few recent chat turns for intent routing), a truncated excerpt of the AI response plus course context for guardrail audits, retrieved course chunks (truncated) for reranking, and generated quiz questions with course context for quiz validation. Learnhouse never logs this content or the API key; logs contain only error types, counts, and timings. Every Jev call fails open: on error or timeout the request proceeds exactly as it would with Jev disabled.
+
+#### AI content moderation (advisory)
+
+Off by default, and separate from the allow-list above: it needs `LEARNHOUSE_JEV_ENABLED` plus an API key on the platform, and then an organization administrator turns it on under the AI settings of the organization dashboard (`PUT /api/v1/orgs/{org_id}/config/ai-moderation`, stored in the organization config, no migration). `LEARNHOUSE_JEV_ALLOWED_ORG_IDS` is not consulted for moderation.
+
+- **Surfaces.** Discussion posts and comments (on create and edit), assignment submissions (once, when the learner submits; autosaved drafts are never scanned), and profile name and bio. An administrator can limit the surfaces.
+- **What happens.** After the content is saved, a background task scores it for personal information, toxicity, spam and, for assignment submissions only, a possible academic-integrity concern. When something looks off, a flag is recorded for staff (organization admins, maintainers and community moderators) in a review queue under the dashboard. The author never sees flags.
+- **What it never does.** It does not block or delay a post, hide content, show anything to students, or change a grade. Flags are review aids, not verdicts.
+- **Data sent to the provider.** Text only, truncated to the first 3,000 characters, with a short kind label. No files, images, usernames or email addresses are sent (profile checks send the first name, last name and bio text). Text shorter than 20 characters is skipped, and each item is scored at most once per minute.
+- **Data stored.** A flag stores ids, the scores, generic reasons and a truncated hash of the scored text, never the text itself. Logs contain content type, kind and scores only.
+- **Failure behavior.** Any provider error or timeout means no flag is recorded and nothing else changes.
+
 ## Email
 
 | Variable | Description | Type | Default / required | Used by |

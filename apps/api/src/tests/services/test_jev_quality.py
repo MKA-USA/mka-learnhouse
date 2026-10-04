@@ -1,204 +1,140 @@
-"""Tests for Jev quiz quality validation (jev/quality.py)."""
+"""Tests for jev/quality.py (batched quiz validation)."""
 
-import sys
-from dataclasses import dataclass
-from unittest.mock import MagicMock, patch
+from src.services.ai.jev.quality import validate_quiz_questions
+from src.tests.services.test_jev_support import (
+    FakeClient,
+    cfg,
+    choice,
+    jev_env,
+    noul,
+    response,
+)
 
-from config.config import JevConfig
-
-
-@dataclass
-class _FakeNoulAnswer:
-    noul: float
-
-
-@dataclass
-class _FakeChoiceAnswer:
-    choice: str
-    confidence: float
+LABELS = ["poor", "fair", "good"]
 
 
-@dataclass
-class _FakeResponse:
-    answers: dict
+def _q(text="What is 2+2?"):
+    return {"question": text, "answers": [
+        {"answer": "4", "correct": True}, {"answer": "5", "correct": False}]}
 
 
-class TestValidateQuizQuestion:
-    async def test_returns_none_when_disabled(self):
-        from src.services.ai.jev.quality import validate_quiz_question
+def _answers(i, clear=0.9, key=0.9, dist="good", aligned=0.9):
+    return {
+        f"q{i}_clear": noul(clear),
+        f"q{i}_key": noul(key),
+        f"q{i}_distractors": choice(dist, 0.8, LABELS),
+        f"q{i}_aligned": noul(aligned),
+    }
 
-        with patch("src.services.ai.jev.quality.get_learnhouse_config") as mock_cfg:
-            mock_cfg.return_value.jev_config = None
-            result = await validate_quiz_question("What is 2+2?", [{"answer": "4", "correct": True}])
-            assert result is None
 
-    async def test_passes_good_question(self):
-        from src.services.ai.jev.quality import validate_quiz_question
+class TestValidate:
+    async def test_single_batched_call_for_all_questions(self):
+        ans = {**_answers(0), **_answers(1, key=0.1), **_answers(2, dist="poor")}
+        fake = FakeClient(response(ans))
+        with jev_env(client=fake):
+            out = await validate_quiz_questions([_q(), _q(), _q()], course_content="content")
+        assert fake.system_one.call_count == 1
+        qs = fake.system_one.call_args.kwargs["questions"]
+        assert set(qs) == {f"q{i}_{c}" for i in range(3) for c in ("clear", "key", "distractors", "aligned")}
+        assert [r["passed"] for r in out] == [True, False, False]
+        assert "Answer key appears incorrect" in out[1]["issues"]
+        assert out[2]["distractor_quality"] == "poor"
 
-        jev = JevConfig(enabled=True, api_key="k")
+    async def test_poor_distractors_fail_passed(self):
+        fake = FakeClient(response(_answers(0, dist="poor")))
+        with jev_env(client=fake):
+            out = await validate_quiz_questions([_q()])
+        assert out[0]["passed"] is False
 
-        fake_answers = {
-            "question_clear": _FakeNoulAnswer(noul=0.95),
-            "answer_key_correct": _FakeNoulAnswer(noul=0.9),
-            "distractor_quality": _FakeChoiceAnswer(choice="good", confidence=0.8),
-            "content_aligned": _FakeNoulAnswer(noul=0.85),
-        }
-        fake_response = _FakeResponse(answers=fake_answers)
+    async def test_missing_answer_gives_none_entry(self):
+        ans = {**_answers(0), **{k: v for k, v in _answers(1).items() if not k.endswith("key")}}
+        fake = FakeClient(response(ans))
+        with jev_env(client=fake):
+            out = await validate_quiz_questions([_q(), _q()])
+        assert out[0] is not None and out[1] is None
 
-        mock_client = MagicMock()
-        mock_client.system_one.return_value = fake_response
+    async def test_noul_boundary(self):
+        fake = FakeClient(response(_answers(0, clear=0.5)))
+        with jev_env(client=fake):
+            out = await validate_quiz_questions([_q()])
+        assert out[0]["question_clear"] is False  # strictly > 0.5
 
-        mock_ts_module = MagicMock()
-        mock_ts_module.Noul = MagicMock
-        mock_ts_module.Score = MagicMock
-        mock_ts_module.Choice = MagicMock
-        mock_ts_module.TypeSafeClient = MagicMock
+    async def test_failure_returns_none(self):
+        fake = FakeClient(side_effect=RuntimeError("x"))
+        with jev_env(client=fake):
+            assert await validate_quiz_questions([_q()]) is None
 
-        with (
-            patch("src.services.ai.jev.quality.get_learnhouse_config") as mock_cfg,
-            patch("src.services.ai.jev.quality._build_client", return_value=mock_client),
-            patch.dict(sys.modules, {"typesafe_sdk": mock_ts_module}),
-        ):
-            mock_cfg.return_value.jev_config = jev
-            result = await validate_quiz_question(
-                "What is the capital of France?",
-                [{"answer": "Paris", "correct": True}, {"answer": "London", "correct": False}],
-            )
+    async def test_disabled_returns_none(self):
+        fake = FakeClient(response(_answers(0)))
+        with jev_env(cfg(enabled=False), fake):
+            assert await validate_quiz_questions([_q()]) is None
+        fake.system_one.assert_not_called()
 
-        assert result is not None
-        assert result["passed"] is True
-        assert result["question_clear"] is True
-        assert result["answer_key_correct"] is True
-        assert result["distractor_quality"] == "good"
-        assert len(result["issues"]) == 0
+    async def test_empty_returns_none(self):
+        with jev_env():
+            assert await validate_quiz_questions([]) is None
 
-    async def test_flags_unclear_question(self):
-        from src.services.ai.jev.quality import validate_quiz_question
+    async def test_course_content_truncated(self):
+        fake = FakeClient(response(_answers(0)))
+        with jev_env(client=fake):
+            await validate_quiz_questions([_q()], course_content="c" * 9000)
+        assert len(fake.system_one.call_args.kwargs["state"]["course_content"]) == 3000
 
-        jev = JevConfig(enabled=True, api_key="k")
 
-        fake_answers = {
-            "question_clear": _FakeNoulAnswer(noul=0.2),
-            "answer_key_correct": _FakeNoulAnswer(noul=0.9),
-            "distractor_quality": _FakeChoiceAnswer(choice="fair", confidence=0.7),
-            "content_aligned": _FakeNoulAnswer(noul=0.8),
-        }
-        fake_response = _FakeResponse(answers=fake_answers)
+class TestChunking:
+    @staticmethod
+    def _result_for(state):
+        n = sum(1 for k in state if k.endswith("_question"))
+        ans = {}
+        for i in range(n):
+            ans.update(_answers(i))
+        from src.services.ai.jev.client import JevResult
 
-        mock_client = MagicMock()
-        mock_client.system_one.return_value = fake_response
+        return JevResult(response(ans))
 
-        mock_ts_module = MagicMock()
-        mock_ts_module.Noul = MagicMock
-        mock_ts_module.Score = MagicMock
-        mock_ts_module.Choice = MagicMock
-        mock_ts_module.TypeSafeClient = MagicMock
+    async def _run(self, n, fail_calls=()):
+        from unittest.mock import patch
 
-        with (
-            patch("src.services.ai.jev.quality.get_learnhouse_config") as mock_cfg,
-            patch("src.services.ai.jev.quality._build_client", return_value=mock_client),
-            patch.dict(sys.modules, {"typesafe_sdk": mock_ts_module}),
-        ):
-            mock_cfg.return_value.jev_config = jev
-            result = await validate_quiz_question(
-                "What is it?",
-                [{"answer": "A thing", "correct": True}],
-            )
+        calls = []
 
-        assert result is not None
-        assert result["passed"] is False
-        assert "Question is ambiguous or unclear" in result["issues"]
+        async def fake_run(state, questions, **kw):
+            idx = len(calls)
+            calls.append(len(questions))
+            if idx in fail_calls:
+                return None
+            return self._result_for(state)
 
-    async def test_flags_incorrect_answer_key(self):
-        from src.services.ai.jev.quality import validate_quiz_question
+        with patch("src.services.ai.jev.quality.run_system_one", fake_run):
+            qs = [_q(f"q{i}") for i in range(n)]
+            return await validate_quiz_questions(qs), calls
 
-        jev = JevConfig(enabled=True, api_key="k")
+    async def test_17_questions_two_calls(self):
+        out, calls = await self._run(17)
+        assert sorted(calls) == [4, 64]
+        assert len(out) == 17 and all(r is not None for r in out)
 
-        fake_answers = {
-            "question_clear": _FakeNoulAnswer(noul=0.9),
-            "answer_key_correct": _FakeNoulAnswer(noul=0.1),
-            "distractor_quality": _FakeChoiceAnswer(choice="good", confidence=0.8),
-            "content_aligned": _FakeNoulAnswer(noul=0.8),
-        }
-        fake_response = _FakeResponse(answers=fake_answers)
+    async def test_32_questions_two_calls(self):
+        out, calls = await self._run(32)
+        assert calls == [64, 64]
+        assert len(out) == 32 and all(r["passed"] for r in out)
 
-        mock_client = MagicMock()
-        mock_client.system_one.return_value = fake_response
+    async def test_64_questions_four_calls(self):
+        out, calls = await self._run(64)
+        assert len(calls) == 4 and all(c <= 64 for c in calls)
+        assert len(out) == 64 and all(r is not None for r in out)
 
-        mock_ts_module = MagicMock()
-        mock_ts_module.Noul = MagicMock
-        mock_ts_module.Score = MagicMock
-        mock_ts_module.Choice = MagicMock
-        mock_ts_module.TypeSafeClient = MagicMock
+    async def test_beyond_cap_is_none_aligned(self):
+        out, calls = await self._run(70)
+        assert len(out) == 70 and len(calls) == 4
+        assert all(r is None for r in out[64:]) and all(r is not None for r in out[:64])
 
-        with (
-            patch("src.services.ai.jev.quality.get_learnhouse_config") as mock_cfg,
-            patch("src.services.ai.jev.quality._build_client", return_value=mock_client),
-            patch.dict(sys.modules, {"typesafe_sdk": mock_ts_module}),
-        ):
-            mock_cfg.return_value.jev_config = jev
-            result = await validate_quiz_question(
-                "What is 2+2?",
-                [{"answer": "5", "correct": True}],
-            )
+    async def test_chunk_failure_only_nones_that_chunk(self):
+        # concurrency 2 => call index order follows chunk order for the first two
+        out, calls = await self._run(32, fail_calls=(1,))
+        assert len(out) == 32
+        assert all(r is not None for r in out[:16])
+        assert all(r is None for r in out[16:])
 
-        assert result is not None
-        assert result["passed"] is False
-        assert "Answer key appears incorrect" in result["issues"]
-
-    async def test_flags_poor_distractors(self):
-        from src.services.ai.jev.quality import validate_quiz_question
-
-        jev = JevConfig(enabled=True, api_key="k")
-
-        fake_answers = {
-            "question_clear": _FakeNoulAnswer(noul=0.9),
-            "answer_key_correct": _FakeNoulAnswer(noul=0.9),
-            "distractor_quality": _FakeChoiceAnswer(choice="poor", confidence=0.85),
-            "content_aligned": _FakeNoulAnswer(noul=0.8),
-        }
-        fake_response = _FakeResponse(answers=fake_answers)
-
-        mock_client = MagicMock()
-        mock_client.system_one.return_value = fake_response
-
-        mock_ts_module = MagicMock()
-        mock_ts_module.Noul = MagicMock
-        mock_ts_module.Score = MagicMock
-        mock_ts_module.Choice = MagicMock
-        mock_ts_module.TypeSafeClient = MagicMock
-
-        with (
-            patch("src.services.ai.jev.quality.get_learnhouse_config") as mock_cfg,
-            patch("src.services.ai.jev.quality._build_client", return_value=mock_client),
-            patch.dict(sys.modules, {"typesafe_sdk": mock_ts_module}),
-        ):
-            mock_cfg.return_value.jev_config = jev
-            result = await validate_quiz_question(
-                "What is 2+2?",
-                [{"answer": "4", "correct": True}, {"answer": "Banana", "correct": False}],
-            )
-
-        assert result is not None
-        assert result["passed"] is True  # Still passes, just a warning
-        assert "Distractors are too obviously wrong" in result["issues"]
-
-    async def test_returns_none_on_timeout(self):
-        from src.services.ai.jev.quality import validate_quiz_question
-
-        jev = JevConfig(enabled=True, api_key="k")
-
-        def _slow_call():
-            import time
-            time.sleep(5)
-
-        mock_client = MagicMock()
-        mock_client.system_one.side_effect = _slow_call
-
-        with (
-            patch("src.services.ai.jev.quality.get_learnhouse_config") as mock_cfg,
-            patch("src.services.ai.jev.quality._build_client", return_value=mock_client),
-        ):
-            mock_cfg.return_value.jev_config = jev
-            result = await validate_quiz_question("test", [], timeout_seconds=0.05)
-            assert result is None
+    async def test_all_chunks_fail_returns_none(self):
+        out, _ = await self._run(32, fail_calls=(0, 1))
+        assert out is None

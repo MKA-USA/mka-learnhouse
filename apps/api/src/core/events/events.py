@@ -115,6 +115,12 @@ def shutdown_app(app: FastAPI) -> Callable:
         if _webhook_tasks:  # pragma: no cover
             await asyncio.gather(*list(_webhook_tasks), return_exceptions=True)
         await close_webhook_client()
+        # Jev: drain fire-and-forget audits, then close the shared SDK client.
+        from src.services.ai import jev_integration
+        from src.services.ai.jev.client import aclose_jev_client
+        if jev_integration._background_tasks:
+            await asyncio.gather(*list(jev_integration._background_tasks), return_exceptions=True)
+        await aclose_jev_client()
         # Stop the daily nudge tick.
         from src.services.nudges.scheduler import stop_scheduler
         await stop_scheduler()

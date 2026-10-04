@@ -1,116 +1,159 @@
-"""Jev-powered quiz quality validation.
+"""Jev-powered quiz quality validation (advisory).
 
-Validates AI-generated quiz questions for correctness, clarity, and quality
-before returning them to the user.  Checks answer keys, question clarity,
-and distractor plausibility.
+Validates AI-generated quiz questions for clarity, answer-key correctness,
+distractor plausibility, and content alignment.  Questions are validated in
+batched Jev requests of up to ``CHUNK_SIZE`` questions (question ids
+``q{i}_{criterion}``, ``i`` local to the chunk); a quiz of <= CHUNK_SIZE
+questions is a single request.
 
-Degrades gracefully: returns None (pass) when Jev is unavailable so the
-caller proceeds without validation.
+Fail-open: returns ``None`` when Jev is unavailable so the caller proceeds
+without validation.  Callers must gate on ``jev_enabled(org_id)`` and the
+``quiz_validation_enabled`` config flag.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Optional
 
-from config.config import get_learnhouse_config
+from src.services.ai.jev.client import run_system_one
 
 logger = logging.getLogger(__name__)
 
+# Each question sends 4 judgments and the client rejects >64 judgments per
+# request (client.MAX_QUESTIONS), so 16 questions per call is the ceiling.
+CHUNK_SIZE = 16
+MAX_QUESTIONS = 64  # hard cap on total questions validated (4 chunks)
+CHUNK_CONCURRENCY = 2
+COURSE_CONTENT_MAX_CHARS = 3000
+YES_THRESHOLD = 0.5
 
-def _build_client():
-    """Import and construct the TypeSafe client.  Returns None on import error."""
-    try:
-        from typesafe_sdk import TypeSafeClient
-        return TypeSafeClient()
-    except ImportError:
-        return None
-    except Exception:
-        logger.exception("Failed to initialise TypeSafe client for quiz validation")
-        return None
+_CRITERIA = ("clear", "key", "distractors", "aligned")
 
 
-async def validate_quiz_question(
-    question_text: str,
-    answers: list[dict],  # [{"answer": str, "correct": bool}, ...]
+def _question_text(q: dict) -> str:
+    return str(q.get("question") or q.get("question_text") or q.get("text") or "")
+
+
+async def validate_quiz_questions(
+    questions: list[dict],  # [{"question": str, "answers": [{"answer": str, "correct": bool}, ...]}, ...]
     *,
     course_content: str = "",
-    timeout_seconds: float = 3.0,
-) -> Optional[dict]:
-    """Validate a single quiz question for quality.
+    timeout: float | None = None,
+) -> list[dict | None] | None:
+    """Validate questions in chunked Jev calls (one call when <= CHUNK_SIZE).
 
-    Returns a dict with validation results or ``None`` if Jev is unavailable:
-    {
-        "passed": bool,
-        "question_clear": bool,
-        "answer_key_correct": bool,
-        "distractor_quality": str,  # "poor" | "fair" | "good"
-        "issues": list[str],
-    }
+    Returns ``None`` if Jev is unavailable/failed, otherwise a list aligned
+    with *questions*.  Each entry is a dict (or ``None`` when Jev omitted any
+    of that question's answers, or the question was beyond ``MAX_QUESTIONS``, or its chunk failed)::
+
+        {
+            "passed": bool,  # clear AND key correct AND aligned AND distractors != "poor"
+            "question_clear": bool,
+            "answer_key_correct": bool,
+            "distractor_quality": str,  # "poor" | "fair" | "good"
+            "content_aligned": bool,
+            "issues": list[str],
+        }
     """
-    jev_cfg = get_learnhouse_config().jev_config
-    if jev_cfg is None or not jev_cfg.enabled:
-        return None
-
-    client = _build_client()
-    if client is None:
+    if not questions:
         return None
 
     try:
-        from typesafe_sdk import Noul, Score, Choice
-    except ImportError:
+        import typesafe_sdk  # noqa: F401
+    except Exception:  # noqa: BLE001 - SDK missing/broken: fail open
         return None
 
-    # Format answers for the prompt
-    correct_answers = [a["answer"] for a in answers if a.get("correct")]
-    incorrect_answers = [a["answer"] for a in answers if not a.get("correct")]
+    batch = questions[:MAX_QUESTIONS]
+    chunks = [batch[i : i + CHUNK_SIZE] for i in range(0, len(batch), CHUNK_SIZE)]
+    sem = asyncio.Semaphore(CHUNK_CONCURRENCY)
 
-    state = {
-        "quiz_question": question_text,
-        "correct_answers": ", ".join(correct_answers) if correct_answers else "none marked",
-        "incorrect_answers": ", ".join(incorrect_answers) if incorrect_answers else "none",
-    }
-    if course_content:
-        state["course_content"] = course_content[:3000]
+    async def _one(chunk: list[dict]) -> list[dict | None] | None:
+        async with sem:
+            try:
+                return await _validate_chunk(chunk, course_content, timeout)
+            except Exception:  # noqa: BLE001 - fail open per chunk
+                return None
 
-    questions = {
-        "question_clear": Noul(
-            instructions="Is `quiz_question` unambiguous and clearly worded? "
-                        "Could a student understand what is being asked without confusion?",
-        ),
-        "answer_key_correct": Noul(
-            instructions="Are the answers marked as correct (`correct_answers`) actually correct "
-                        + ("given `course_content`?" if course_content else "based on general knowledge?"),
-        ),
-        "distractor_quality": Choice(
-            instructions="How plausible are the incorrect answers (`incorrect_answers`) as distractors?",
+    results = await asyncio.gather(*(_one(c) for c in chunks))
+    if len(chunks) == 1:
+        # Single call: preserve the "None when Jev failed" contract.
+        return results[0]
+    if all(r is None for r in results):
+        return None
+    out: list[dict | None] = []
+    for chunk, res in zip(chunks, results):
+        out.extend(res if res is not None else [None] * len(chunk))
+    out.extend([None] * (len(questions) - len(batch)))
+    return out
+
+
+async def _validate_chunk(
+    batch: list[dict], course_content: str, timeout: float | None
+) -> list[dict | None] | None:
+    from typesafe_sdk import Choice, Noul
+
+    has_content = bool(course_content)
+
+    state: dict = {}
+    if has_content:
+        state["course_content"] = course_content[:COURSE_CONTENT_MAX_CHARS]
+
+    qs: dict = {}
+    for i, q in enumerate(batch):
+        answers = q.get("answers") or []
+        correct = [str(a.get("answer", "")) for a in answers if a.get("correct")]
+        incorrect = [str(a.get("answer", "")) for a in answers if not a.get("correct")]
+        state[f"q{i}_question"] = _question_text(q)
+        state[f"q{i}_correct_answers"] = ", ".join(correct) if correct else "none marked"
+        state[f"q{i}_incorrect_answers"] = ", ".join(incorrect) if incorrect else "none"
+
+        qs[f"q{i}_clear"] = Noul(
+            instructions=f"Is `q{i}_question` unambiguous and clearly worded? "
+            "Could a student understand what is being asked without confusion?",
+        )
+        qs[f"q{i}_key"] = Noul(
+            instructions=f"Are the answers marked as correct (`q{i}_correct_answers`) for `q{i}_question` "
+            "actually correct "
+            + ("given `course_content`?" if has_content else "based on general knowledge?"),
+        )
+        qs[f"q{i}_distractors"] = Choice(
+            instructions=f"How plausible are the incorrect answers (`q{i}_incorrect_answers`) "
+            f"as distractors for `q{i}_question`?",
             criteria={
-                "poor": "Obviously wrong — no student would pick them",
+                "poor": "Obviously wrong: no student would pick them",
                 "fair": "Somewhat plausible but easily eliminated by careful reading",
                 "good": "Genuinely plausible distractors that test real understanding",
             },
-        ),
-        "content_aligned": Noul(
-            instructions="Is this question actually based on `course_content`?"
-        ) if course_content else Noul(
-            instructions="Is this question factually accurate and appropriate for an educational setting?",
-        ),
-    }
+        )
+        qs[f"q{i}_aligned"] = Noul(
+            instructions=(
+                f"Is `q{i}_question` actually based on `course_content`?"
+                if has_content
+                else f"Is `q{i}_question` factually accurate and appropriate for an educational setting?"
+            ),
+        )
 
-    def _call() -> dict:
-        response = client.system_one(state=state, questions=questions)
-        clear_answer = response.answers.get("question_clear")
-        key_answer = response.answers.get("answer_key_correct")
-        distractor_answer = response.answers.get("distractor_quality")
-        aligned_answer = response.answers.get("content_aligned")
+    result = await run_system_one(state, qs, capability="quiz", timeout=timeout)
+    if result is None:
+        return None
 
-        question_clear = bool(clear_answer.noul > 0.5) if clear_answer else True
-        answer_key_correct = bool(key_answer.noul > 0.5) if key_answer else True
-        distractor_quality = distractor_answer.choice if distractor_answer else "fair"
-        content_aligned = bool(aligned_answer.noul > 0.5) if aligned_answer else True
+    out: list[dict | None] = []
+    for i in range(len(batch)):
+        clear = result.noul(f"q{i}_clear")
+        key = result.noul(f"q{i}_key")
+        distractors = result.choice(f"q{i}_distractors")
+        aligned = result.noul(f"q{i}_aligned")
+        if clear is None or key is None or distractors is None or aligned is None:
+            out.append(None)
+            continue
 
-        issues = []
+        question_clear = clear > YES_THRESHOLD
+        answer_key_correct = key > YES_THRESHOLD
+        content_aligned = aligned > YES_THRESHOLD
+        distractor_quality = distractors[0]
+
+        issues: list[str] = []
         if not question_clear:
             issues.append("Question is ambiguous or unclear")
         if not answer_key_correct:
@@ -118,27 +161,18 @@ async def validate_quiz_question(
         if distractor_quality == "poor":
             issues.append("Distractors are too obviously wrong")
         if not content_aligned:
-            issues.append("Question not aligned with course content")
+            issues.append(
+                "Question not aligned with course content"
+                if has_content
+                else "Question may be inaccurate or inappropriate"
+            )
 
-        return {
-            "passed": question_clear and answer_key_correct and content_aligned,
+        out.append({
+            "passed": question_clear and answer_key_correct and content_aligned and distractor_quality != "poor",
             "question_clear": question_clear,
             "answer_key_correct": answer_key_correct,
             "distractor_quality": distractor_quality,
+            "content_aligned": content_aligned,
             "issues": issues,
-        }
-
-    try:
-        return await asyncio.wait_for(
-            asyncio.to_thread(_call),
-            timeout=timeout_seconds,
-        )
-    except asyncio.TimeoutError:
-        logger.warning(
-            "Jev quiz validation timed out after %.1fs; proceeding without validation",
-            timeout_seconds,
-        )
-        return None
-    except Exception:
-        logger.exception("Jev quiz validation failed; proceeding without validation")
-        return None
+        })
+    return out

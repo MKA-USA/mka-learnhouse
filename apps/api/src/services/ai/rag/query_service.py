@@ -11,7 +11,6 @@ from typing import AsyncGenerator, Optional
 from sqlalchemy import text
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from config.config import get_learnhouse_config
 from src.services.ai.rag.embedding_service import embed_single_text
 from src.services.ai.base import ask_ai_stream
 from src.services.ai.llm import model_for_tier
@@ -21,17 +20,21 @@ logger = logging.getLogger(__name__)
 TOP_K = 5
 
 
-def _resolve_rag_limits(top_k: int) -> tuple[int, int]:
-    """Return (retrieve_k, final_k) honouring Jev config when available.
+# Candidates fetched from vector search when Jev reranking is active.
+JEV_RERANK_CANDIDATES = 10
 
-    When Jev reranking is active we fetch more candidates from vector search
-    than the caller asked for, rerank them, then trim to the original top_k.
-    When Jev is unavailable the two values are identical — no behaviour change.
+
+def _resolve_rag_limits(top_k: int, org_id: Optional[int] = None) -> tuple[int, int]:
+    """Return (retrieve_k, final_k).
+
+    When Jev reranking is active for this org we fetch more candidates from
+    vector search than the caller asked for, rerank them, then trim to the
+    original top_k. Otherwise the two values are identical (no behaviour change).
     """
-    jev_cfg = get_learnhouse_config().jev_config
-    if jev_cfg is not None and jev_cfg.enabled and jev_cfg.rerank_enabled:
-        retrieve_k = max(top_k, jev_cfg.rerank_candidates)
-        return retrieve_k, top_k
+    from src.services.ai.jev.client import jev_enabled
+
+    if jev_enabled(org_id):
+        return max(top_k, JEV_RERANK_CANDIDATES), top_k
     return top_k, top_k
 
 
@@ -56,7 +59,7 @@ async def query_course_rag(
     Returns:
         {context: str, sources: list[dict]}
     """
-    retrieve_k, final_k = _resolve_rag_limits(top_k)
+    retrieve_k, final_k = _resolve_rag_limits(top_k, org_id)
 
     # Embed the question
     query_embedding = await embed_single_text(question)
@@ -144,28 +147,15 @@ async def query_course_rag(
 
 
 async def _jev_rerank(question: str, results: list, final_k: int) -> list:
-    """Rerank vector-search results via Jev.  Returns the original list
-    unchanged (with a warning log) if Jev is unavailable or fails."""
+    """Rerank vector-search results via Jev. Falls back to vector order
+    (trimmed to final_k) if Jev is unavailable or fails."""
     from src.services.ai.jev.client import jev_rerank_chunks
 
-    jev_cfg = get_learnhouse_config().jev_config
-    if jev_cfg is None:
-        return results[:final_k]
-
-    chunk_texts = [row.chunk_text for row in results]
-    reranked = await jev_rerank_chunks(
-        question,
-        chunk_texts,
-        timeout_seconds=jev_cfg.timeout_seconds,
-    )
-
+    reranked = await jev_rerank_chunks(question, results, final_k)
     if reranked is None:
         logger.debug("Jev reranking unavailable; using vector ordering")
         return results[:final_k]
-
-    # Map Jev's ranked indices back to the original result rows
-    reordered = [results[r.index] for r in reranked if r.index < len(results)]
-    return reordered[:final_k]
+    return reranked[:final_k]
 
 
 async def query_course_rag_stream(

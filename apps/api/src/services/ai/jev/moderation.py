@@ -1,147 +1,131 @@
-"""Jev-powered content moderation for user-generated content.
+"""Jev-powered content moderation for user-generated content (advisory).
 
-Screens user submissions (forum posts, assignment text, chat messages) for
-toxicity, PII, spam, and academic integrity concerns.
+Screens text (forum posts, assignment submissions, chat messages) for PII,
+toxicity, spam, and (assignment submissions only) academic-integrity concerns.
+Consumed by ``services/moderation_ai`` (flag recording for staff review).
 
-Degrades gracefully: returns None (pass) when Jev is unavailable so the
-caller proceeds without moderation.
+Scores are normalized to 0..1.  Noul answers are already probabilities.  The
+integrity Score (3-level rubric, raw 0..2) is normalized as
+``score / (levels - 1)`` and bucketed: high >= 0.67, medium >= 0.34, else low.
+
+The derived ``action`` is only ``allow`` or ``flag``; this module never blocks.
+Fail-open: returns ``None`` when Jev is unavailable/disabled/incomplete.
+Nothing in content is logged.
 """
 
 from __future__ import annotations
 
-import asyncio
-import logging
-from typing import Optional
+from dataclasses import dataclass, field
 
-from config.config import get_learnhouse_config
+from src.services.ai.jev.client import jev_enabled, run_system_one
 
-logger = logging.getLogger(__name__)
+NOUL_FLAG_THRESHOLD = 0.5
+INTEGRITY_HIGH_NORM = 0.67
+INTEGRITY_MEDIUM_NORM = 0.34
+CONTENT_MAX_CHARS = 3000
 
 
-def _build_client():
-    """Import and construct the TypeSafe client.  Returns None on import error."""
-    try:
-        from typesafe_sdk import TypeSafeClient
-        return TypeSafeClient()
-    except ImportError:
-        return None
-    except Exception:
-        logger.exception("Failed to initialise TypeSafe client for moderation")
-        return None
+@dataclass
+class ModerationResult:
+    """Normalized (0..1) moderation scores plus a derived action."""
+
+    pii: float
+    toxicity: float
+    spam: float
+    academic_integrity: float | None  # None unless kind == "assignment_submission"
+    integrity_level: str  # "low" | "medium" | "high"
+    action: str  # "allow" | "flag"
+    reasons: list[str] = field(default_factory=list)
+
+
+def integrity_level(norm: float | None) -> str:
+    if norm is None:
+        return "low"
+    if norm >= INTEGRITY_HIGH_NORM:
+        return "high"
+    if norm >= INTEGRITY_MEDIUM_NORM:
+        return "medium"
+    return "low"
 
 
 async def moderate_content(
-    content: str,
+    text: str,
     *,
-    context: str = "general",  # "forum_post" | "assignment_submission" | "chat_message" | "general"
-    timeout_seconds: float = 3.0,
-) -> Optional[dict]:
-    """Screen user-generated content for safety and policy violations.
+    kind: str = "general",  # "forum_post" | "assignment_submission" | "chat_message" | "general"
+    org_id: int | None = None,
+) -> ModerationResult | None:
+    """Screen *text*.  Returns ``None`` if Jev is unavailable (fail-open).
 
-    Returns a dict with moderation results or ``None`` if Jev is unavailable:
-    {
-        "passed": bool,
-        "has_pii": bool,
-        "is_toxic": bool,
-        "is_spam": bool,
-        "academic_integrity": str,  # "low" | "medium" | "high"
-        "reasons": list[str],
-    }
+    If *org_id* is given the org opt-in is checked here too.
     """
-    jev_cfg = get_learnhouse_config().jev_config
-    if jev_cfg is None or not jev_cfg.enabled:
+    if not text or not text.strip():
         return None
-
-    client = _build_client()
-    if client is None:
+    if org_id is not None and not jev_enabled(org_id):
         return None
 
     try:
         from typesafe_sdk import Noul, Score
-    except ImportError:
+    except Exception:  # noqa: BLE001 - SDK missing/broken: fail open
         return None
 
-    state = {
-        "content": content[:3000],
-        "context": context,
-    }
-
-    questions = {
-        "has_pii": Noul(
+    check_integrity = kind == "assignment_submission"
+    state = {"content": text[:CONTENT_MAX_CHARS], "kind": kind}
+    questions: dict = {
+        "pii": Noul(
             instructions="Does `content` contain personally identifiable information "
-                        "(email addresses, phone numbers, SSNs, passwords, credit cards, home addresses)?",
+            "(email addresses, phone numbers, SSNs, passwords, credit cards, home addresses)?",
         ),
-        "is_toxic": Noul(
+        "toxicity": Noul(
             instructions="Does `content` contain toxic, harassing, hateful, or abusive language?",
         ),
-        "is_spam": Noul(
+        "spam": Noul(
             instructions="Is `content` spam, promotional, or off-topic for an educational platform?",
         ),
     }
-
-    # Add academic integrity check for assignment submissions
-    if context == "assignment_submission":
+    if check_integrity:
         questions["academic_integrity"] = Score(
             instructions="How likely is this submission to be an academic integrity violation "
-                        "(plagiarism, contract cheating, AI-generated without disclosure)?",
+            "(plagiarism, contract cheating, AI-generated without disclosure)?",
             criteria=[
-                "Low — appears to be original student work",
-                "Medium — some signs of copied content or unattributed sources",
-                "High — strong indicators of plagiarism or undisclosed AI generation",
+                "Low: appears to be original student work",
+                "Medium: some signs of copied content or unattributed sources",
+                "High: strong indicators of plagiarism or undisclosed AI generation",
             ],
         )
 
-    def _call() -> dict:
-        response = client.system_one(state=state, questions=questions)
-        pii_answer = response.answers.get("has_pii")
-        toxic_answer = response.answers.get("is_toxic")
-        spam_answer = response.answers.get("is_spam")
-        integrity_answer = response.answers.get("academic_integrity")
-
-        has_pii = bool(pii_answer.noul > 0.5) if pii_answer else False
-        is_toxic = bool(toxic_answer.noul > 0.5) if toxic_answer else False
-        is_spam = bool(spam_answer.noul > 0.5) if spam_answer else False
-
-        academic_integrity = "low"
-        if integrity_answer and hasattr(integrity_answer, "score"):
-            score = float(integrity_answer.score)
-            if score > 0.7:
-                academic_integrity = "high"
-            elif score > 0.4:
-                academic_integrity = "medium"
-
-        reasons = []
-        if has_pii:
-            reasons.append("Contains personally identifiable information")
-        if is_toxic:
-            reasons.append("Contains toxic or abusive language")
-        if is_spam:
-            reasons.append("Appears to be spam or promotional content")
-        if academic_integrity == "high":
-            reasons.append("High risk of academic integrity violation")
-
-        passed = not (has_pii or is_toxic or is_spam) and academic_integrity != "high"
-
-        return {
-            "passed": passed,
-            "has_pii": has_pii,
-            "is_toxic": is_toxic,
-            "is_spam": is_spam,
-            "academic_integrity": academic_integrity,
-            "reasons": reasons,
-        }
-
-    try:
-        return await asyncio.wait_for(
-            asyncio.to_thread(_call),
-            timeout=timeout_seconds,
-        )
-    except asyncio.TimeoutError:
-        logger.warning(
-            "Jev content moderation timed out after %.1fs; proceeding without moderation",
-            timeout_seconds,
-        )
+    result = await run_system_one(state, questions, capability="moderation")
+    if result is None:
         return None
-    except Exception:
-        logger.exception("Jev content moderation failed; proceeding without moderation")
+
+    pii = result.noul("pii")
+    toxicity = result.noul("toxicity")
+    spam = result.noul("spam")
+    if pii is None or toxicity is None or spam is None:
         return None
+
+    integrity: float | None = None
+    if check_integrity:
+        integrity = result.score_norm("academic_integrity")
+        if integrity is None:
+            return None
+    level = integrity_level(integrity)
+
+    reasons: list[str] = []
+    if pii > NOUL_FLAG_THRESHOLD:
+        reasons.append("Contains personally identifiable information")
+    if toxicity > NOUL_FLAG_THRESHOLD:
+        reasons.append("Contains toxic or abusive language")
+    if spam > NOUL_FLAG_THRESHOLD:
+        reasons.append("Appears to be spam or promotional content")
+    if level == "high":
+        reasons.append("High risk of academic integrity violation")
+
+    return ModerationResult(
+        pii=pii,
+        toxicity=toxicity,
+        spam=spam,
+        academic_integrity=integrity,
+        integrity_level=level,
+        action="flag" if reasons else "allow",
+        reasons=reasons,
+    )

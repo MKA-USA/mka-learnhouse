@@ -1,209 +1,125 @@
-"""Tests for Jev output guardrails (jev/guardrails.py)."""
+"""Tests for jev/guardrails.py."""
 
-import sys
-from dataclasses import dataclass
-from unittest.mock import MagicMock, patch
+import logging
 
-from config.config import JevConfig
+import pytest
 
-
-@dataclass
-class _FakeNoulAnswer:
-    noul: float
-
-
-@dataclass
-class _FakeScoreAnswer:
-    score: float
-    confidence: float
-
-
-@dataclass
-class _FakeResponse:
-    answers: dict
+from src.services.ai.jev.guardrails import (
+    audit_response,
+    check_response_guardrails,
+)
+from src.tests.services.test_jev_support import (
+    FakeClient,
+    cfg,
+    jev_env,
+    noul,
+    response,
+    score,
+)
 
 
-class TestCheckResponseGuardrails:
-    async def test_returns_none_when_disabled(self):
-        from src.services.ai.jev.guardrails import check_response_guardrails
+def _resp(pii=0.1, bad=0.1, halluc=None, levels=3):
+    ans = {"has_pii": noul(pii), "is_inappropriate": noul(bad)}
+    if halluc is not None:
+        ans["hallucination_risk"] = halluc
+    return response(ans)
 
-        with patch("src.services.ai.jev.guardrails.get_learnhouse_config") as mock_cfg:
-            mock_cfg.return_value.jev_config = None
-            result = await check_response_guardrails("Some response text")
-            assert result is None
 
-    async def test_passes_clean_response(self):
-        from src.services.ai.jev.guardrails import check_response_guardrails
+class TestCheck:
+    async def test_passes_clean(self):
+        fake = FakeClient(_resp(halluc=score(0, 3)))
+        with jev_env(client=fake):
+            r = await check_response_guardrails("hi", source_context="ctx")
+        assert r.passed is True and r.scores["hallucination_risk"] == 0.0
 
-        jev = JevConfig(enabled=True, api_key="k")
+    async def test_pii_flagged(self):
+        fake = FakeClient(_resp(pii=0.9, halluc=noul(0.1)))
+        with jev_env(client=fake):
+            r = await check_response_guardrails("hi")
+        assert r.passed is False and "PII" in r.reason
 
-        fake_answers = {
-            "has_pii": _FakeNoulAnswer(noul=0.05),
-            "is_inappropriate": _FakeNoulAnswer(noul=0.02),
-            "hallucination_risk": _FakeScoreAnswer(score=0.2, confidence=0.8),
-        }
-        fake_response = _FakeResponse(answers=fake_answers)
+    async def test_inappropriate_flagged(self):
+        fake = FakeClient(_resp(bad=0.6, halluc=noul(0.1)))
+        with jev_env(client=fake):
+            r = await check_response_guardrails("hi")
+        assert not r.passed and "Inappropriate" in r.reason
 
-        mock_client = MagicMock()
-        mock_client.system_one.return_value = fake_response
+    @pytest.mark.parametrize("raw,flagged", [
+        (0.0, False), (1.0, False),   # norm 0.0 / 0.5
+        (1.32, False),                # norm 0.66
+        (1.34, True),                 # norm 0.67
+        (2.0, True),
+    ])
+    async def test_hallucination_score_boundary(self, raw, flagged):
+        fake = FakeClient(_resp(halluc=score(raw, 3)))
+        with jev_env(client=fake):
+            r = await check_response_guardrails("hi", source_context="ctx")
+        assert (not r.passed) is flagged
 
-        mock_ts_module = MagicMock()
-        mock_ts_module.Noul = MagicMock
-        mock_ts_module.Score = MagicMock
-        mock_ts_module.TypeSafeClient = MagicMock
+    async def test_noul_hallucination_without_context(self):
+        fake = FakeClient(_resp(halluc=noul(0.51)))
+        with jev_env(client=fake):
+            r = await check_response_guardrails("hi")
+        assert not r.passed and "hallucination" in r.reason
 
-        with (
-            patch("src.services.ai.jev.guardrails.get_learnhouse_config") as mock_cfg,
-            patch("src.services.ai.jev.guardrails._build_client", return_value=mock_client),
-            patch.dict(sys.modules, {"typesafe_sdk": mock_ts_module}),
-        ):
-            mock_cfg.return_value.jev_config = jev
-            result = await check_response_guardrails(
-                "React is a JavaScript library for building user interfaces.",
-                user_question="What is React?",
-                source_context="React is a JS library created by Meta.",
-            )
+    async def test_fail_open_none(self):
+        fake = FakeClient(side_effect=RuntimeError("x"))
+        with jev_env(client=fake):
+            assert await check_response_guardrails("hi") is None
 
-        assert result is not None
-        assert result.passed is True
-        assert result.scores["has_pii"] < 0.5
-        assert result.scores["is_inappropriate"] < 0.5
+    async def test_missing_answers_fail_open(self):
+        fake = FakeClient(response({}))
+        with jev_env(client=fake):
+            r = await check_response_guardrails("hi")
+        assert r.passed is True
 
-    async def test_flags_pii(self):
-        from src.services.ai.jev.guardrails import check_response_guardrails
+    async def test_disabled_none(self):
+        fake = FakeClient(_resp())
+        with jev_env(cfg(enabled=False), fake):
+            assert await check_response_guardrails("hi") is None
+        fake.system_one.assert_not_called()
 
-        jev = JevConfig(enabled=True, api_key="k")
+    async def test_payload_truncated(self):
+        fake = FakeClient(_resp(halluc=noul(0.1)))
+        with jev_env(client=fake):
+            await check_response_guardrails("a" * 5000, user_question="q" * 900, source_context="c" * 5000)
+        s = fake.system_one.call_args.kwargs["state"]
+        assert len(s["llm_response"]) == 2000
+        assert len(s["user_question"]) == 500
+        assert len(s["source_context"]) == 2000
 
-        fake_answers = {
-            "has_pii": _FakeNoulAnswer(noul=0.95),
-            "is_inappropriate": _FakeNoulAnswer(noul=0.02),
-            "hallucination_risk": _FakeScoreAnswer(score=0.1, confidence=0.9),
-        }
-        fake_response = _FakeResponse(answers=fake_answers)
 
-        mock_client = MagicMock()
-        mock_client.system_one.return_value = fake_response
+class TestAudit:
+    async def test_never_raises(self):
+        fake = FakeClient(side_effect=RuntimeError("x"))
+        with jev_env(client=fake):
+            assert await audit_response("hello") is None
 
-        mock_ts_module = MagicMock()
-        mock_ts_module.Noul = MagicMock
-        mock_ts_module.Score = MagicMock
-        mock_ts_module.TypeSafeClient = MagicMock
+    async def test_swallows_unexpected_errors(self, monkeypatch):
+        from src.services.ai.jev import guardrails
 
-        with (
-            patch("src.services.ai.jev.guardrails.get_learnhouse_config") as mock_cfg,
-            patch("src.services.ai.jev.guardrails._build_client", return_value=mock_client),
-            patch.dict(sys.modules, {"typesafe_sdk": mock_ts_module}),
-        ):
-            mock_cfg.return_value.jev_config = jev
-            result = await check_response_guardrails(
-                "Contact me at john@example.com or call 555-1234.",
-                user_question="How do I contact support?",
-            )
+        async def boom(*a, **k):
+            raise ValueError("bad")
 
-        assert result is not None
-        assert result.passed is False
-        assert result.reason == "PII detected"
+        monkeypatch.setattr(guardrails, "check_response_guardrails", boom)
+        assert await audit_response("hello") is None
 
-    async def test_flags_inappropriate_content(self):
-        from src.services.ai.jev.guardrails import check_response_guardrails
+    async def test_logs_flag_without_content(self, caplog):
+        fake = FakeClient(_resp(pii=0.9, halluc=noul(0.1)))
+        with jev_env(client=fake), caplog.at_level(logging.DEBUG):
+            await audit_response("secret student text", user_question="private q")
+        assert "flagged" in caplog.text
+        assert "secret student text" not in caplog.text
+        assert "private q" not in caplog.text
 
-        jev = JevConfig(enabled=True, api_key="k")
+    async def test_org_not_allowed_skips(self):
+        fake = FakeClient(_resp())
+        with jev_env(cfg(allowed_org_ids=[1]), fake):
+            await audit_response("hello", org_id=2)
+        fake.system_one.assert_not_called()
 
-        fake_answers = {
-            "has_pii": _FakeNoulAnswer(noul=0.05),
-            "is_inappropriate": _FakeNoulAnswer(noul=0.9),
-            "hallucination_risk": _FakeScoreAnswer(score=0.1, confidence=0.9),
-        }
-        fake_response = _FakeResponse(answers=fake_answers)
-
-        mock_client = MagicMock()
-        mock_client.system_one.return_value = fake_response
-
-        mock_ts_module = MagicMock()
-        mock_ts_module.Noul = MagicMock
-        mock_ts_module.Score = MagicMock
-        mock_ts_module.TypeSafeClient = MagicMock
-
-        with (
-            patch("src.services.ai.jev.guardrails.get_learnhouse_config") as mock_cfg,
-            patch("src.services.ai.jev.guardrails._build_client", return_value=mock_client),
-            patch.dict(sys.modules, {"typesafe_sdk": mock_ts_module}),
-        ):
-            mock_cfg.return_value.jev_config = jev
-            result = await check_response_guardrails("Some inappropriate content here")
-
-        assert result is not None
-        assert result.passed is False
-        assert result.reason == "Inappropriate content"
-
-    async def test_flags_high_hallucination_risk(self):
-        from src.services.ai.jev.guardrails import check_response_guardrails
-
-        jev = JevConfig(enabled=True, api_key="k")
-
-        fake_answers = {
-            "has_pii": _FakeNoulAnswer(noul=0.05),
-            "is_inappropriate": _FakeNoulAnswer(noul=0.02),
-            "hallucination_risk": _FakeScoreAnswer(score=0.85, confidence=0.7),
-        }
-        fake_response = _FakeResponse(answers=fake_answers)
-
-        mock_client = MagicMock()
-        mock_client.system_one.return_value = fake_response
-
-        mock_ts_module = MagicMock()
-        mock_ts_module.Noul = MagicMock
-        mock_ts_module.Score = MagicMock
-        mock_ts_module.TypeSafeClient = MagicMock
-
-        with (
-            patch("src.services.ai.jev.guardrails.get_learnhouse_config") as mock_cfg,
-            patch("src.services.ai.jev.guardrails._build_client", return_value=mock_client),
-            patch.dict(sys.modules, {"typesafe_sdk": mock_ts_module}),
-        ):
-            mock_cfg.return_value.jev_config = jev
-            result = await check_response_guardrails(
-                "The answer is 42.",
-                user_question="What is the meaning of life?",
-                source_context="The context says nothing about 42.",
-            )
-
-        assert result is not None
-        assert result.passed is False
-        assert result.reason == "High hallucination risk"
-
-    async def test_returns_none_on_timeout(self):
-        from src.services.ai.jev.guardrails import check_response_guardrails
-
-        jev = JevConfig(enabled=True, api_key="k")
-
-        def _slow_call():
-            import time
-            time.sleep(5)
-
-        mock_client = MagicMock()
-        mock_client.system_one.side_effect = _slow_call
-
-        with (
-            patch("src.services.ai.jev.guardrails.get_learnhouse_config") as mock_cfg,
-            patch("src.services.ai.jev.guardrails._build_client", return_value=mock_client),
-        ):
-            mock_cfg.return_value.jev_config = jev
-            result = await check_response_guardrails("test", timeout_seconds=0.05)
-            assert result is None
-
-    async def test_returns_none_on_exception(self):
-        from src.services.ai.jev.guardrails import check_response_guardrails
-
-        jev = JevConfig(enabled=True, api_key="k")
-
-        mock_client = MagicMock()
-        mock_client.system_one.side_effect = RuntimeError("API down")
-
-        with (
-            patch("src.services.ai.jev.guardrails.get_learnhouse_config") as mock_cfg,
-            patch("src.services.ai.jev.guardrails._build_client", return_value=mock_client),
-        ):
-            mock_cfg.return_value.jev_config = jev
-            result = await check_response_guardrails("test")
-            assert result is None
+    async def test_empty_text_skips(self):
+        fake = FakeClient(_resp())
+        with jev_env(client=fake):
+            await audit_response("  ")
+        fake.system_one.assert_not_called()

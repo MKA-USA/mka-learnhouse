@@ -1,208 +1,82 @@
-"""Tests for Jev query intent classification (jev/router.py)."""
-
-import sys
-from dataclasses import dataclass
-from unittest.mock import MagicMock, patch
+"""Tests for jev/router.py."""
 
 import pytest
 
-from config.config import JevConfig
+from src.services.ai.jev.router import (
+    QuestionIntent,
+    classify_question,
+    is_confident_general_knowledge,
+)
+from src.tests.services.test_jev_support import (
+    FakeClient,
+    choice,
+    jev_env,
+    noul,
+    response,
+)
+
+INTENTS = ["content_lookup", "concept_explanation", "practical_help",
+           "general_knowledge", "meta_question", "clarification"]
 
 
-@dataclass
-class _FakeChoiceAnswer:
-    choice: str
-    confidence: float
+def _resp(label="general_knowledge", conf=0.9, needs=0.1):
+    return response({"intent": choice(label, conf, INTENTS), "needs_rag": noul(needs)})
 
 
-@dataclass
-class _FakeNoulAnswer:
-    noul: float
+class TestShouldSkipRag:
+    def test_none_never_skips(self):
+        assert is_confident_general_knowledge(None) is False
+
+    @pytest.mark.parametrize("conf,expected", [(0.69, False), (0.7, True), (0.95, True)])
+    def test_confidence_boundary(self, conf, expected):
+        assert is_confident_general_knowledge(QuestionIntent("general_knowledge", conf, 0.0)) is expected
+
+    @pytest.mark.parametrize("needs,expected", [(0.19, True), (0.2, False), (0.9, False)])
+    def test_needs_rag_boundary(self, needs, expected):
+        assert is_confident_general_knowledge(QuestionIntent("general_knowledge", 0.9, needs)) is expected
+
+    def test_other_intents_never_skip(self):
+        for i in INTENTS:
+            if i != "general_knowledge":
+                assert is_confident_general_knowledge(QuestionIntent(i, 0.99, 0.0)) is False
 
 
-@dataclass
-class _FakeResponse:
-    answers: dict
+class TestClassify:
+    async def test_basic(self):
+        fake = FakeClient(_resp())
+        with jev_env(client=fake):
+            r = await classify_question("what is 2+2", course_name="Math")
+        assert r == QuestionIntent("general_knowledge", 0.9, 0.1)
+        state = fake.system_one.call_args.kwargs["state"]
+        assert state["course_name"] == "Math"
+        assert "recent_conversation" not in state
 
+    async def test_history_included_last_four_truncated(self):
+        fake = FakeClient(_resp("clarification", 0.8, 0.9))
+        hist = [{"role": "user", "content": f"msg{i} " + "z" * 1000} for i in range(6)]
+        with jev_env(client=fake):
+            await classify_question("explain more", history=hist)
+        text = fake.system_one.call_args.kwargs["state"]["recent_conversation"]
+        assert "msg0" not in text and "msg1" not in text
+        assert all(f"msg{i}" in text for i in (2, 3, 4, 5))
+        assert all(len(line) <= 300 + 10 for line in text.splitlines())
 
-class TestClassifyQuestion:
-    async def test_returns_none_when_disabled(self):
-        from src.services.ai.jev.router import classify_question
+    async def test_history_objects(self):
+        class T:
+            role = "assistant"
+            content = "hello there"
 
-        with patch("src.services.ai.jev.router.get_learnhouse_config") as mock_cfg:
-            mock_cfg.return_value.jev_config = None
-            result = await classify_question("What is photosynthesis?")
-            assert result is None
+        fake = FakeClient(_resp())
+        with jev_env(client=fake):
+            await classify_question("q", history=[T()])
+        assert "assistant: hello there" in fake.system_one.call_args.kwargs["state"]["recent_conversation"]
 
-    async def test_returns_none_when_jev_not_enabled(self):
-        from src.services.ai.jev.router import classify_question
+    async def test_missing_answer_returns_none(self):
+        fake = FakeClient(response({"intent": choice("content_lookup", 0.9, INTENTS)}))
+        with jev_env(client=fake):
+            assert await classify_question("q") is None
 
-        jev = JevConfig(enabled=False)
-        with patch("src.services.ai.jev.router.get_learnhouse_config") as mock_cfg:
-            mock_cfg.return_value.jev_config = jev
-            result = await classify_question("What is photosynthesis?")
-            assert result is None
-
-    async def test_classifies_general_knowledge(self):
-        from src.services.ai.jev.router import classify_question
-
-        jev = JevConfig(enabled=True, api_key="k")
-
-        fake_answers = {
-            "intent": _FakeChoiceAnswer(choice="general_knowledge", confidence=0.9),
-            "needs_rag": _FakeNoulAnswer(noul=0.1),
-            "is_followup": _FakeNoulAnswer(noul=0.05),
-        }
-        fake_response = _FakeResponse(answers=fake_answers)
-
-        mock_client = MagicMock()
-        mock_client.system_one.return_value = fake_response
-
-        mock_ts_module = MagicMock()
-        mock_ts_module.Choice = MagicMock
-        mock_ts_module.Noul = MagicMock
-        mock_ts_module.TypeSafeClient = MagicMock
-
-        with (
-            patch("src.services.ai.jev.router.get_learnhouse_config") as mock_cfg,
-            patch("src.services.ai.jev.router._build_client", return_value=mock_client),
-            patch.dict(sys.modules, {"typesafe_sdk": mock_ts_module}),
-        ):
-            mock_cfg.return_value.jev_config = jev
-            result = await classify_question("What is the capital of France?")
-
-        assert result is not None
-        assert result.intent == "general_knowledge"
-        assert result.needs_rag is False
-        assert result.is_followup is False
-
-    async def test_classifies_content_lookup(self):
-        from src.services.ai.jev.router import classify_question
-
-        jev = JevConfig(enabled=True, api_key="k")
-
-        fake_answers = {
-            "intent": _FakeChoiceAnswer(choice="content_lookup", confidence=0.85),
-            "needs_rag": _FakeNoulAnswer(noul=0.9),
-            "is_followup": _FakeNoulAnswer(noul=0.1),
-        }
-        fake_response = _FakeResponse(answers=fake_answers)
-
-        mock_client = MagicMock()
-        mock_client.system_one.return_value = fake_response
-
-        mock_ts_module = MagicMock()
-        mock_ts_module.Choice = MagicMock
-        mock_ts_module.Noul = MagicMock
-        mock_ts_module.TypeSafeClient = MagicMock
-
-        with (
-            patch("src.services.ai.jev.router.get_learnhouse_config") as mock_cfg,
-            patch("src.services.ai.jev.router._build_client", return_value=mock_client),
-            patch.dict(sys.modules, {"typesafe_sdk": mock_ts_module}),
-        ):
-            mock_cfg.return_value.jev_config = jev
-            result = await classify_question(
-                "Where is the section on photosynthesis?",
-                course_name="Biology 101",
-            )
-
-        assert result is not None
-        assert result.intent == "content_lookup"
-        assert result.needs_rag is True
-        assert result.is_followup is False
-
-    async def test_classifies_followup(self):
-        from src.services.ai.jev.router import classify_question
-
-        jev = JevConfig(enabled=True, api_key="k")
-
-        fake_answers = {
-            "intent": _FakeChoiceAnswer(choice="clarification", confidence=0.8),
-            "needs_rag": _FakeNoulAnswer(noul=0.3),
-            "is_followup": _FakeNoulAnswer(noul=0.95),
-        }
-        fake_response = _FakeResponse(answers=fake_answers)
-
-        mock_client = MagicMock()
-        mock_client.system_one.return_value = fake_response
-
-        mock_ts_module = MagicMock()
-        mock_ts_module.Choice = MagicMock
-        mock_ts_module.Noul = MagicMock
-        mock_ts_module.TypeSafeClient = MagicMock
-
-        with (
-            patch("src.services.ai.jev.router.get_learnhouse_config") as mock_cfg,
-            patch("src.services.ai.jev.router._build_client", return_value=mock_client),
-            patch.dict(sys.modules, {"typesafe_sdk": mock_ts_module}),
-        ):
-            mock_cfg.return_value.jev_config = jev
-            result = await classify_question("Can you explain that more simply?")
-
-        assert result is not None
-        assert result.intent == "clarification"
-        assert result.is_followup is True
-
-    async def test_returns_none_on_timeout(self):
-        from src.services.ai.jev.router import classify_question
-
-        jev = JevConfig(enabled=True, api_key="k")
-
-        def _slow_call():
-            import time
-            time.sleep(5)
-
-        mock_client = MagicMock()
-        mock_client.system_one.side_effect = _slow_call
-
-        with (
-            patch("src.services.ai.jev.router.get_learnhouse_config") as mock_cfg,
-            patch("src.services.ai.jev.router._build_client", return_value=mock_client),
-        ):
-            mock_cfg.return_value.jev_config = jev
-            result = await classify_question("test", timeout_seconds=0.05)
-            assert result is None
-
-    async def test_returns_none_on_exception(self):
-        from src.services.ai.jev.router import classify_question
-
-        jev = JevConfig(enabled=True, api_key="k")
-
-        mock_client = MagicMock()
-        mock_client.system_one.side_effect = RuntimeError("API down")
-
-        with (
-            patch("src.services.ai.jev.router.get_learnhouse_config") as mock_cfg,
-            patch("src.services.ai.jev.router._build_client", return_value=mock_client),
-        ):
-            mock_cfg.return_value.jev_config = jev
-            result = await classify_question("test")
-            assert result is None
-
-    async def test_defaults_to_concept_explanation_on_missing_answer(self):
-        from src.services.ai.jev.router import classify_question
-
-        jev = JevConfig(enabled=True, api_key="k")
-
-        fake_response = _FakeResponse(answers={})
-        mock_client = MagicMock()
-        mock_client.system_one.return_value = fake_response
-
-        mock_ts_module = MagicMock()
-        mock_ts_module.Choice = MagicMock
-        mock_ts_module.Noul = MagicMock
-        mock_ts_module.TypeSafeClient = MagicMock
-
-        with (
-            patch("src.services.ai.jev.router.get_learnhouse_config") as mock_cfg,
-            patch("src.services.ai.jev.router._build_client", return_value=mock_client),
-            patch.dict(sys.modules, {"typesafe_sdk": mock_ts_module}),
-        ):
-            mock_cfg.return_value.jev_config = jev
-            result = await classify_question("test")
-
-        assert result is not None
-        assert result.intent == "concept_explanation"
-        assert result.needs_rag is True
-        assert result.is_followup is False
+    async def test_failure_returns_none(self):
+        fake = FakeClient(side_effect=RuntimeError("x"))
+        with jev_env(client=fake):
+            assert await classify_question("q") is None

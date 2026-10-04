@@ -1,23 +1,34 @@
-"""Jev-powered output guardrails for LLM responses.
+"""Jev-powered audit of LLM responses (log-only).
 
-Screens LLM-generated content for hallucinations, PII, and inappropriate
-material.  Designed for streaming responses: buffers the first ~500 chars,
-runs Jev checks, then either proceeds or blocks with a warning.
+Screens a *finished* LLM response for PII, inappropriate content, and
+hallucination risk.  This is an after-the-fact audit: it never blocks or
+alters what the student already received.  ``audit_response`` is meant to run
+as a fire-and-forget background task; it swallows every error.
 
-Degrades gracefully: returns None (pass) when Jev is unavailable so the
-caller proceeds without guardrails.
+Fail-open (deliberate): when Jev is unavailable, times out, or omits an
+answer, nothing is flagged.  Guardrails here are a monitoring signal, not an
+enforcement point.
+
+Logs contain flag names and scores only, never response/question content.
 """
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from dataclasses import dataclass
-from typing import Optional
 
-from config.config import get_learnhouse_config
+from src.services.ai.jev.client import jev_enabled, run_system_one
 
 logger = logging.getLogger(__name__)
+
+NOUL_FLAG_THRESHOLD = 0.5
+# Hallucination rubric has 3 levels (0..2); flag when the normalized score
+# (score / (levels - 1)) is >= 0.67, i.e. raw score >= ~1.34 (leaning "High").
+HALLUCINATION_FLAG_NORM = 0.67
+
+RESPONSE_MAX_CHARS = 2000
+QUESTION_MAX_CHARS = 500
+CONTEXT_MAX_CHARS = 2000
 
 
 @dataclass
@@ -25,20 +36,8 @@ class GuardrailResult:
     """Result of guardrail checks."""
 
     passed: bool
-    reason: Optional[str] = None
-    scores: Optional[dict] = None
-
-
-def _build_client():
-    """Import and construct the TypeSafe client.  Returns None on import error."""
-    try:
-        from typesafe_sdk import TypeSafeClient
-        return TypeSafeClient()
-    except ImportError:
-        return None
-    except Exception:
-        logger.exception("Failed to initialise TypeSafe client for guardrails")
-        return None
+    reason: str | None = None
+    scores: dict | None = None
 
 
 async def check_response_guardrails(
@@ -46,117 +45,115 @@ async def check_response_guardrails(
     *,
     user_question: str = "",
     source_context: str = "",
-    timeout_seconds: float = 3.0,
-) -> Optional[GuardrailResult]:
-    """Check an LLM response for safety and quality issues.
+    timeout: float | None = None,
+) -> GuardrailResult | None:
+    """Check an LLM response; ``None`` means Jev was unavailable (fail-open).
 
-    Returns ``GuardrailResult(passed=True)`` if the response is safe,
-    ``GuardrailResult(passed=False, reason=...)`` if flagged, or ``None``
-    if Jev is unavailable (caller should proceed without guardrails).
+    Callers must gate on ``jev_enabled(org_id)`` / ``guardrails_enabled``.
     """
-    jev_cfg = get_learnhouse_config().jev_config
-    if jev_cfg is None or not jev_cfg.enabled:
-        return None
-
-    client = _build_client()
-    if client is None:
-        return None
-
     try:
         from typesafe_sdk import Noul, Score
-    except ImportError:
+    except Exception:  # noqa: BLE001 - SDK missing/broken: fail open
         return None
 
-    state = {
-        "llm_response": response_text[:2000],
-    }
+    state: dict = {"llm_response": response_text[:RESPONSE_MAX_CHARS]}
     if user_question:
-        state["user_question"] = user_question[:500]
+        state["user_question"] = user_question[:QUESTION_MAX_CHARS]
     if source_context:
-        state["source_context"] = source_context[:2000]
+        state["source_context"] = source_context[:CONTEXT_MAX_CHARS]
 
-    questions = {
+    questions: dict = {
         "has_pii": Noul(
             instructions="Does `llm_response` contain personally identifiable information "
-                        "(email addresses, phone numbers, SSNs, passwords, credit cards)?",
+            "(email addresses, phone numbers, SSNs, passwords, credit cards)?",
         ),
         "is_inappropriate": Noul(
             instructions="Does `llm_response` contain inappropriate, toxic, or harmful content "
-                        "for an educational setting?",
-        ),
-        "hallucination_risk": Score(
-            instructions="How likely is `llm_response` to contain fabricated facts "
-                        + ("not supported by `source_context`?" if source_context else "or unsupported claims?"),
-            criteria=[
-                "Low — sticks closely to provided context or well-known facts",
-                "Medium — adds some unsourced details but nothing obviously wrong",
-                "High — contains specific claims that seem fabricated or contradict context",
-            ],
-        ) if source_context else Noul(
-            instructions="Does `llm_response` make specific factual claims that seem fabricated?",
+            "for an educational setting?",
         ),
     }
-
-    def _call() -> GuardrailResult:
-        response = client.system_one(state=state, questions=questions)
-        pii_answer = response.answers.get("has_pii")
-        inappropriate_answer = response.answers.get("is_inappropriate")
-        hallucination_answer = response.answers.get("hallucination_risk")
-
-        has_pii = bool(pii_answer.noul > 0.5) if pii_answer else False
-        is_inappropriate = bool(inappropriate_answer.noul > 0.5) if inappropriate_answer else False
-
-        # Hallucination check: Score or Noul depending on whether we have context
-        hallucination_score = None
-        hallucination_high = False
-        if hallucination_answer:
-            if hasattr(hallucination_answer, "score"):
-                hallucination_score = float(hallucination_answer.score)
-                hallucination_high = hallucination_score > 0.7
-            else:
-                # Noul fallback
-                hallucination_high = bool(hallucination_answer.noul > 0.5)
-
-        # Determine if response passes
-        if has_pii:
-            return GuardrailResult(
-                passed=False,
-                reason="PII detected",
-                scores={"has_pii": pii_answer.noul if pii_answer else 0.0},
-            )
-        if is_inappropriate:
-            return GuardrailResult(
-                passed=False,
-                reason="Inappropriate content",
-                scores={"is_inappropriate": inappropriate_answer.noul if inappropriate_answer else 0.0},
-            )
-        if hallucination_high:
-            return GuardrailResult(
-                passed=False,
-                reason="High hallucination risk",
-                scores={"hallucination_risk": hallucination_score or 0.0},
-            )
-
-        return GuardrailResult(
-            passed=True,
-            scores={
-                "has_pii": pii_answer.noul if pii_answer else 0.0,
-                "is_inappropriate": inappropriate_answer.noul if inappropriate_answer else 0.0,
-                "hallucination_risk": hallucination_score or 0.0,
-            },
+    if source_context:
+        questions["hallucination_risk"] = Score(
+            instructions="How likely is `llm_response` to contain fabricated facts "
+            "not supported by `source_context`?",
+            criteria=[
+                "Low: sticks closely to provided context or well-known facts",
+                "Medium: adds some unsourced details but nothing obviously wrong",
+                "High: contains specific claims that seem fabricated or contradict context",
+            ],
+        )
+    else:
+        questions["hallucination_risk"] = Noul(
+            instructions="Does `llm_response` make specific factual claims that seem fabricated?",
         )
 
+    result = await run_system_one(state, questions, capability="guardrails", timeout=timeout)
+    if result is None:
+        return None
+
+    scores: dict[str, float] = {}
+    reasons: list[str] = []
+
+    pii = result.noul("has_pii")
+    if pii is not None:
+        scores["has_pii"] = pii
+        if pii > NOUL_FLAG_THRESHOLD:
+            reasons.append("PII detected")
+
+    inappropriate = result.noul("is_inappropriate")
+    if inappropriate is not None:
+        scores["is_inappropriate"] = inappropriate
+        if inappropriate > NOUL_FLAG_THRESHOLD:
+            reasons.append("Inappropriate content")
+
+    if source_context:
+        halluc = result.score_norm("hallucination_risk")
+        flagged = halluc is not None and halluc >= HALLUCINATION_FLAG_NORM
+    else:
+        halluc = result.noul("hallucination_risk")
+        flagged = halluc is not None and halluc > NOUL_FLAG_THRESHOLD
+    if halluc is not None:
+        scores["hallucination_risk"] = halluc
+        if flagged:
+            reasons.append("High hallucination risk")
+
+    if reasons:
+        return GuardrailResult(passed=False, reason="; ".join(reasons), scores=scores)
+    return GuardrailResult(passed=True, scores=scores)
+
+
+async def audit_response(
+    response_text: str,
+    *,
+    user_question: str = "",
+    source_context: str = "",
+    org_id: int | None = None,
+    label: str = "",
+) -> None:
+    """Background audit: run the checks and log the verdict.  Never raises
+    (except ``CancelledError``) and never logs content.
+
+    If *org_id* is given, the org opt-in is re-checked here as a safety net.
+    """
     try:
-        return await asyncio.wait_for(
-            asyncio.to_thread(_call),
-            timeout=timeout_seconds,
+        if not response_text or not response_text.strip():
+            return
+        if org_id is not None and not jev_enabled(org_id):
+            return
+        result = await check_response_guardrails(
+            response_text,
+            user_question=user_question,
+            source_context=source_context,
         )
-    except asyncio.TimeoutError:
-        logger.warning(
-            "Jev guardrail check timed out after %.1fs; proceeding without guardrails",
-            timeout_seconds,
-        )
-        return None
-    except Exception:
-        logger.exception("Jev guardrail check failed; proceeding without guardrails")
-        return None
+        if result is None:
+            return
+        tag = f" [{label}]" if label else ""
+        if result.passed:
+            logger.debug("Jev guardrail audit passed%s scores=%s", tag, result.scores)
+        else:
+            logger.warning(
+                "Jev guardrail audit flagged response%s: %s scores=%s",
+                tag, result.reason, result.scores,
+            )
+    except Exception as exc:  # noqa: BLE001 - background task must never raise
+        logger.warning("Jev guardrail audit error (%s)", type(exc).__name__)

@@ -306,18 +306,7 @@ def delete_chat_session(aichat_uuid: str, user_id: int) -> bool:
 
 
 async def generate_chat_title(user_message: str, ai_response: str) -> str:
-    """Generate a short summarized title for a chat session.
-
-    Tries Jev first (fast, cheap, template-based).  Falls back to the fast
-    LLM tier when Jev is unavailable or returns None.
-    """
-    # Try Jev first
-    from src.services.ai.jev.title import generate_chat_title_jev
-    jev_title = await generate_chat_title_jev(user_message, ai_response)
-    if jev_title:
-        return jev_title
-
-    # Fall back to LLM
+    """Generate a short summarized title for a chat session using the fast model tier."""
     try:
         prompt = (
             "Summarize this conversation into a very short title (max 6 words). "

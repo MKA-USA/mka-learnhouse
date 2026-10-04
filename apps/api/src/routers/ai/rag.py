@@ -51,7 +51,9 @@ class RAGChatRequest(BaseModel):
     message: str
     course_uuid: Optional[str] = None
     aichat_uuid: Optional[str] = None
-    mode: Literal["course_only", "general"] = "course_only"
+    # None = client expressed no preference (treated as "course_only"; the only
+    # case where opt-in Jev intent routing may switch to "general").
+    mode: Optional[Literal["course_only", "general"]] = None
     org_slug: Optional[str] = None
 
 
@@ -105,20 +107,15 @@ async def rag_chat_event_generator(
         # Send done event
         yield f"data: {json.dumps({'type': 'done', 'aichat_uuid': aichat_uuid})}\n\n"
 
-        # Jev output guardrails: post-stream audit for PII, inappropriate content, hallucinations
-        from src.services.ai.jev.guardrails import check_response_guardrails
-        guardrail_result = await check_response_guardrails(
+        # Jev output audit: fire-and-forget, never blocks the stream
+        from src.services.ai.jev_integration import schedule_guardrail_audit
+        schedule_guardrail_audit(
             full_response,
             user_question=user_message,
+            org_id=org_id,
             source_context=context_text[:2000] if context_text else "",
+            chat_id=aichat_uuid,
         )
-        if guardrail_result is not None and not guardrail_result.passed:
-            logger.warning(
-                "RAG response flagged by guardrails: %s (chat=%s, scores=%s)",
-                guardrail_result.reason,
-                aichat_uuid,
-                guardrail_result.scores,
-            )
 
         # Generate follow-up suggestions
         follow_ups = await generate_follow_up_suggestions(
@@ -183,6 +180,7 @@ async def api_rag_chat(
     - If course_uuid is omitted, searches across all courses for the user's org.
     """
     course_id = None
+    course_name = ""
     org_id = None
 
     if chat_request.course_uuid:
@@ -192,6 +190,7 @@ async def api_rag_chat(
         if not course:
             raise HTTPException(status_code=404, detail="Course not found")
         course_id = course.id
+        course_name = getattr(course, "name", "") or ""
         org_id = course.org_id
     else:
         if chat_request.org_slug:
@@ -265,21 +264,16 @@ async def api_rag_chat(
     # Get or create chat session
     chat_session = get_chat_session_history(chat_request.aichat_uuid)
 
-    # Jev intent classification: route questions that don't need course content
-    # directly to the LLM, skipping the embedding + vector search entirely.
+    # Optional Jev intent routing (opt-in; only when the client sent no explicit mode)
     effective_mode = chat_request.mode or "course_only"
-    from src.services.ai.jev.router import classify_question
-    course_name_for_intent = ""
-    if course_id:
-        _course_row = (await db_session.execute(
-            select(Course.name).where(Course.id == course_id)
-        )).scalar_one_or_none()
-        course_name_for_intent = _course_row or ""
-    intent = await classify_question(
+    from src.services.ai.jev_integration import should_route_to_general
+    if await should_route_to_general(
         chat_request.message,
-        course_name=course_name_for_intent,
-    )
-    if intent is not None and intent.intent == "general_knowledge" and not intent.needs_rag:
+        org_id=org_id,
+        mode=chat_request.mode,
+        course_name=course_name,
+        history=chat_session["message_history"],
+    ):
         effective_mode = "general"
 
     # Perform RAG query with streaming
@@ -303,7 +297,7 @@ async def api_rag_chat(
             user_id=chat_acting_user_id,
             course_uuid=chat_request.course_uuid,
             is_new_session=is_new_session,
-            mode=chat_request.mode,
+            mode=effective_mode,
             org_id=org_id,
         ),
         media_type="text/event-stream",
