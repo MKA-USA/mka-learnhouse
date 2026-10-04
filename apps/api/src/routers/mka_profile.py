@@ -52,7 +52,9 @@ async def api_put_me(
     db_session: AsyncSession = Depends(get_db_session),
 ) -> dict:
     """Full replace of the caller's profile: majlis is required; omitted or
-    null optional fields (mobile, amc_id, tanzeem) clear the stored values."""
+    null optional fields (mobile, tanzeem) clear the stored values. AMC ID: may be
+    set once; when one is already stored it is kept (admin-managed), whatever is
+    submitted."""
     uid = _uid(current_user)
     await upsert_profile(db_session, uid, body)
     return await profile_status(db_session, uid)
@@ -108,9 +110,10 @@ async def api_put_user(
     db_session: AsyncSession = Depends(get_db_session),
 ) -> dict:
     """FULL REPLACE of a user's profile: majlis is required; omitted or null
-    optional fields (mobile, amc_id, tanzeem) CLEAR the stored values. GET the
+    optional fields (mobile, amc_id, tanzeem) CLEAR the stored values (admins may
+    set, change and clear the AMC ID; uniqueness still applies -> 409). GET the
     profile first, then PUT the complete object. Org ADMINS (not maintainers)
     may edit members of the org named by `org_id`; superadmins may edit anyone."""
     await _authorize_target(_uid(current_user), user_id, org_id, db_session)
-    await upsert_profile(db_session, user_id, body)
+    await upsert_profile(db_session, user_id, body, actor="admin")
     return await profile_status(db_session, user_id)

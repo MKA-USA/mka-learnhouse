@@ -9,7 +9,7 @@ import logging
 import re
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
@@ -225,12 +225,25 @@ async def _amc_taken(
 
 
 async def upsert_profile(
-    db_session: AsyncSession, user_id: int, data: MkaProfileIn
+    db_session: AsyncSession,
+    user_id: int,
+    data: MkaProfileIn,
+    *,
+    actor: Literal["self", "admin"] = "self",
 ) -> MkaUserProfile:
+    """Full-replace upsert of a profile row.
+
+    AMC ID is admin-managed once set (Salesforce will later be the source of
+    truth): with actor="self", if the stored row already has an amc_id it is
+    KEPT regardless of data.amc_id (no error); a first-time amc_id is allowed.
+    actor="admin" may set, change and clear it. Default is "self" (safe).
+    """
+    row = await get_profile(db_session, user_id)
+    if actor == "self" and row is not None and row.amc_id is not None:
+        data = data.model_copy(update={"amc_id": row.amc_id})
     if await _amc_taken(db_session, data.amc_id, exclude_user_id=user_id):
         raise HTTPException(status_code=409, detail=_AMC_TAKEN)
     now = str(datetime.now())
-    row = await get_profile(db_session, user_id)
     if row is None:
         row = MkaUserProfile(user_id=user_id, created_at=now)
     row.majlis = data.majlis
