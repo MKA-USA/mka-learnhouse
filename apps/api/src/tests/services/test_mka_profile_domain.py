@@ -56,6 +56,16 @@ def test_normalize_mobile_rejects(raw):
         normalize_mobile(raw)
 
 
+def test_normalize_mobile_rejects_non_string():
+    with pytest.raises(ValueError):
+        normalize_mobile(7032340142)
+
+
+def test_normalize_mobile_rejects_unicode_digits():
+    with pytest.raises(ValueError):
+        normalize_mobile("703234٠١٤٢")
+
+
 @pytest.mark.parametrize("raw,expected", [
     ("12345", "12345"), (" 00123 ", "00123"), ("", None), (None, None),
     ("1" * 15, "1" * 15),
@@ -70,13 +80,18 @@ def test_normalize_amc_rejects(raw):
         normalize_amc_id(raw)
 
 
+def test_normalize_amc_rejects_non_string():
+    with pytest.raises(ValueError):
+        normalize_amc_id(12345)
+
+
 def test_profile_in_derives_nothing_and_ignores_unknown_keys():
     p = MkaProfileIn.model_validate(
         {"majlis": "Baltimore", "region": "Midwest", "extra_metadata": {"x": 1}}
     )
     assert p.majlis == "Baltimore"
-    assert not hasattr(p, "region")
-    assert not hasattr(p, "extra_metadata")
+    assert "region" not in p.model_dump()
+    assert "extra_metadata" not in p.model_dump()
 
 
 def test_profile_in_tanzeem():
@@ -107,6 +122,20 @@ def test_parse_profile_field_errors_are_clean():
         parse_profile({"majlis": "Zion", "amc_id": "12a"}, required=True)
     assert e.value.status_code == 422
     assert e.value.detail == [{"field": "amc_id", "message": "AMC ID must contain digits only"}]
+
+
+def test_parse_profile_rejects_amc_id_as_number():
+    with pytest.raises(HTTPException) as e:
+        parse_profile({"majlis": "Zion", "amc_id": 12345}, required=True)
+    assert e.value.status_code == 422
+    assert e.value.detail == [{"field": "amc_id", "message": "AMC ID must contain digits only"}]
+
+
+def test_parse_profile_rejects_mobile_as_number():
+    with pytest.raises(HTTPException) as e:
+        parse_profile({"majlis": "Zion", "mobile": 7032340142}, required=True)
+    assert e.value.status_code == 422
+    assert e.value.detail == [{"field": "mobile", "message": "Enter a valid US mobile number"}]
 
 
 def test_options_payload_shape():

@@ -54,7 +54,7 @@ class Tanzeem(str, Enum):
     TIFL = "tifl"
 
 
-_MOBILE_RE = re.compile(r"^(?:\+?1)?([2-9]\d{2})([2-9]\d{2})(\d{4})$")
+_MOBILE_RE = re.compile(r"^(?:\+?1)?([2-9][0-9]{2})([2-9][0-9]{2})([0-9]{4})$")
 _AMC_RE = re.compile(r"^[0-9]{1,15}$")  # ASCII digits only (no unicode digits)
 
 
@@ -65,6 +65,8 @@ def region_for(majlis: str) -> str:
 def normalize_mobile(raw: Optional[str]) -> Optional[str]:
     if raw is None:
         return None
+    if not isinstance(raw, str):
+        raise ValueError("Enter a valid US mobile number")
     stripped = raw.strip()
     if not stripped:
         return None
@@ -80,6 +82,8 @@ def normalize_mobile(raw: Optional[str]) -> Optional[str]:
 def normalize_amc_id(raw: Optional[str]) -> Optional[str]:
     if raw is None:
         return None
+    if not isinstance(raw, str):
+        raise ValueError("AMC ID must contain digits only")
     stripped = raw.strip()
     if not stripped:
         return None
