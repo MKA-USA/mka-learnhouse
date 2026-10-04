@@ -95,11 +95,11 @@ index a818aed1..0847d2cd 100644
 ```
 
 2. `apps/api/src/services/users/users.py`
-   - **Why / no extension point**: 1 import, plus in each of `create_user()` and `create_user_without_org()`: `validate_signup_profile` right before `User.model_validate(...)` (validation incl. AMC pre-check runs BEFORE the user row exists) and `save_signup_profile` right after the user commit/refresh. `create_user_with_invite` calls `create_user`, so it needs no hook. No extension point: the create functions have no hook registry. The import sits next to the Google-only import from the 2026-10-03 entry.
+   - **Why / no extension point**: 1 import, plus in each of `create_user()` and `create_user_without_org()`: `validate_signup_profile` directly AFTER the `rbac_check(...)` line (moved there in the fix wave so a forbidden signup answers 403, never a 409 AMC-ID oracle; still BEFORE the user row exists) and `save_signup_profile` right after the user commit/refresh. `create_user_with_invite` calls `create_user`, so it needs no hook. No extension point: the create functions have no hook registry. The import sits next to the Google-only import from the 2026-10-03 entry.
 
 ```diff
 diff --git a/apps/api/src/services/users/users.py b/apps/api/src/services/users/users.py
-index 24b06f32..93605ff8 100644
+index 24b06f32..268462a6 100644
 --- a/apps/api/src/services/users/users.py
 +++ b/apps/api/src/services/users/users.py
 @@ -16,6 +16,7 @@ from src.security.features_utils.usage import (
@@ -110,14 +110,14 @@ index 24b06f32..93605ff8 100644
  from src.services.users.emails import (
      send_account_creation_email,
  )
-@@ -199,6 +200,7 @@ async def create_user(
-         last_name=user_object.last_name,
-     )
- 
-+    mka_profile = await validate_signup_profile(db_session, user_object.mka_profile, is_oauth)  # MKA fork
-     user = User.model_validate(user_object)
+@@ -203,6 +204,7 @@ async def create_user(
  
      # RBAC check
+     await rbac_check(request, current_user, "create", "user_x", db_session)
++    mka_profile = await validate_signup_profile(db_session, user_object.mka_profile, is_oauth)  # MKA fork
+ 
+     # Complete the user object
+     user.user_uuid = f"user_{uuid4()}"
 @@ -277,6 +279,7 @@ async def create_user(
      db_session.add(user)
      await db_session.commit()
@@ -126,14 +126,14 @@ index 24b06f32..93605ff8 100644
  
      # Link user and organization
      user_organization = UserOrganization(
-@@ -449,6 +452,7 @@ async def create_user_without_org(
-         last_name=user_object.last_name,
-     )
- 
-+    mka_profile = await validate_signup_profile(db_session, user_object.mka_profile, is_oauth)  # MKA fork
-     user = User.model_validate(user_object)
+@@ -453,6 +456,7 @@ async def create_user_without_org(
  
      # RBAC check
+     await rbac_check(request, current_user, "create", "user_x", db_session)
++    mka_profile = await validate_signup_profile(db_session, user_object.mka_profile, is_oauth)  # MKA fork
+ 
+     # Complete the user object
+     user.user_uuid = f"user_{uuid4()}"
 @@ -505,6 +509,7 @@ async def create_user_without_org(
      db_session.add(user)
      await db_session.commit()
@@ -141,6 +141,40 @@ index 24b06f32..93605ff8 100644
 +    await save_signup_profile(db_session, user, mka_profile)  # MKA fork
  
      user_read = UserRead.model_validate(user)
+```
+
+2b. `apps/api/src/services/admin/admin.py` (GDPR; added in the fix wave)
+   - **Why / no extension point**: 1 import + 2 one-line hooks. `export_user_data` adds an `"mka_profile"` key (the `profile_status` output) so the GDPR export includes the profile; `anonymize_user` calls `delete_profile(...)` BEFORE its commit so the profile row (mobile, AMC ID, Majlis) is deleted atomically with the scrub and the AMC ID is freed. Hard user delete needs nothing (DB FK cascade). No extension point: both functions build their result/transaction inline.
+
+```diff
+diff --git a/apps/api/src/services/admin/admin.py b/apps/api/src/services/admin/admin.py
+index 610df4a7..9dc843fa 100644
+--- a/apps/api/src/services/admin/admin.py
++++ b/apps/api/src/services/admin/admin.py
+@@ -34,6 +34,7 @@ from src.db.usergroups import UserGroup, UserGroupRead
+ from src.db.user_organizations import UserOrganization
+ from src.db.users import APITokenUser, User, UserRead
+ from src.services.trail.trail import _build_trail_read
++from src.services.users.mka_profile import delete_profile, profile_status  # MKA fork
+ from src.services.courses.certifications import (
+     check_course_completion_and_create_certificate,
+     is_course_fully_completed,
+@@ -2432,6 +2433,7 @@ async def export_user_data(
+         "user_groups": [
+             UserGroupRead.model_validate(g).model_dump() for g, _ in group_rows
+         ],
++        "mka_profile": await profile_status(db_session, user_id),  # MKA fork
+         "exported_at": datetime.now().isoformat(),
+     }
+ 
+@@ -2486,6 +2488,7 @@ async def anonymize_user(
+     user.signup_method = "anonymized"
+     user.update_date = str(datetime.now())
+     db_session.add(user)
++    await delete_profile(db_session, user_id)  # MKA fork
+     await db_session.commit()
+ 
+     try:
 ```
 
 3. `apps/api/src/router.py`
@@ -422,13 +456,13 @@ index 20a72e4e..9bd71b07 100644
 #### D. Fork-only new files (no merge risk)
 
 - API: `apps/api/src/services/users/mka_profile.py`, `apps/api/src/db/mka_user_profile.py`, `apps/api/src/routers/mka_profile.py`, `apps/api/migrations/versions/mka_20261004_user_profile.py`
-- API tests: `src/tests/services/test_mka_profile_{domain,store,signup}.py`, `src/tests/routers/test_mka_profile_router.py`
+- API tests: `src/tests/services/test_mka_profile_{domain,store,signup,gdpr}.py`, `src/tests/routers/test_mka_profile_router.py`
 - Web: `apps/web/components/mka/{MajlisCombobox,MkaProfileFields,MkaProfileGate}.tsx`, `apps/web/services/mka/profile.ts`, `apps/web/tests/mka-profile-validation.test.mjs`
 - Docs: `docs/superpowers/specs/2026-10-04-mka-profile-fields-design.md`, `docs/superpowers/plans/2026-10-04-mka-profile-fields.md`
 
 #### E. Re-apply after upstream merge (checklist)
 
-1. `grep -rn "MKA fork" apps` and confirm every hook above survives. Added `MKA fork` lines per file in this feature: `users.py` 1; `users.py` 5; `router.py` 2; `route.ts` 3; `OpenSignup.tsx` 7; `InviteOnlySignUp.tsx` 7; `layout.tsx` 2; `client.ts` 1. (`services/users/users.py` also carries the 2026-10-03 Google-only hooks, counted separately.) Recount against the diffs above.
+1. `grep -rn "MKA fork" apps` and confirm every hook above survives. Added `MKA fork` lines per file in this feature: `users.py` 1; `users.py` 5; `admin.py` 3; `router.py` 2; `route.ts` 3; `OpenSignup.tsx` 7; `InviteOnlySignUp.tsx` 7; `layout.tsx` 2; `client.ts` 1. (`services/users/users.py` also carries the 2026-10-03 Google-only hooks, counted separately.) Recount against the diffs above.
 2. `alembic heads` (apps/api, venv) must print exactly one head; today `mka_20261004_user_profile`. If upstream adds a migration and two heads appear, add a fork merge migration (prefix `mka_`) merging both. Never edit upstream migrations.
 3. Re-check `apps/web/components/ui/dialog.tsx`: `MkaProfileGate.tsx` repeats dialog.tsx's inline `style` properties on purpose (passing `style` replaces them wholesale).
 4. Run the focused tests: `src/tests/services/test_mka_profile_*.py`, `src/tests/routers/test_mka_profile_router.py`, `test_signup_custom_fields_flow.py`, `test_users_service.py`; web: `bun test tests` and eslint on the files above.

@@ -114,12 +114,15 @@ Prefix `/mka/profile` (NOT `/users/me/...`, to avoid colliding with `PUT /{user_
   - A nonexistent target, or (for non-superadmins) a target who is not a member of `org_id`, returns 404. Non-admins get 403 BEFORE any target lookup (no existence oracle).
   - API-token callers get 403 (also excluded at router level by `get_non_api_token_user`).
   - Full-replace PUT semantics: omitted optional fields are cleared (an admin can clear a squatted AMC ID). Region re-derives; AMC conflict is 409.
+- `GET /mka/profile/user/{user_id}?org_id=<org>` → the target's `profile_status` (full profile incl. mobile/AMC/Tanzeem, or `{complete: false}`). Identical authorization and 403/404 ordering as the PUT (one shared helper in the router). Because PUT is a full replace, an editor must GET first, change fields, then PUT the complete object; a PUT with only `majlis` wipes the rest.
+- **GDPR**: `anonymize_user` (admin API) deletes the user's profile row in the same transaction as the scrub (mobile and Majlis are removed, the AMC ID is freed for reuse); `export_user_data` adds an `"mka_profile"` key (`profile_status` output; `{"complete": false}` when none). Hard user delete cascades in the DB.
+- Signup 422 items are `{field, message, msg}` (`msg` mirrors `message` so upstream's generic error parser shows the real text). The AMC pre-check runs after the signup permission check, so a forbidden signup never answers 409.
 
 Signup (email / invite / org-less): server requires a valid Majlis when `is_oauth` is false;
 missing/invalid → 422 before the user row is created. Google (`is_oauth=True`) skips it; the gate
 collects it.
 
-Not in scope: blocking every backend route for incomplete profiles. The gate is a UI gate.
+Not in scope: blocking every backend route for incomplete profiles. The gate is a UI gate, and it **fails open**: it renders nothing when `GET /mka/profile/me` errors (the API is not blocked either way).
 
 ## 6. Frontend
 
@@ -231,6 +234,8 @@ Still open:
 - **AMC enumeration**: the 409 at public signup reveals whether an AMC ID is registered. Inherent to unique IDs; consider signup rate limiting.
 - **Cross-org edit**: the profile is one global row per user, so an admin of ANY org the target belongs to can edit it. Fine for single-org MKA; hardening option: require admin of every org the target belongs to.
 - **Maintainers cannot edit profiles** (ADMIN role only).
+- **Admin UI deferred**: editing profiles from the admin UI is not built (API only: GET + PUT `/mka/profile/user/{id}`); it belongs to the reporting sub-project.
+- **Popover `modal` not applied**: the Popover `modal` approach for wheel scrolling inside the gate was NOT applied; the list uses an `onWheel` stopPropagation workaround. Wheel scrolling in the Majlis list is on the manual-check list.
 - **Two dialogs**: the legacy `CompleteSignupFields` and the gate can both open; the gate content sits above (z 240 vs 210).
 - **Docs example**: `docs/content/guides/build-learning-platform/do-it-yourself.mdx:442` (`POST /users/{org.id}`) now needs `mka_profile` on this fork; upstream doc not edited.
 - **Alembic**: single head `mka_20261004_user_profile` today; after upstream merges run `alembic heads` and add a fork merge migration if there are two.
