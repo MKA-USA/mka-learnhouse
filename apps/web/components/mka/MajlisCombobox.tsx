@@ -75,7 +75,7 @@ export default function MajlisCombobox({
       >
         <Command>
           <CommandInput placeholder="Search Majlis or Region…" />
-          <CommandList>
+          <CommandList onWheel={(e) => e.stopPropagation()}>
             <CommandEmpty>No Majlis found.</CommandEmpty>
             {groups.map(([region, items]) => (
               <CommandGroup key={region} heading={region}>

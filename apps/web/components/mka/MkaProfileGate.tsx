@@ -75,14 +75,23 @@ export default function MkaProfileGate() {
   return (
     <Dialog open>
       <DialogContent
-        className="[&>button:last-child]:hidden sm:max-w-md"
+        className="bg-background text-foreground border-border [&>button:last-child]:hidden sm:max-w-md"
+        // dialog.tsx spreads {...props} AFTER its own style, so a style prop replaces
+        // it wholesale: the centering/animation props must be repeated here.
+        style={{
+          zIndex: 'calc(var(--z-popover) - 10)',
+          translate: '-50% -50%',
+          willChange: 'scale, opacity',
+          backfaceVisibility: 'hidden',
+          WebkitBackfaceVisibility: 'hidden',
+        }}
         onInteractOutside={(e) => e.preventDefault()}
         onPointerDownOutside={(e) => e.preventDefault()}
         onEscapeKeyDown={(e) => e.preventDefault()}
       >
         <DialogHeader className="p-6 pb-2">
-          <DialogTitle>Complete your profile</DialogTitle>
-          <DialogDescription>
+          <DialogTitle className="text-foreground">Complete your profile</DialogTitle>
+          <DialogDescription className="text-muted-foreground">
             Tell us your Majlis so we can place you in the right Region. This takes a few seconds.
           </DialogDescription>
         </DialogHeader>
