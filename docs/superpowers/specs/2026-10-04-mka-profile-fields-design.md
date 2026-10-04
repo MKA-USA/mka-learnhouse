@@ -112,6 +112,8 @@ Prefix `/mka/profile` (NOT `/users/me/...`, to avoid colliding with `PUT /{user_
   - **AMC ID is admin-managed once set** (user decision; Salesforce will later be the source of official details). `upsert_profile(..., actor="self"|"admin")`, default `"self"`. Self paths (`PUT /me`, signup, gate): if the stored row already has an `amc_id`, it is KEPT whatever is submitted (no error; the response shows the stored value); a first-time `amc_id` is allowed (still 409 if taken). The admin path (`PUT /user/{id}`) can set, change and clear it (still 409 on conflict). Majlis, mobile and Tanzeem behave the same for both.
 - Admin edit of another user's profile: `PUT /mka/profile/user/{user_id}?org_id=<org>`.
   - Allowed: ADMIN-role members of `org_id` (maintainers are NOT allowed); platform superadmins unrestricted.
+  - Org policy: after the admin-role check the shared helper calls `enforce_org_mfa(caller, org_id, db)` (`src.security.org_auth`, same seam as `require_org_admin` and peers), so the org's two-factor and auth-method/session policies apply (403 `MFA_REQUIRED_BY_ORG` etc.); superadmins are exempt. Order: caller id, superadmin short-circuit, admin-role 403, org policy, target membership 404, target exists 404.
+  - Cross-org: the profile is one global row, so a non-superadmin must also be an ADMIN-role member of EVERY org the target belongs to; otherwise the same generic 403 `Admin access required` (no disclosure of other orgs). No-op when the target is in one org.
   - A nonexistent target, or (for non-superadmins) a target who is not a member of `org_id`, returns 404. Non-admins get 403 BEFORE any target lookup (no existence oracle).
   - API-token callers get 403 (also excluded at router level by `get_non_api_token_user`).
   - Full-replace PUT semantics: omitted optional fields are cleared (an admin can clear a squatted AMC ID). Region re-derives; AMC conflict is 409.
@@ -234,7 +236,7 @@ Still open:
 ## 11. Known limitations & residual risks
 - **AMC ID squatting**: IDs are unverified and first-come unique; at signup or the gate a member can claim another member's unregistered ID. Exposure is now limited to that first-time entry (after it is stored members cannot change it), and admins can fix it from the Users table dialog. AMC ID is treated as admin-managed once set; Salesforce is expected to become the source of official details later.
 - **AMC enumeration**: the 409 at public signup reveals whether an AMC ID is registered. Inherent to unique IDs; consider signup rate limiting.
-- **Cross-org edit**: the profile is one global row per user, so an admin of ANY org the target belongs to can edit it. Fine for single-org MKA; hardening option: require admin of every org the target belongs to.
+- **Cross-org edit (mitigated)**: the profile is one global row per user, so editing requires ADMIN of every org the target belongs to (superadmins unrestricted); for single-org MKA this is a no-op. Org MFA/auth-method policy is enforced on both admin endpoints via `enforce_org_mfa`.
 - **Maintainers cannot edit profiles** (ADMIN role only).
 - **Admin edit UI shipped** (Users table dialog, §6). Still sub-project 2: profile columns in the Users table and in the CSV export, and reporting.
 - **Admin dialog unverified at runtime**: dialog rendering, dark mode, Majlis/Tanzeem popover layering inside it, and the row button's placement/width in the actions cell.

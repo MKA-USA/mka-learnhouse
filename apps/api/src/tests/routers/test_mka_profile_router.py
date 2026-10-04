@@ -396,3 +396,133 @@ async def test_real_app_anonymous_get_user_is_401(db, org):
             assert resp.status_code == 401
     finally:
         app.dependency_overrides.clear()
+
+
+# --- Security hardening: org policy (MFA) + cross-org edits -------------------
+
+
+def _mfa_block():
+    return HTTPException(status_code=403, detail={"code": "MFA_REQUIRED_BY_ORG"})
+
+
+@pytest.mark.asyncio
+async def test_admin_blocked_by_org_mfa_policy_get_and_put(
+    db, org, admin_user, regular_user, monkeypatch
+):
+    monkeypatch.setattr(r, "enforce_org_mfa", AsyncMock(side_effect=_mfa_block()), raising=False)
+    with pytest.raises(HTTPException) as e:
+        await r.api_get_user(
+            user_id=regular_user.id, org_id=org.id, current_user=admin_user, db_session=db
+        )
+    assert e.value.status_code == 403 and e.value.detail["code"] == "MFA_REQUIRED_BY_ORG"
+    with pytest.raises(HTTPException) as e:
+        await r.api_put_user(
+            user_id=regular_user.id, org_id=org.id, body=MkaProfileIn(majlis="Zion"),
+            current_user=admin_user, db_session=db,
+        )
+    assert e.value.status_code == 403 and e.value.detail["code"] == "MFA_REQUIRED_BY_ORG"
+    assert await _count_profiles(db, regular_user.id) == 0
+
+
+@pytest.mark.asyncio
+async def test_enforce_org_mfa_called_for_admin_not_for_superadmin(
+    db, org, admin_user, regular_user, monkeypatch
+):
+    spy = AsyncMock(return_value=None)
+    monkeypatch.setattr(r, "enforce_org_mfa", spy, raising=False)
+    await r.api_get_user(
+        user_id=regular_user.id, org_id=org.id, current_user=admin_user, db_session=db
+    )
+    spy.assert_awaited_once_with(admin_user.id, org.id, db)
+
+    spy.reset_mock()
+    monkeypatch.setattr(r, "is_user_superadmin", AsyncMock(return_value=True))
+    await r.api_get_user(
+        user_id=regular_user.id, org_id=org.id, current_user=admin_user, db_session=db
+    )
+    spy.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_non_admin_gets_403_before_mfa_check(db, org, regular_user, monkeypatch):
+    spy = AsyncMock(return_value=None)
+    monkeypatch.setattr(r, "enforce_org_mfa", spy, raising=False)
+    with pytest.raises(HTTPException) as e:
+        await r.api_get_user(
+            user_id=999999, org_id=org.id, current_user=regular_user, db_session=db
+        )
+    assert e.value.status_code == 403 and e.value.detail == "Admin access required"
+    spy.assert_not_awaited()
+
+
+async def _join(db, user_id, org_id, role_id):
+    from src.db.user_organizations import UserOrganization
+
+    now = str(datetime.now())
+    db.add(UserOrganization(
+        user_id=user_id, org_id=org_id, role_id=role_id, creation_date=now, update_date=now,
+    ))
+    await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_admin_of_only_one_org_cannot_touch_multi_org_target(
+    db, org, other_org, admin_user, regular_user
+):
+    await _join(db, regular_user.id, other_org.id, 4)
+    with pytest.raises(HTTPException) as e:
+        await r.api_get_user(
+            user_id=regular_user.id, org_id=org.id, current_user=admin_user, db_session=db
+        )
+    assert e.value.status_code == 403 and e.value.detail == "Admin access required"
+    with pytest.raises(HTTPException) as e:
+        await r.api_put_user(
+            user_id=regular_user.id, org_id=org.id, body=MkaProfileIn(majlis="Zion"),
+            current_user=admin_user, db_session=db,
+        )
+    assert e.value.status_code == 403 and e.value.detail == "Admin access required"
+    assert await _count_profiles(db, regular_user.id) == 0
+
+
+@pytest.mark.asyncio
+async def test_admin_of_every_org_can_edit_multi_org_target(
+    db, org, other_org, admin_user, regular_user
+):
+    await _join(db, regular_user.id, other_org.id, 4)
+    await _join(db, admin_user.id, other_org.id, 1)
+    out = await r.api_put_user(
+        user_id=regular_user.id, org_id=org.id, body=MkaProfileIn(majlis="Zion"),
+        current_user=admin_user, db_session=db,
+    )
+    assert out["region"] == "Midwest"
+    got = await r.api_get_user(
+        user_id=regular_user.id, org_id=org.id, current_user=admin_user, db_session=db
+    )
+    assert got["majlis"] == "Zion"
+
+
+@pytest.mark.asyncio
+async def test_maintainer_in_other_org_does_not_satisfy_every_org(
+    db, org, other_org, admin_user, regular_user
+):
+    from src.security.rbac.constants import MAINTAINER_ROLE_ID
+
+    await _join(db, regular_user.id, other_org.id, 4)
+    await _join(db, admin_user.id, other_org.id, MAINTAINER_ROLE_ID)
+    with pytest.raises(HTTPException) as e:
+        await r.api_get_user(
+            user_id=regular_user.id, org_id=org.id, current_user=admin_user, db_session=db
+        )
+    assert e.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_superadmin_edits_multi_org_target(
+    db, org, other_org, admin_user, regular_user, as_superadmin
+):
+    await _join(db, regular_user.id, other_org.id, 4)
+    out = await r.api_put_user(
+        user_id=regular_user.id, org_id=org.id, body=MkaProfileIn(majlis="Zion"),
+        current_user=admin_user, db_session=db,
+    )
+    assert out["complete"] is True

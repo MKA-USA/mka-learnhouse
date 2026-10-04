@@ -8,7 +8,7 @@ from src.core.events.database import get_db_session
 from src.db.user_organizations import UserOrganization
 from src.db.users import APITokenUser, SuperadminAPITokenUser, User
 from src.security.auth import get_authenticated_user
-from src.security.org_auth import get_user_org
+from src.security.org_auth import enforce_org_mfa, get_user_org
 from src.security.rbac.constants import is_admin
 from src.security.superadmin import is_user_superadmin
 from src.services.users.mka_profile import (
@@ -66,13 +66,17 @@ async def _authorize_target(
     """Shared authz + existence check for the admin profile endpoints.
 
     Order matters: 403 before any lookup of the target (non-admins learn
-    nothing), then 404 for non-members / unknown users.
+    nothing), then org MFA/auth policy (same gate as peer admin endpoints),
+    then 404 for non-members / unknown users. The profile is one global row
+    per user, so a non-superadmin must be ADMIN of EVERY org the target
+    belongs to (generic 403 otherwise; a no-op for single-org deployments).
     """
     superadmin = await is_user_superadmin(caller, db_session)
     if not superadmin:
         caller_org = await get_user_org(caller, org_id, db_session)
         if caller_org is None or not is_admin(caller_org.role_id):
             raise HTTPException(status_code=403, detail="Admin access required")
+        await enforce_org_mfa(caller, org_id, db_session)
         member = (
             await db_session.execute(
                 select(UserOrganization).where(
@@ -83,6 +87,17 @@ async def _authorize_target(
         ).scalars().first()
         if member is None:
             raise HTTPException(status_code=404, detail="User not found in this organization")
+        target_org_ids = (
+            await db_session.execute(
+                select(UserOrganization.org_id).where(UserOrganization.user_id == user_id)
+            )
+        ).scalars().all()
+        for other_id in target_org_ids:
+            if other_id == org_id:
+                continue
+            other = await get_user_org(caller, other_id, db_session)
+            if other is None or not is_admin(other.role_id):
+                raise HTTPException(status_code=403, detail="Admin access required")
     if await db_session.get(User, user_id) is None:
         raise HTTPException(status_code=404, detail="User not found")
 
