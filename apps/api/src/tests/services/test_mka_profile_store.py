@@ -111,3 +111,46 @@ async def test_save_signup_profile_none_is_noop(db):
     u = await _mk_user(db, 1)
     await save_signup_profile(db, u.id, None)
     assert await get_profile(db, u.id) is None
+
+
+@pytest.mark.asyncio
+async def test_integrity_error_is_409_when_amc_really_taken(db, monkeypatch):
+    from src.services.users import mka_profile as mp
+
+    u1, u2 = await _mk_user(db, 91), await _mk_user(db, 92)
+    id1, id2 = u1.id, u2.id  # rollback expires ORM instances; keep plain ids
+    await upsert_profile(db, id1, MkaProfileIn(majlis="Zion", amc_id="9001"))
+    real = mp._amc_taken
+    calls = {"n": 0}
+
+    async def fake(db_session, amc_id, exclude_user_id):
+        calls["n"] += 1
+        if calls["n"] == 1:  # pre-check misses (simulated race)
+            return False
+        return await real(db_session, amc_id, exclude_user_id)
+
+    monkeypatch.setattr(mp, "_amc_taken", fake)
+    with pytest.raises(HTTPException) as e:
+        await upsert_profile(db, id2, MkaProfileIn(majlis="Zion", amc_id="9001"))
+    assert e.value.status_code == 409
+    assert (await get_profile(db, id1)).amc_id == "9001"  # session still usable
+    assert await get_profile(db, id2) is None
+
+
+@pytest.mark.asyncio
+async def test_integrity_error_not_caused_by_amc_is_reraised(db, monkeypatch):
+    from sqlalchemy.exc import IntegrityError
+    from src.services.users import mka_profile as mp
+
+    u = await _mk_user(db, 93)
+
+    async def never_taken(*a, **k):
+        return False
+
+    async def boom():
+        raise IntegrityError("stmt", {}, Exception("other constraint"))
+
+    monkeypatch.setattr(mp, "_amc_taken", never_taken)
+    monkeypatch.setattr(db, "commit", boom)
+    with pytest.raises(IntegrityError):
+        await upsert_profile(db, u.id, MkaProfileIn(majlis="Zion", amc_id="9002"))

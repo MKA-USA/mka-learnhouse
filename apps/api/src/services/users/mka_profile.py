@@ -5,6 +5,7 @@ the optional profile fields. Pure (no DB); persistence lives further down in
 this module's service functions (added in the DB task) and in the router.
 """
 
+import logging
 import re
 from datetime import datetime
 from enum import Enum
@@ -174,6 +175,8 @@ def options_payload() -> dict:
     }
 
 
+logger = logging.getLogger(__name__)
+
 _AMC_TAKEN = "That AMC ID is already registered"
 
 
@@ -227,7 +230,9 @@ async def upsert_profile(
         await db_session.commit()
     except IntegrityError:
         await db_session.rollback()
-        raise HTTPException(status_code=409, detail=_AMC_TAKEN)
+        if await _amc_taken(db_session, data.amc_id, exclude_user_id=user_id):
+            raise HTTPException(status_code=409, detail=_AMC_TAKEN)
+        raise
     await db_session.refresh(row)
     return row
 
@@ -245,7 +250,20 @@ async def validate_signup_profile(
 async def save_signup_profile(
     db_session: AsyncSession, user_id: int, data: Optional[MkaProfileIn]
 ) -> None:
-    """Run right after the user commit. A failure here leaves the user to the gate."""
+    """Run right after the user commit.
+
+    The account already exists at this point, so an AMC-ID race (409) must not
+    surface as a signup error; the profile gate collects the profile later.
+    Any other failure propagates.
+    """
     if data is None:
         return
-    await upsert_profile(db_session, user_id, data)
+    try:
+        await upsert_profile(db_session, user_id, data)
+    except HTTPException as exc:
+        if exc.status_code != 409:
+            raise
+        logger.warning(
+            "MKA profile not saved at signup (conflict); user %s left to the profile gate",
+            user_id,
+        )

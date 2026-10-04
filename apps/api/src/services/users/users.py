@@ -16,6 +16,7 @@ from src.security.features_utils.usage import (
 from src.core.deployment_mode import get_deployment_mode
 from src.services.users.usergroups import add_users_to_usergroup
 from src.services.auth.mka_google_only import block_email_change, block_non_google_auth  # MKA fork
+from src.services.users.mka_profile import save_signup_profile, validate_signup_profile  # MKA fork
 from src.services.users.emails import (
     send_account_creation_email,
 )
@@ -199,6 +200,7 @@ async def create_user(
         last_name=user_object.last_name,
     )
 
+    mka_profile = await validate_signup_profile(db_session, user_object.mka_profile, is_oauth)  # MKA fork
     user = User.model_validate(user_object)
 
     # RBAC check
@@ -277,6 +279,7 @@ async def create_user(
     db_session.add(user)
     await db_session.commit()
     await db_session.refresh(user)
+    await save_signup_profile(db_session, user.id, mka_profile)  # MKA fork
 
     # Link user and organization
     user_organization = UserOrganization(
@@ -449,6 +452,7 @@ async def create_user_without_org(
         last_name=user_object.last_name,
     )
 
+    mka_profile = await validate_signup_profile(db_session, user_object.mka_profile, is_oauth)  # MKA fork
     user = User.model_validate(user_object)
 
     # RBAC check
@@ -505,6 +509,7 @@ async def create_user_without_org(
     db_session.add(user)
     await db_session.commit()
     await db_session.refresh(user)
+    await save_signup_profile(db_session, user.id, mka_profile)  # MKA fork
 
     user_read = UserRead.model_validate(user)
 
