@@ -82,6 +82,7 @@ from src.services.analytics import events as analytics_events
 from src.services.audit.audit import record_audit_event
 from src.db.user_audit_events import UserAuditEventType
 from src.services.webhooks.dispatch import dispatch_webhooks
+from src.services.moderation_ai import schedule_moderation, assignment_submission_text
 
 # Hard caps for regex answer-matching (defense-in-depth alongside the timeout).
 _REGEX_MAX_LEN = 1000
@@ -2974,6 +2975,7 @@ async def create_assignment_submission(
                 "attempt_number": submitted_attempt_number,
             },
         )
+        schedule_moderation(kind="assignment_submission", content_type="assignment_submission", content_uuid=assignment_user_submission.assignmentusersubmission_uuid, org_id=course.org_id, author_user_id=submitter.id, text_loader=assignment_submission_text(submitter.id, assignment.id))
 
     # User (the learner the submission belongs to)
     statement = select(User).where(User.id == submitter.id)

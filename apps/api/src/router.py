@@ -8,6 +8,7 @@ from src.routers import health
 from src.routers import demo as demo_router_module
 from src.routers import instance
 from src.routers import plans
+from src.routers import moderation_flags as moderation_flags_router_module
 from src.routers import usergroups
 from src.routers import dev, trail, users, auth, orgs, roles, search
 from src.routers import mfa as mfa_router_module
@@ -101,6 +102,18 @@ v1_router.include_router(
     ai_credits.router,
     prefix="/orgs",
     tags=["ai-credits"],
+    dependencies=[Depends(require_authenticated_user)]
+)
+v1_router.include_router(
+    moderation_flags_router_module.org_settings_router,
+    prefix="/orgs",
+    tags=["moderation"],
+    dependencies=[Depends(require_authenticated_user)]
+)
+v1_router.include_router(
+    moderation_flags_router_module.router,
+    prefix="/moderation-flags",
+    tags=["moderation"],
     dependencies=[Depends(require_authenticated_user)]
 )
 v1_router.include_router(

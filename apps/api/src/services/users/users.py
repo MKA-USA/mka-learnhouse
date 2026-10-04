@@ -48,6 +48,7 @@ from src.services.security.profile_validation import validate_profile_fields
 from src.services.analytics.analytics import track
 from src.services.analytics import events as analytics_events
 from src.services.webhooks.dispatch import dispatch_webhooks
+from src.services.moderation_ai import schedule_moderation, profile_text
 
 
 def _reject_urls_in_profile_fields(**fields) -> None:
@@ -598,6 +599,7 @@ async def update_user(
     db_session.add(user)
     await db_session.commit()
     await db_session.refresh(user)
+    schedule_moderation(kind="general", content_type="user_profile", content_uuid=user.user_uuid, org_id=None, author_user_id=user.id, text_loader=profile_text(user.bio, user.first_name, user.last_name))
 
     user = UserRead.model_validate(user)
 

@@ -166,7 +166,19 @@ class SecurityAdminToggle(BaseModel):
     allow_central_session_sharing: bool = True
 
 
+class ModerationAIAdminToggle(BaseModel):
+    """Per-org opt-in for advisory AI content moderation (off by default).
+
+    ``surfaces`` empty/None means every surface; otherwise a subset of
+    discussion | discussion_comment | assignment_submission | user_profile.
+    """
+
+    enabled: bool = False
+    surfaces: Optional[list[str]] = None
+
+
 class AdminToggles(BaseModel):
+    moderation_ai: ModerationAIAdminToggle = ModerationAIAdminToggle()
     security: SecurityAdminToggle = SecurityAdminToggle()
     ai: AIAdminToggle = AIAdminToggle()
     analytics: FeatureAdminToggle = FeatureAdminToggle()
