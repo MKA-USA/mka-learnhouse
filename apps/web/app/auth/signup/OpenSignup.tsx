@@ -19,7 +19,7 @@ import TurnstileWidget, { useTurnstileRequired, type TurnstileWidgetHandle } fro
 import { useLHAnalytics, AnalyticsEvent } from '@services/analytics'
 import { getAllowedAuthMethods } from '@services/auth/authMethods'
 import MkaProfileFields from '@components/mka/MkaProfileFields' // MKA fork
-import { emptyMkaProfile, validateMkaProfile, mkaValuesToBody } from '@services/mka/profile' // MKA fork
+import { emptyMkaProfile, validateMkaProfile, mkaValuesToBody, applyMkaServerErrors } from '@services/mka/profile' // MKA fork
 import CustomSignupFields, {
   initialCustomFieldValues,
   validateCustomFields,
@@ -137,17 +137,7 @@ function OpenSignUpComponent({ org: propOrg }: OpenSignUpComponentProps = {}) {
           // gave us nothing readable.
           track(AnalyticsEvent.SignupFailed, { status_code: res.status })
           setError(getErrorMessage(message?.detail, t('common.something_went_wrong')))
-          // MKA fork: also pin AMC-conflict (409) / per-field (422) errors to their field
-          if (res.status === 409 && typeof message?.detail === 'string') {
-            formik.setFieldError('mka_profile.amc_id', message.detail)
-          } else if (res.status === 422 && Array.isArray(message?.detail)) {
-            for (const d of message.detail as { field?: string; message?: string; loc?: unknown[]; msg?: string }[]) {
-              const f = d.field ?? (Array.isArray(d.loc) ? String(d.loc[d.loc.length - 1]) : '')
-              if (['majlis', 'mobile', 'amc_id', 'tanzeem'].includes(f)) {
-                formik.setFieldError(`mka_profile.${f}`, String(d.message ?? d.msg ?? '').replace(/^Value error, /, ''))
-              }
-            }
-          }
+          applyMkaServerErrors(res.status, message?.detail, formik.setFieldError) // MKA fork
           // Turnstile tokens are single-use — fetch a fresh one for the retry.
           turnstileRef.current?.reset()
         }

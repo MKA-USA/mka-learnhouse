@@ -76,6 +76,38 @@ type ErrorDetailItem = {
   msg?: unknown
 }
 
+const MKA_FIELD_KEYS: readonly string[] = ['majlis', 'mobile', 'amc_id', 'tanzeem']
+
+/** Shared by parseError and applyMkaServerErrors: backend detail -> per-field errors. */
+function parseFieldErrors(status: number, detail: unknown): MkaProfileFieldErrors {
+  const fields: MkaProfileFieldErrors = {}
+  if (typeof detail === 'string') {
+    if (status === 409) fields.amc_id = detail
+  } else if (Array.isArray(detail)) {
+    for (const d of detail as ErrorDetailItem[]) {
+      // our own {field, message} items, or FastAPI's {loc, msg}
+      const field = d.field ?? (Array.isArray(d.loc) ? String(d.loc[d.loc.length - 1]) : '')
+      const msg = String(d.message ?? d.msg ?? '').replace(/^Value error, /, '')
+      if (MKA_FIELD_KEYS.includes(field) && msg) fields[field as keyof MkaProfileValues] = msg
+    }
+  }
+  return fields
+}
+
+/**
+ * Pin a signup/profile API error onto the matching `mka_profile.<field>` form
+ * fields. Returns true if at least one field error was set.
+ */
+export function applyMkaServerErrors(
+  status: number,
+  detail: unknown,
+  setFieldError: (path: string, message: string) => void
+): boolean {
+  const entries = Object.entries(parseFieldErrors(status, detail))
+  for (const [field, msg] of entries) setFieldError(`mka_profile.${field}`, msg)
+  return entries.length > 0
+}
+
 async function parseError(res: Response): Promise<MkaProfileError> {
   let detail: unknown = null
   try {
@@ -84,23 +116,10 @@ async function parseError(res: Response): Promise<MkaProfileError> {
   } catch {
     /* non-JSON body */
   }
-  const fields: MkaProfileFieldErrors = {}
+  const fields = parseFieldErrors(res.status, detail)
   let message = 'Something went wrong. Please try again.'
-  if (typeof detail === 'string') {
-    message = detail
-    if (res.status === 409) fields.amc_id = detail
-  } else if (Array.isArray(detail)) {
-    for (const d of detail as ErrorDetailItem[]) {
-      // our own {field, message} items, or FastAPI's {loc, msg}
-      const field = (d.field ??
-        (Array.isArray(d.loc) ? String(d.loc[d.loc.length - 1]) : '')) as
-        | keyof MkaProfileValues
-        | ''
-      const msg = String(d.message ?? d.msg ?? '').replace(/^Value error, /, '')
-      if (field && msg) fields[field] = msg
-    }
-    message = Object.values(fields)[0] ?? message
-  }
+  if (typeof detail === 'string') message = detail
+  else if (Array.isArray(detail)) message = Object.values(fields)[0] ?? message
   return new MkaProfileError(res.status, message, fields)
 }
 

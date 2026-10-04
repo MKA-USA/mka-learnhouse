@@ -114,10 +114,10 @@ export async function POST(request: NextRequest) {
     ...(mka_profile && typeof mka_profile === 'object'
       ? {
           mka_profile: {
-            majlis: mka_profile.majlis,
-            mobile: mka_profile.mobile,
-            amc_id: mka_profile.amc_id,
-            tanzeem: mka_profile.tanzeem,
+            majlis: typeof mka_profile.majlis === 'string' ? mka_profile.majlis : undefined,
+            mobile: mka_profile.mobile === null ? null : typeof mka_profile.mobile === 'string' ? mka_profile.mobile : undefined,
+            amc_id: mka_profile.amc_id === null ? null : typeof mka_profile.amc_id === 'string' ? mka_profile.amc_id : undefined,
+            tanzeem: mka_profile.tanzeem === null ? null : typeof mka_profile.tanzeem === 'string' ? mka_profile.tanzeem : undefined,
           },
         }
       : {}),
