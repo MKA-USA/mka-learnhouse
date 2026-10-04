@@ -74,6 +74,41 @@ async def test_duplicate_amc_at_signup_is_409_and_creates_no_user(mock_request, 
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("fn", ["create_user", "create_user_without_org"])
+async def test_forbidden_signup_403_wins_over_amc_409_and_precheck_not_reached(
+    fn, mock_request, db, admin_user, org
+):
+    # An org that disallows signup must not leak "AMC ID already registered".
+    await upsert_taken_amc(db)
+    forbidden = HTTPException(status_code=403, detail="nope")
+    with _signup_patches(), \
+            patch("src.services.users.users.rbac_check", AsyncMock(side_effect=forbidden)), \
+            patch("src.services.users.users.validate_signup_profile", AsyncMock()) as v:
+        args = (mock_request, db, admin_user, _body("p9", mka_profile={"majlis": "Zion", "amc_id": "9"}))
+        with pytest.raises(HTTPException) as e:
+            if fn == "create_user":
+                await create_user(*args, org.id)
+            else:
+                await create_user_without_org(*args)
+    assert e.value.status_code == 403
+    v.assert_not_called()
+
+
+async def upsert_taken_amc(db):
+    from src.services.users.mka_profile import MkaProfileIn, upsert_profile
+
+    holder = User(
+        username="holder9", first_name="H", last_name="L", email="holder9@test.com",
+        password="x", user_uuid="user_holder9",
+        creation_date="2026-01-01", update_date="2026-01-01",
+    )
+    db.add(holder)
+    await db.commit()
+    await db.refresh(holder)
+    await upsert_profile(db, holder.id, MkaProfileIn(majlis="Zion", amc_id="9"))
+
+
+@pytest.mark.asyncio
 async def test_oauth_signup_without_profile_succeeds_and_is_incomplete(mock_request, db, admin_user, org):
     with _signup_patches():
         created = await create_user(

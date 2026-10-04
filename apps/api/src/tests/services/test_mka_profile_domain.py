@@ -121,21 +121,21 @@ def test_parse_profile_field_errors_are_clean():
     with pytest.raises(HTTPException) as e:
         parse_profile({"majlis": "Zion", "amc_id": "12a"}, required=True)
     assert e.value.status_code == 422
-    assert e.value.detail == [{"field": "amc_id", "message": "AMC ID must contain digits only"}]
+    assert e.value.detail == [{"field": "amc_id", "message": "AMC ID must contain digits only", "msg": "AMC ID must contain digits only"}]
 
 
 def test_parse_profile_rejects_amc_id_as_number():
     with pytest.raises(HTTPException) as e:
         parse_profile({"majlis": "Zion", "amc_id": 12345}, required=True)
     assert e.value.status_code == 422
-    assert e.value.detail == [{"field": "amc_id", "message": "AMC ID must contain digits only"}]
+    assert e.value.detail == [{"field": "amc_id", "message": "AMC ID must contain digits only", "msg": "AMC ID must contain digits only"}]
 
 
 def test_parse_profile_rejects_mobile_as_number():
     with pytest.raises(HTTPException) as e:
         parse_profile({"majlis": "Zion", "mobile": 7032340142}, required=True)
     assert e.value.status_code == 422
-    assert e.value.detail == [{"field": "mobile", "message": "Enter a valid US mobile number"}]
+    assert e.value.detail == [{"field": "mobile", "message": "Enter a valid US mobile number", "msg": "Enter a valid US mobile number"}]
 
 
 def test_options_payload_shape():

@@ -14,7 +14,7 @@ from typing import Optional
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 from sqlalchemy.exc import IntegrityError
-from sqlmodel import select
+from sqlmodel import delete, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.db.mka_user_profile import MkaUserProfile
@@ -144,7 +144,7 @@ def parse_profile(raw: Optional[dict], *, required: bool) -> Optional[MkaProfile
         if required:
             raise HTTPException(
                 status_code=422,
-                detail=[{"field": "majlis", "message": "Majlis is required"}],
+                detail=[{"field": "majlis", "message": "Majlis is required", "msg": "Majlis is required"}],
             )
         return None
     try:
@@ -156,6 +156,9 @@ def parse_profile(raw: Optional[dict], *, required: bool) -> Optional[MkaProfile
                 {
                     "field": ".".join(str(p) for p in err["loc"]),
                     "message": err["msg"].removeprefix("Value error, "),
+                    # `msg` mirrors `message` so upstream's getErrorMessage (reads
+                    # `msg`) shows the real text instead of a generic banner.
+                    "msg": err["msg"].removeprefix("Value error, "),
                 }
                 for err in exc.errors()
             ],
@@ -197,6 +200,17 @@ async def profile_status(db_session: AsyncSession, user_id: int) -> dict:
         "amc_id": row.amc_id,
         "tanzeem": row.tanzeem,
     }
+
+
+async def delete_profile(db_session: AsyncSession, user_id: int) -> None:
+    """Delete the user's profile row (GDPR anonymize). Does NOT commit: it must
+    run inside the caller's transaction so the scrub is atomic.
+
+    Hard-deleting a user needs no call to this: the FK cascades in the DB.
+    """
+    await db_session.execute(
+        delete(MkaUserProfile).where(MkaUserProfile.user_id == user_id)  # type: ignore[arg-type]
+    )
 
 
 async def _amc_taken(

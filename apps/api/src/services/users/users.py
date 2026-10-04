@@ -200,11 +200,11 @@ async def create_user(
         last_name=user_object.last_name,
     )
 
-    mka_profile = await validate_signup_profile(db_session, user_object.mka_profile, is_oauth)  # MKA fork
     user = User.model_validate(user_object)
 
     # RBAC check
     await rbac_check(request, current_user, "create", "user_x", db_session)
+    mka_profile = await validate_signup_profile(db_session, user_object.mka_profile, is_oauth)  # MKA fork
 
     # Complete the user object
     user.user_uuid = f"user_{uuid4()}"
@@ -452,11 +452,11 @@ async def create_user_without_org(
         last_name=user_object.last_name,
     )
 
-    mka_profile = await validate_signup_profile(db_session, user_object.mka_profile, is_oauth)  # MKA fork
     user = User.model_validate(user_object)
 
     # RBAC check
     await rbac_check(request, current_user, "create", "user_x", db_session)
+    mka_profile = await validate_signup_profile(db_session, user_object.mka_profile, is_oauth)  # MKA fork
 
     # Complete the user object
     user.user_uuid = f"user_{uuid4()}"

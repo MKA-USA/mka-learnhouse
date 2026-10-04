@@ -58,21 +58,16 @@ async def api_put_me(
     return await profile_status(db_session, uid)
 
 
-@router.put("/user/{user_id}")
-async def api_put_user(
-    user_id: int,
-    body: MkaProfileIn,
-    org_id: int = Query(...),
-    current_user=Depends(get_authenticated_user),
-    db_session: AsyncSession = Depends(get_db_session),
-) -> dict:
-    """Full replace of a user's profile (majlis required; omitted or null
-    optional fields clear stored values). Org ADMINS (not maintainers) may
-    edit members of the org named by `org_id`; superadmins may edit anyone."""
-    caller = _uid(current_user)
+async def _authorize_target(
+    caller: int, user_id: int, org_id: int, db_session: AsyncSession
+) -> None:
+    """Shared authz + existence check for the admin profile endpoints.
+
+    Order matters: 403 before any lookup of the target (non-admins learn
+    nothing), then 404 for non-members / unknown users.
+    """
     superadmin = await is_user_superadmin(caller, db_session)
     if not superadmin:
-        # 403 before any lookup of the target so non-admins learn nothing.
         caller_org = await get_user_org(caller, org_id, db_session)
         if caller_org is None or not is_admin(caller_org.role_id):
             raise HTTPException(status_code=403, detail="Admin access required")
@@ -88,5 +83,34 @@ async def api_put_user(
             raise HTTPException(status_code=404, detail="User not found in this organization")
     if await db_session.get(User, user_id) is None:
         raise HTTPException(status_code=404, detail="User not found")
+
+
+@router.get("/user/{user_id}")
+async def api_get_user(
+    user_id: int,
+    org_id: int = Query(...),
+    current_user=Depends(get_authenticated_user),
+    db_session: AsyncSession = Depends(get_db_session),
+) -> dict:
+    """Read a user's profile (same authorization as PUT: org ADMINS of `org_id`
+    or superadmins). PUT is a FULL REPLACE, so an editor must GET this first,
+    change the fields it wants, then PUT the full object back."""
+    await _authorize_target(_uid(current_user), user_id, org_id, db_session)
+    return await profile_status(db_session, user_id)
+
+
+@router.put("/user/{user_id}")
+async def api_put_user(
+    user_id: int,
+    body: MkaProfileIn,
+    org_id: int = Query(...),
+    current_user=Depends(get_authenticated_user),
+    db_session: AsyncSession = Depends(get_db_session),
+) -> dict:
+    """FULL REPLACE of a user's profile: majlis is required; omitted or null
+    optional fields (mobile, amc_id, tanzeem) CLEAR the stored values. GET the
+    profile first, then PUT the complete object. Org ADMINS (not maintainers)
+    may edit members of the org named by `org_id`; superadmins may edit anyone."""
+    await _authorize_target(_uid(current_user), user_id, org_id, db_session)
     await upsert_profile(db_session, user_id, body)
     return await profile_status(db_session, user_id)

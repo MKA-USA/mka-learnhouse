@@ -34,6 +34,7 @@ from src.db.usergroups import UserGroup, UserGroupRead
 from src.db.user_organizations import UserOrganization
 from src.db.users import APITokenUser, User, UserRead
 from src.services.trail.trail import _build_trail_read
+from src.services.users.mka_profile import delete_profile, profile_status  # MKA fork
 from src.services.courses.certifications import (
     check_course_completion_and_create_certificate,
     is_course_fully_completed,
@@ -2432,6 +2433,7 @@ async def export_user_data(
         "user_groups": [
             UserGroupRead.model_validate(g).model_dump() for g, _ in group_rows
         ],
+        "mka_profile": await profile_status(db_session, user_id),  # MKA fork
         "exported_at": datetime.now().isoformat(),
     }
 
@@ -2486,6 +2488,7 @@ async def anonymize_user(
     user.signup_method = "anonymized"
     user.update_date = str(datetime.now())
     db_session.add(user)
+    await delete_profile(db_session, user_id)  # MKA fork
     await db_session.commit()
 
     try:

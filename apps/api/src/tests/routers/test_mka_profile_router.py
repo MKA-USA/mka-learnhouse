@@ -277,3 +277,122 @@ async def test_asgi_put_me_ignores_client_region(asgi_client, db, regular_user):
     assert resp.status_code == 200
     assert resp.json()["region"] == "Northwest"
     assert (await profile_status(db, regular_user.id))["region"] == "Northwest"
+
+
+# --- GET /user/{user_id} (admin read) ----------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_admin_get_returns_full_profile(db, org, admin_user, regular_user):
+    await r.api_put_user(
+        user_id=regular_user.id, org_id=org.id,
+        body=MkaProfileIn(majlis="Zion", mobile="7032340142", amc_id="123", tanzeem="tifl"),
+        current_user=admin_user, db_session=db,
+    )
+    out = await r.api_get_user(
+        user_id=regular_user.id, org_id=org.id, current_user=admin_user, db_session=db
+    )
+    assert out == {
+        "complete": True, "majlis": "Zion", "region": "Midwest",
+        "mobile": "+17032340142", "amc_id": "123", "tanzeem": "tifl",
+    }
+
+
+@pytest.mark.asyncio
+async def test_admin_get_incomplete_profile(db, org, admin_user, regular_user):
+    out = await r.api_get_user(
+        user_id=regular_user.id, org_id=org.id, current_user=admin_user, db_session=db
+    )
+    assert out == {"complete": False}
+
+
+@pytest.mark.asyncio
+async def test_maintainer_cannot_get_profiles(db, org, regular_user):
+    from src.db.roles import Role, RoleTypeEnum
+    from src.db.user_organizations import UserOrganization
+    from src.security.rbac.constants import MAINTAINER_ROLE_ID
+
+    now = str(datetime.now())
+    db.add(Role(
+        id=MAINTAINER_ROLE_ID, name="Maintainer", org_id=org.id,
+        role_type=RoleTypeEnum.TYPE_ORGANIZATION, role_uuid="role_maint_get",
+        rights={}, creation_date=now, update_date=now,
+    ))
+    maint = await _make_user(db, "maintget")
+    db.add(UserOrganization(
+        user_id=maint.id, org_id=org.id, role_id=MAINTAINER_ROLE_ID,
+        creation_date=now, update_date=now,
+    ))
+    await db.commit()
+    with pytest.raises(HTTPException) as e:
+        await r.api_get_user(
+            user_id=regular_user.id, org_id=org.id, current_user=maint, db_session=db
+        )
+    assert e.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_normal_member_get_is_403_even_for_unknown_user(db, org, admin_user, regular_user):
+    for target in (admin_user.id, 999999):
+        with pytest.raises(HTTPException) as e:
+            await r.api_get_user(
+                user_id=target, org_id=org.id, current_user=regular_user, db_session=db
+            )
+        assert e.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_superadmin_get_user_outside_org_id(db, org, other_org, admin_user, as_superadmin):
+    outsider = await _make_user(db, "out3")
+    await r.api_put_user(
+        user_id=outsider.id, org_id=org.id, body=MkaProfileIn(majlis="Zion", amc_id="777"),
+        current_user=admin_user, db_session=db,
+    )
+    out = await r.api_get_user(
+        user_id=outsider.id, org_id=org.id, current_user=admin_user, db_session=db
+    )
+    assert out["complete"] is True and out["amc_id"] == "777"
+
+
+@pytest.mark.asyncio
+async def test_admin_get_unknown_user_is_404(db, org, admin_user):
+    with pytest.raises(HTTPException) as e:
+        await r.api_get_user(
+            user_id=999999, org_id=org.id, current_user=admin_user, db_session=db
+        )
+    assert e.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_admin_get_user_outside_org_is_404(db, org, other_org, admin_user):
+    outsider = await _make_user(db, "out4")
+    with pytest.raises(HTTPException) as e:
+        await r.api_get_user(
+            user_id=outsider.id, org_id=org.id, current_user=admin_user, db_session=db
+        )
+    assert e.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_get_user_api_token_is_403(db, org):
+    with pytest.raises(HTTPException) as e:
+        await r.api_get_user(
+            user_id=1, org_id=org.id, current_user=APITokenUser(id=7, org_id=org.id),
+            db_session=db,
+        )
+    assert e.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_real_app_anonymous_get_user_is_401(db, org):
+    from src.router import v1_router
+    app = FastAPI()
+    app.include_router(v1_router)
+    app.dependency_overrides[get_db_session] = lambda: db
+    app.dependency_overrides[get_current_user] = lambda: AnonymousUser()
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+            resp = await c.get(f"/api/v1/mka/profile/user/1?org_id={org.id}")
+            assert resp.status_code == 401
+    finally:
+        app.dependency_overrides.clear()
