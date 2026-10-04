@@ -25,6 +25,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { queryKeys } from '@/lib/query/keys'
 import { readSignupFields } from '@services/settings/org'
 import { useTranslation } from 'react-i18next'
+import MkaProfileEditDialog from '@components/mka/MkaProfileEditDialog' // MKA fork
 import {
   Select,
   SelectContent,
@@ -81,6 +82,7 @@ function OrgUsers() {
   // Per-student analytics (integrated into this Users list)
   const [analyticsUserId, setAnalyticsUserId] = useState<number | null>(null)
   const [comparing, setComparing] = useState(false)
+  const [mkaEdit, setMkaEdit] = useState<{ id: number; name: string } | null>(null) // MKA fork
 
   const buildQuery = () => {
     const params = new URLSearchParams()
@@ -757,6 +759,18 @@ function OrgUsers() {
                                 <ExternalLink className="w-3.5 h-3.5" />
                               </Link>
                             </ToolTip>
+                          {/* MKA fork: admin-only (canManageOrg = org admin / superadmin) */}
+                          {canManageOrg && (
+                            <button
+                              onClick={() => setMkaEdit({ id: user.user.id, name: `${user.user.first_name} ${user.user.last_name}`.trim() || user.user.username })}
+                              className="inline-flex items-center gap-1.5 h-8 px-3 bg-white text-gray-600 hover:bg-indigo-50 hover:text-indigo-600 rounded-md text-xs font-medium nice-shadow transition-all"
+                              aria-label="Edit profile"
+                              title="Edit profile"
+                            >
+                              <User className="w-3.5 h-3.5" />
+                              <span>Edit profile</span>
+                            </button>
+                          )}
                           {canManageOrg && (
                             <ConfirmationModal
                               confirmationButtonText={t('dashboard.users.active_users.modals.remove_user.button')}
@@ -826,6 +840,10 @@ function OrgUsers() {
 
       {/* Per-student analytics (integrated into the Users tab) */}
       <UserDossierModal userId={analyticsUserId} onOpenChange={(o) => !o && setAnalyticsUserId(null)} />
+      {/* MKA fork: admin edit of a member's Majlis/mobile/AMC ID/Tanzeem */}
+      {mkaEdit && org?.id && (
+        <MkaProfileEditDialog open onOpenChange={(o) => !o && setMkaEdit(null)} userId={mkaEdit.id} orgId={org.id} displayName={mkaEdit.name} />
+      )}
       <Dialog open={comparing} onOpenChange={setComparing}>
         <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto bg-[#f8f8f8] p-6 sm:p-8">
           <h2 className="font-bold text-xl tracking-tight mb-4">{t('dashboard.users.analytics.compare_students')}</h2>

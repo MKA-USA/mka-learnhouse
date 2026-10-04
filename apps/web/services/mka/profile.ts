@@ -149,3 +149,58 @@ export async function putMyMkaProfile(
   if (!res.ok) throw await parseError(res)
   return res.json()
 }
+
+/** Server profile -> form values. Incomplete (no profile yet) -> empty form. */
+export function profileToValues(p: MkaProfileStatus): MkaProfileValues {
+  if (!p.complete) return { ...emptyMkaProfile }
+  return {
+    majlis: p.majlis,
+    mobile: p.mobile ?? '',
+    amc_id: p.amc_id ?? '',
+    tanzeem: p.tanzeem ?? '',
+  }
+}
+
+const adminProfileUrl = (userId: number | string, orgId: number | string) =>
+  `${getAPIUrl()}mka/profile/user/${userId}?org_id=${orgId}`
+
+/** Admin endpoints: 403/404 get fixed, human messages; other errors parse as usual. */
+async function parseAdminError(res: Response): Promise<MkaProfileError> {
+  const err = await parseError(res)
+  if (res.status === 403) {
+    return new MkaProfileError(403, 'Only organization admins can edit profiles.', err.fields)
+  }
+  if (res.status === 404) {
+    return new MkaProfileError(404, 'This member was not found in the organization.', err.fields)
+  }
+  return err
+}
+
+/** Admin: read a member's profile (org admins / superadmins only). */
+export async function getMemberMkaProfile(
+  userId: number | string,
+  orgId: number | string,
+  token: string
+): Promise<MkaProfileStatus> {
+  const res = await fetch(
+    adminProfileUrl(userId, orgId),
+    RequestBodyWithAuthHeader('GET', null, null, token)
+  )
+  if (!res.ok) throw await parseAdminError(res)
+  return res.json()
+}
+
+/** Admin: FULL REPLACE of a member's profile (always send the complete object). */
+export async function putMemberMkaProfile(
+  userId: number | string,
+  orgId: number | string,
+  values: MkaProfileValues,
+  token: string
+): Promise<MkaProfileStatus> {
+  const res = await fetch(
+    adminProfileUrl(userId, orgId),
+    RequestBodyWithAuthHeader('PUT', mkaValuesToBody(values), null, token)
+  )
+  if (!res.ok) throw await parseAdminError(res)
+  return res.json()
+}
