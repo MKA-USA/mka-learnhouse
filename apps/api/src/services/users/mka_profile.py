@@ -6,11 +6,17 @@ this module's service functions (added in the DB task) and in the router.
 """
 
 import re
+from datetime import datetime
 from enum import Enum
 from typing import Optional
 
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
+from sqlalchemy.exc import IntegrityError
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
+
+from src.db.mka_user_profile import MkaUserProfile
 
 MAJLIS_TO_REGION: dict[str, str] = {
     # East
@@ -166,3 +172,80 @@ def options_payload() -> dict:
             {"value": Tanzeem.TIFL.value, "label": "Tifl"},
         ],
     }
+
+
+_AMC_TAKEN = "That AMC ID is already registered"
+
+
+async def get_profile(db_session: AsyncSession, user_id: int) -> Optional[MkaUserProfile]:
+    stmt = select(MkaUserProfile).where(MkaUserProfile.user_id == user_id)
+    return (await db_session.execute(stmt)).scalars().first()
+
+
+async def profile_status(db_session: AsyncSession, user_id: int) -> dict:
+    row = await get_profile(db_session, user_id)
+    if row is None:
+        return {"complete": False}
+    return {
+        "complete": True,
+        "majlis": row.majlis,
+        "region": row.region,
+        "mobile": row.mobile,
+        "amc_id": row.amc_id,
+        "tanzeem": row.tanzeem,
+    }
+
+
+async def _amc_taken(
+    db_session: AsyncSession, amc_id: Optional[str], exclude_user_id: Optional[int]
+) -> bool:
+    if not amc_id:
+        return False
+    stmt = select(MkaUserProfile.user_id).where(MkaUserProfile.amc_id == amc_id)
+    if exclude_user_id is not None:
+        stmt = stmt.where(MkaUserProfile.user_id != exclude_user_id)
+    return (await db_session.execute(stmt)).first() is not None
+
+
+async def upsert_profile(
+    db_session: AsyncSession, user_id: int, data: MkaProfileIn
+) -> MkaUserProfile:
+    if await _amc_taken(db_session, data.amc_id, exclude_user_id=user_id):
+        raise HTTPException(status_code=409, detail=_AMC_TAKEN)
+    now = str(datetime.now())
+    row = await get_profile(db_session, user_id)
+    if row is None:
+        row = MkaUserProfile(user_id=user_id, created_at=now)
+    row.majlis = data.majlis
+    row.region = region_for(data.majlis)
+    row.mobile = data.mobile
+    row.amc_id = data.amc_id
+    row.tanzeem = data.tanzeem
+    row.updated_at = now
+    db_session.add(row)
+    try:
+        await db_session.commit()
+    except IntegrityError:
+        await db_session.rollback()
+        raise HTTPException(status_code=409, detail=_AMC_TAKEN)
+    await db_session.refresh(row)
+    return row
+
+
+async def validate_signup_profile(
+    db_session: AsyncSession, raw: Optional[dict], is_oauth: bool
+) -> Optional[MkaProfileIn]:
+    """Run BEFORE the user row exists. OAuth users may omit it (the gate collects it)."""
+    data = parse_profile(raw, required=not is_oauth)
+    if data is not None and await _amc_taken(db_session, data.amc_id, exclude_user_id=None):
+        raise HTTPException(status_code=409, detail=_AMC_TAKEN)
+    return data
+
+
+async def save_signup_profile(
+    db_session: AsyncSession, user_id: int, data: Optional[MkaProfileIn]
+) -> None:
+    """Run right after the user commit. A failure here leaves the user to the gate."""
+    if data is None:
+        return
+    await upsert_profile(db_session, user_id, data)
