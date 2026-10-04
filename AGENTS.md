@@ -129,3 +129,24 @@ questions = {
 ```
 
 **When in doubt, ask the user before modifying upstream files.**
+
+## Skills
+
+### Learnhouse Course Builder
+
+When asked to create a course, generate course content, build quizzes/assignments, or deploy learning material, **read `.claude/skills/learnhouse-course-builder/SKILL.md` first**.
+
+This skill documents:
+- The complete course architecture (Course → Chapter → Activity → Block)
+- All 6 AI generation APIs (course planning, content generation, quiz generation, assignment generation, scenario generation, MagicBlocks)
+- ProseMirror JSON format and all available block types
+- The end-to-end workflow: plan → generate content → add assessments → publish
+- MKA Ilm brand considerations for content generation
+
+Key APIs available:
+- `POST /ai/courseplanning/start` — Generate course structure from a topic
+- `POST /ai/courseplanning/finalize` — Create course/chapters/activities in DB
+- `POST /ai/courseplanning/generate-activity` — Generate ProseMirror content
+- `POST /ai/quiz/generate` — Generate inline quiz questions
+- `POST /ai/assignments/generate` — Generate graded assignments (QUIZ, FORM, SHORT_ANSWER, NUMBER_ANSWER, FILE_SUBMISSION)
+- `POST /ai/scenario/generate` — Generate branching decision scenarios
