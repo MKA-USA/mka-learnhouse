@@ -56,6 +56,7 @@ def _user_create(
         first_name=first_name,
         last_name=last_name,
         email=email,
+        mka_profile={"majlis": "Zion"},
         password=password,
     )
 
@@ -341,6 +342,7 @@ class TestCreateAndUpdateUser:
                     first_name="New",
                     last_name="User",
                     email="newuser@test.com",
+                    mka_profile={"majlis": "Zion"},
                     password="Password123!",
                 ),
                 org.id,
@@ -497,6 +499,7 @@ class TestCreateAndUpdateUser:
                     first_name="Solo",
                     last_name="User",
                     email="solo@test.com",
+                    mka_profile={"majlis": "Zion"},
                     password="Password123!",
                 ),
             )
@@ -511,6 +514,7 @@ class TestCreateAndUpdateUser:
                         first_name="Solo",
                         last_name="User",
                         email="solo2@test.com",
+                        mka_profile={"majlis": "Zion"},
                         password="Password123!",
                     ),
                 )
@@ -541,6 +545,7 @@ class TestCreateAndUpdateUser:
                         first_name="Weak",
                         last_name="User",
                         email="weak@test.com",
+                        mka_profile={"majlis": "Zion"},
                         password="weak",
                     ),
                     999,
