@@ -63,7 +63,7 @@ regional or local `nazim.{majlis}@atfalusa.org` / `murabbi.{majlis}@atfalusa.org
 (no Atfal course; `out/cycle-courses.json` has General + 20 department courses), `push-cycle`, `push-roster`, `reconcile`, `gap-report` (counts exclude Atfal),
 `assign-authors` (CSV rows for Atfal are skipped with a message). `--only atfal` fails with a clear error. The `department` table keeps Atfal as a canonical department with `active=false`.
 **Switch it back on:** add `--include-atfal` to the commands (roster, plan, apply, push-*, reconcile, gap-report), or empty the config list; then `roster`, `plan`, `apply`.
-Roster totals (52 Majlis): 26 national + 210 regional (10 regional Qaids + 200 regional department officers) + 1144 local (52 x 22) = **1380** (was 1485 with Atfal).
+Roster totals (52 Majlis): 27 national + 210 regional (10 regional Qaids + 200 regional department officers) + 1143 local (52 x 22 minus the Muqami Qaid, which is `muqami@`) = **1380** (was 1485 with Atfal).
 
 ## Unconfirmed flag
 Regional department mailboxes `{dept}.{region}@mkausa.org` are CONFIRMED (2026-10-05) and use source `formula`. The mechanism stays for anything else unconfirmed:

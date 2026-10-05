@@ -1,0 +1,307 @@
+{
+  "_note": "Role mailboxes only (no personal names), from the product owner's lists dated 2026-10-05. Authoritative; update only on product-owner instruction.",
+  "regionalQaids": [
+    {
+      "region": "East",
+      "email": "qaid.east@mkausa.org"
+    },
+    {
+      "region": "Great Lakes",
+      "email": "qaid.greatlakes@mkausa.org"
+    },
+    {
+      "region": "Gulf",
+      "email": "qaid.gulf@mkausa.org"
+    },
+    {
+      "region": "Midwest",
+      "email": "qaid.midwest@mkausa.org"
+    },
+    {
+      "region": "New York Metro",
+      "email": "qaid.newyorkmetro@mkausa.org"
+    },
+    {
+      "region": "Northeast",
+      "email": "qaid.northeast@mkausa.org"
+    },
+    {
+      "region": "Northwest",
+      "email": "qaid.northwest@mkausa.org"
+    },
+    {
+      "region": "Southeast",
+      "email": "qaid.southeast@mkausa.org"
+    },
+    {
+      "region": "Southwest",
+      "email": "qaid.southwest@mkausa.org"
+    },
+    {
+      "region": "Virginia",
+      "email": "qaid.virginia@mkausa.org"
+    }
+  ],
+  "chapters": [
+    {
+      "chapter": "Baltimore",
+      "region": "East",
+      "qaidEmail": "qaid.baltimore@mkausa.org"
+    },
+    {
+      "chapter": "Central Jersey",
+      "region": "East",
+      "qaidEmail": "qaid.centraljersey@mkausa.org"
+    },
+    {
+      "chapter": "Harrisburg",
+      "region": "East",
+      "qaidEmail": "qaid.harrisburg@mkausa.org"
+    },
+    {
+      "chapter": "North Jersey",
+      "region": "East",
+      "qaidEmail": "qaid.northjersey@mkausa.org"
+    },
+    {
+      "chapter": "Philadelphia",
+      "region": "East",
+      "qaidEmail": "qaid.philadelphia@mkausa.org"
+    },
+    {
+      "chapter": "Willingboro",
+      "region": "East",
+      "qaidEmail": "qaid.willingboro@mkausa.org"
+    },
+    {
+      "chapter": "Cleveland",
+      "region": "Great Lakes",
+      "qaidEmail": "qaid.cleveland@mkausa.org"
+    },
+    {
+      "chapter": "Columbus",
+      "region": "Great Lakes",
+      "qaidEmail": "qaid.columbus@mkausa.org"
+    },
+    {
+      "chapter": "Dayton",
+      "region": "Great Lakes",
+      "qaidEmail": "qaid.dayton@mkausa.org"
+    },
+    {
+      "chapter": "Detroit",
+      "region": "Great Lakes",
+      "qaidEmail": "qaid.detroit@mkausa.org"
+    },
+    {
+      "chapter": "Indiana",
+      "region": "Great Lakes",
+      "qaidEmail": "qaid.indiana@mkausa.org"
+    },
+    {
+      "chapter": "Kentucky",
+      "region": "Great Lakes",
+      "qaidEmail": "qaid.kentucky@mkausa.org"
+    },
+    {
+      "chapter": "Austin",
+      "region": "Gulf",
+      "qaidEmail": "qaid.austin@mkausa.org"
+    },
+    {
+      "chapter": "Dallas",
+      "region": "Gulf",
+      "qaidEmail": "qaid.dallas@mkausa.org"
+    },
+    {
+      "chapter": "Fort Worth",
+      "region": "Gulf",
+      "qaidEmail": "qaid.fortworth@mkausa.org"
+    },
+    {
+      "chapter": "Houston",
+      "region": "Gulf",
+      "qaidEmail": "qaid.houston@mkausa.org"
+    },
+    {
+      "chapter": "Tulsa",
+      "region": "Gulf",
+      "qaidEmail": "qaid.tulsa@mkausa.org"
+    },
+    {
+      "chapter": "Chicago",
+      "region": "Midwest",
+      "qaidEmail": "qaid.chicago@mkausa.org"
+    },
+    {
+      "chapter": "Kansas City",
+      "region": "Midwest",
+      "qaidEmail": "qaid.kansascity@mkausa.org"
+    },
+    {
+      "chapter": "Milwaukee",
+      "region": "Midwest",
+      "qaidEmail": "qaid.milwaukee@mkausa.org"
+    },
+    {
+      "chapter": "Minnesota",
+      "region": "Midwest",
+      "qaidEmail": "qaid.minnesota@mkausa.org"
+    },
+    {
+      "chapter": "Oshkosh",
+      "region": "Midwest",
+      "qaidEmail": "qaid.oshkosh@mkausa.org"
+    },
+    {
+      "chapter": "Saint Louis",
+      "region": "Midwest",
+      "qaidEmail": "qaid.saintlouis@mkausa.org"
+    },
+    {
+      "chapter": "Zion",
+      "region": "Midwest",
+      "qaidEmail": "qaid.zion@mkausa.org"
+    },
+    {
+      "chapter": "Muqami",
+      "region": "Muqami",
+      "qaidEmail": "muqami@mkausa.org"
+    },
+    {
+      "chapter": "Bronx",
+      "region": "New York Metro",
+      "qaidEmail": "qaid.bronx@mkausa.org"
+    },
+    {
+      "chapter": "Brooklyn",
+      "region": "New York Metro",
+      "qaidEmail": "qaid.brooklyn@mkausa.org"
+    },
+    {
+      "chapter": "Long Island",
+      "region": "New York Metro",
+      "qaidEmail": "qaid.longisland@mkausa.org"
+    },
+    {
+      "chapter": "Queens",
+      "region": "New York Metro",
+      "qaidEmail": "qaid.queens@mkausa.org"
+    },
+    {
+      "chapter": "Connecticut",
+      "region": "Northeast",
+      "qaidEmail": "qaid.connecticut@mkausa.org"
+    },
+    {
+      "chapter": "Albany",
+      "region": "Northeast",
+      "qaidEmail": "qaid.albany@mkausa.org"
+    },
+    {
+      "chapter": "Boston",
+      "region": "Northeast",
+      "qaidEmail": "qaid.boston@mkausa.org"
+    },
+    {
+      "chapter": "Rochester",
+      "region": "Northeast",
+      "qaidEmail": "qaid.rochester@mkausa.org"
+    },
+    {
+      "chapter": "Syracuse-Binghamton",
+      "region": "Northeast",
+      "qaidEmail": "qaid.syracuse-binghamton@mkausa.org"
+    },
+    {
+      "chapter": "Bay Point",
+      "region": "Northwest",
+      "qaidEmail": "qaid.baypoint@mkausa.org"
+    },
+    {
+      "chapter": "Portland",
+      "region": "Northwest",
+      "qaidEmail": "qaid.portland@mkausa.org"
+    },
+    {
+      "chapter": "Sacramento",
+      "region": "Northwest",
+      "qaidEmail": "qaid.sacramento@mkausa.org"
+    },
+    {
+      "chapter": "Seattle",
+      "region": "Northwest",
+      "qaidEmail": "qaid.seattle@mkausa.org"
+    },
+    {
+      "chapter": "Silicon Valley",
+      "region": "Northwest",
+      "qaidEmail": "qaid.siliconvalley@mkausa.org"
+    },
+    {
+      "chapter": "Atlanta",
+      "region": "Southeast",
+      "qaidEmail": "qaid.atlanta@mkausa.org"
+    },
+    {
+      "chapter": "Charlotte",
+      "region": "Southeast",
+      "qaidEmail": "qaid.charlotte@mkausa.org"
+    },
+    {
+      "chapter": "Miami",
+      "region": "Southeast",
+      "qaidEmail": "qaid.miami@mkausa.org"
+    },
+    {
+      "chapter": "Orlando",
+      "region": "Southeast",
+      "qaidEmail": "qaid.orlando@mkausa.org"
+    },
+    {
+      "chapter": "Tennessee",
+      "region": "Southeast",
+      "qaidEmail": "qaid.tennessee@mkausa.org"
+    },
+    {
+      "chapter": "Las Vegas",
+      "region": "Southwest",
+      "qaidEmail": "qaid.lasvegas@mkausa.org"
+    },
+    {
+      "chapter": "Los Angeles",
+      "region": "Southwest",
+      "qaidEmail": "qaid.losangeles@mkausa.org"
+    },
+    {
+      "chapter": "Phoenix",
+      "region": "Southwest",
+      "qaidEmail": "qaid.phoenix@mkausa.org"
+    },
+    {
+      "chapter": "Tucson",
+      "region": "Southwest",
+      "qaidEmail": "qaid.tucson@mkausa.org"
+    },
+    {
+      "chapter": "North Virginia",
+      "region": "Virginia",
+      "qaidEmail": "qaid.northvirginia@mkausa.org"
+    },
+    {
+      "chapter": "Richmond",
+      "region": "Virginia",
+      "qaidEmail": "qaid.richmond@mkausa.org"
+    },
+    {
+      "chapter": "RTP",
+      "region": "Virginia",
+      "qaidEmail": "qaid.rtp@mkausa.org"
+    },
+    {
+      "chapter": "South Virginia",
+      "region": "Virginia",
+      "qaidEmail": "qaid.southvirginia@mkausa.org"
+    }
+  ]
+}
