@@ -1,0 +1,10 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`department course deterministic names, keys and hash 1`] = `
+[
+  "ch-role:page/goals+page/role",
+  "ch-plan:page/plan+assignment/knowledge-check",
+  "ch-contacts:page/directory+assignment/contact-selfcheck",
+  "ch-attest:assignment/signoff",
+]
+`;
