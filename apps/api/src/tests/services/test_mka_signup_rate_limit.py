@@ -161,7 +161,6 @@ def test_mka_client_ip_takes_rightmost_global_entry(peer, xff, expected):
         "8.8.4.4, garbage, 10.0.0.1",  # unparseable client entry: stop
         "8.8.4.4, 224.0.0.1",
         "x" * 10000,
-        ",".join(["8.8.4.4"] * 2000),
         "\u00ff\u00fe, 10.0.0.1",
     ],
 )
@@ -232,3 +231,47 @@ def test_mapped_and_plain_ipv4_share_a_key():
             guard.enforce_mka_signup_rate_limit(_request("127.0.0.1", {"X-Forwarded-For": xff}))
         keys.append(check.call_args.kwargs["key"])
     assert keys == ["signup:8.8.4.4", "signup:8.8.4.4"]
+
+
+# --- H5: oversized X-Forwarded-For keeps its right-hand end ------------------
+
+
+def test_padded_xff_still_selects_edge_appended_client():
+    xff = ("9.9.9.9, " * 600) + "81.2.69.142, 10.0.1.5"
+    assert len(xff) > 5000
+    assert guard.mka_client_ip(_request("127.0.0.1", {"X-Forwarded-For": xff})) == "81.2.69.142"
+
+
+def test_padded_xff_still_counts_against_the_bucket():
+    xff = ("1.1.1.1, " * 600) + "81.2.69.142, 10.0.1.5"
+    with patch(PATCH_CHECK, return_value=(True, 1, 3600)) as check:
+        guard.enforce_mka_signup_rate_limit(_request("127.0.0.1", {"X-Forwarded-For": xff}))
+    assert check.call_args.kwargs["key"] == "signup:81.2.69.142"
+
+
+def test_100kb_xff_returns_a_key_and_never_raises():
+    xff = ("a" * 100_000) + ", 81.2.69.142, 10.0.1.5"
+    assert guard.mka_client_ip(_request("127.0.0.1", {"X-Forwarded-For": xff})) == "81.2.69.142"
+
+
+def test_100kb_xff_without_client_on_the_right_is_unknown():
+    xff = ("8.8.4.4, " * 12000) + "garbage, 10.0.1.5"
+    assert guard.mka_client_ip(_request("127.0.0.1", {"X-Forwarded-For": xff})) == "unknown"
+
+
+def test_oversized_all_garbage_is_unknown():
+    assert guard.mka_client_ip(_request("127.0.0.1", {"X-Forwarded-For": "z," * 5000})) == "unknown"
+
+
+def test_truncation_drops_partial_left_entry(monkeypatch):
+    # The cut lands one char into "81.2.69.142"; the fragment "1.2.69.142" is a
+    # valid global IP and must NOT be parsed as the client.
+    tail = ", 10.0.0.1" * 409
+    xff = "81.2.69.142" + tail
+    monkeypatch.setattr(guard, "MAX_FORWARDED_LENGTH", len(tail) + 10)
+    assert guard.mka_client_ip(_request("127.0.0.1", {"X-Forwarded-For": xff})) == "unknown"
+
+
+def test_short_header_unchanged():
+    xff = "1.1.1.1, 81.2.69.142, 10.0.1.5"
+    assert guard.mka_client_ip(_request("127.0.0.1", {"X-Forwarded-For": xff})) == "81.2.69.142"

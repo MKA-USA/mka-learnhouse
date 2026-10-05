@@ -106,7 +106,7 @@ def mka_client_ip(request: Request) -> str:
     that is not a proxy hop IS the client: if it is unparseable or not globally
     routable the result is ``"unknown"`` (the limiter is skipped) and nothing
     further left (attacker-controlled) is ever considered. Oversized headers
-    yield ``"unknown"``. A public direct peer is used as-is. Never raises.
+    are truncated to their right-hand end. A public direct peer is used as-is. Never raises.
     """
     direct = request.client.host if request.client else None
     direct_addr = _parse_ip(direct)
@@ -116,7 +116,12 @@ def mka_client_ip(request: Request) -> str:
         return str(direct_addr)
     forwarded = ", ".join(request.headers.getlist("x-forwarded-for"))
     if len(forwarded) > MAX_FORWARDED_LENGTH:
-        return "unknown"
+        # Keep only the RIGHT-hand end: the walk stops at the entry our edge
+        # appended, so the cut-off left part is client-controlled and never
+        # needed. Drop the partial first entry so a fragment is never parsed.
+        # (Giving up instead would let padding dodge the limiter.)
+        forwarded = forwarded[-MAX_FORWARDED_LENGTH:]
+        forwarded = forwarded.split(",", 1)[1] if "," in forwarded else ""
     for entry in reversed(forwarded.split(",")):
         if not entry.strip():
             continue
