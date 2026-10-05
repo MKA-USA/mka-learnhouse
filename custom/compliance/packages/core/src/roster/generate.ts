@@ -63,7 +63,9 @@ export function generateRoster(opts: GenerateOptions = {}): RosterRow[] {
       roleTitle: isAitmad ? "National Motamid" : `Mohtamim ${d.name}`, learnerEmail: `${d.mailboxPrefix}@${MKA_DOMAIN}` });
   }
   // Muqami: national Mohtamim Muqami (also the Muqami region/chapter). NO department course: departmentSlug "" = General course only.
-  push({ departmentSlug: "", role: "mohtamim", level: "national", region: "", majlis: "", roleTitle: "Mohtamim Muqami", slot: "muqami", learnerEmail: `muqami@${MKA_DOMAIN}` });
+  // The same account `muqami@` is ALSO the Muqami chapter Qaid (there is no `qaid.muqami@`), so this single row carries majlis/region "Muqami"
+  // and the local loop below skips the chapter qaid for Muqami. roleTitle is left as is.
+  push({ departmentSlug: "", role: "mohtamim", level: "national", region: "Muqami", majlis: "Muqami", roleTitle: "Mohtamim Muqami", slot: "muqami", learnerEmail: `muqami@${MKA_DOMAIN}` });
   push({ departmentSlug: "", role: "sadr", level: "national", region: "", majlis: "", roleTitle: "Sadr", learnerEmail: `sadr@${MKA_DOMAIN}` });
   for (const s of NATIONAL_STAFF) push({ departmentSlug: "", role: "national_staff", level: "national", region: "", majlis: "", roleTitle: `National staff (${s})`, slot: s, learnerEmail: `${s}@${MKA_DOMAIN}` });
 
@@ -87,6 +89,7 @@ export function generateRoster(opts: GenerateOptions = {}): RosterRow[] {
   for (const [majlis, region] of Object.entries(MAJLIS_TO_REGION)) {
     const slug = slugify(majlis);
     for (const d of defs) {
+      if (d.role === "qaid" && majlis === "Muqami") continue; // chapter Qaid is muqami@ (national row above), not qaid.muqami@
       push({ departmentSlug: d.departmentSlug, role: d.role, level: "majlis", region, majlis, roleTitle: d.title, learnerEmail: `${d.prefix}.${slug}@${d.domain}` });
     }
     if (!excluded.includes("atfal")) for (const [prefix, role, title] of [["nazim", "nazim_atfal", "Nazim Atfal"], ["murabbi", "murabbi_atfal", "Murabbi Atfal"]] as const) {
