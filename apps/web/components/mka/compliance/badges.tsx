@@ -33,12 +33,13 @@ export const STATUS_ICON: Record<ComplianceStatus, LucideIcon> = {
   attested: BadgeCheck,
 }
 
-export const RAG_TONE: Record<ComplianceRag, Tone> = { red: 'red', amber: 'amber', green: 'green', none: 'slate' }
+export const RAG_TONE: Record<ComplianceRag, Tone> = { red: 'red', amber: 'amber', green: 'green', none: 'slate', not_started: 'slate' }
 export const RAG_ICON: Record<ComplianceRag, LucideIcon> = {
   red: TriangleAlert,
   amber: CircleAlert,
   green: CircleCheck,
   none: Minus,
+  not_started: CircleDashed,
 }
 
 const chipBase = 'inline-flex items-center gap-1 rounded-full font-medium ring-1 ring-inset whitespace-nowrap'

@@ -142,3 +142,16 @@ def test_build_trend_edge_cases():
     assert cs.build_trend([], [], 3, CYCLE, "2026-10-01") == []
     long = cs.build_trend([], [], 3, {**CYCLE, "starts_on": "2020-01-01"}, "2026-11-01")
     assert len(long) == cs.MAX_TREND_DAYS
+
+
+def test_attention_is_neutral_before_cycle_starts():
+    groups = [{"count": 3, "preset": "not_started"}]
+    before = (cs.to_date(CYCLE["starts_on"]).fromordinal(cs.to_date(CYCLE["starts_on"]).toordinal() - 5)).isoformat()
+    rows = [cs.score_learner(r, CYCLE, before) for r in records(groups)]
+    att = cs.attention(cs.aggregate("x", rows, CYCLE), CYCLE, before)
+    assert att["rag"] == "not_started"
+    assert att["score"] == 0 and att["reasons"] == []
+    assert cs.rag_severity(att["rag"]) == 0
+    # on the start day the normal scoring applies again
+    rows = [cs.score_learner(r, CYCLE, CYCLE["starts_on"]) for r in records(groups)]
+    assert cs.attention(cs.aggregate("x", rows, CYCLE), CYCLE, CYCLE["starts_on"])["rag"] != "not_started"

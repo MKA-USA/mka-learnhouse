@@ -45,6 +45,7 @@ export const RAG_META: Record<ComplianceRag, { label: string; short: string; sev
   amber: { label: 'Watch', short: 'Amber', severity: 2 },
   green: { label: 'On track', short: 'Green', severity: 1 },
   none: { label: 'No data', short: 'None', severity: 0 },
+  not_started: { label: 'Not started', short: 'Not started', severity: 0 },
 }
 
 export const isStatus = (v: unknown): v is ComplianceStatus =>
