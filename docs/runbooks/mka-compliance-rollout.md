@@ -93,3 +93,5 @@ unaffected. Re-import the roster so the new national `muqami@` row (+1 national,
 - A Read-only-preset token can still read learner lists (names, emails, answers): treat every token as a secret, store it only in the keychain / a secret manager.
 - Use a SEPARATE Read-only token for any reminder or reporting workflow (Make.com, n8n); never reuse the Full Access token there.
 - Rotate tokens on staff changes.
+
+Rules 2026.3 (New York Metro): `newyorkmetro.region@mkausa.org` is the New York Metro Regional Qaid mailbox (product owner, 2026-10-05), via the explicit `regional_mailbox_aliases` entry (add `east.region` etc. there as one line each when confirmed); `qaid.newyorkmetro@mkausa.org` stays recognised too. The earlier `newyorkmetro-region` "unconfirmed slug" was an error and is removed. Because the version changed, stored attribute rows read as unrecognized until the user's next Google login or an admin recompute (`python -m src.services.mka.backfill`). Mailbox proof and attestations are unaffected. The provisioner roster still emits `qaid.newyorkmetro@mkausa.org` for this Qaid (roster-email question still open with the product owner).

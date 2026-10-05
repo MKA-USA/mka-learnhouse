@@ -345,7 +345,7 @@ async def test_old_rules_version_is_stale(db, org):
     db.add(row)
     await db.commit()
     assert (await svc.read_effective(db, u))[1] is True
-    row.rules_version = "2026.2"
+    row.rules_version = "2026.3"
     db.add(row)
     await db.commit()
     assert (await svc.read_effective(db, u))[1] is False

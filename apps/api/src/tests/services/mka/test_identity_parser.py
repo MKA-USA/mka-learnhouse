@@ -128,8 +128,20 @@ HAND_ROWS = [
     # --- partial: role known, slug unknown / unconfirmed -------------------------------------------------------------
     ("tabligh.atlantis@mkausa.org", "partial", True, None, "tabligh", "nazim_dept", None, None),
     ("qaid.atlantis@mkausa.org", "partial", True, None, None, "qaid", None, None),
-    ("tabligh.newyorkmetro-region@mkausa.org", "partial", True, None, "tabligh", "nazim_dept", None, None),
-    ("qaid.newyorkmetro-region@mkausa.org", "partial", True, None, None, "qaid", None, None),
+    # --- New York Metro Regional Qaid: explicit alias newyorkmetro.region@ (2026-10-05) + the qaid.{region} form -----
+    ("newyorkmetro.region@mkausa.org", M, True, "regional", None, "regional_qaid", None, "New York Metro"),
+    ("NEWYORKMETRO.REGION@MKAUSA.ORG", M, True, "regional", None, "regional_qaid", None, "New York Metro"),
+    ("  NewYorkMetro.Region@mkausa.org \n", M, True, "regional", None, "regional_qaid", None, "New York Metro"),
+    ("newyorkmetro.region+test@mkausa.org", M, True, "regional", None, "regional_qaid", None, "New York Metro"),
+    ("qaid.newyorkmetro@mkausa.org", M, True, "regional", None, "regional_qaid", None, "New York Metro"),
+    ("QAID.NewYorkMetro@mkausa.org", M, True, "regional", None, "regional_qaid", None, "New York Metro"),
+    ("newyorkmetro.region@atfalusa.org", "unrecognized", None, None, None, None, None, None),
+    ("newyorkmetro.region@example.com", "not_applicable", False, None, None, None, None, None),
+    ("east.region@mkausa.org", "unrecognized", None, None, None, None, None, None),
+    ("newyorkmetro.region2@mkausa.org", "unrecognized", None, None, None, None, None, None),
+    ("newyorkmetro.regions@mkausa.org", "unrecognized", None, None, None, None, None, None),
+    ("newyorkmetro.region.x@mkausa.org", "unrecognized", None, None, None, None, None, None),
+    ("region.newyorkmetro@mkausa.org", "unrecognized", None, None, None, None, None, None),
     ("naibqaid.northeast@mkausa.org", "partial", True, None, None, "naib_qaid", None, None),
     ("tabligh.northeast@mkausa.org", M, True, "regional", "tabligh", "regional_nazim_dept", None, "Northeast"),
     ("tabligh.syracuse@mkausa.org", "partial", True, None, "tabligh", "nazim_dept", None, None),
@@ -292,9 +304,38 @@ def test_same_entity_region_and_majlis_is_not_a_collision():
         assert (a.status, a.level, a.majlis, a.region) == ("matched", "local", "Muqami", "Muqami")
 
 
-def test_unconfirmed_slug_needs_review():
-    a = parse_identity("tabligh.newyorkmetro-region@mkausa.org", RULES)
+def test_unconfirmed_slug_mechanism_kept_but_empty():
+    assert RULES.raw["unconfirmed_slugs"] == [] and RULES.unconfirmed_slugs == set()
+    raw = copy.deepcopy(RULES.raw)
+    raw["unconfirmed_slugs"] = ["madeup"]
+    a = parse_identity("tabligh.madeup@mkausa.org", IdentityRules.from_dict(raw, MAJLIS_TO_REGION))
     assert a.status == "partial" and "needs_review" in a.flags and a.majlis is None
+
+
+def test_newyorkmetro_region_alias():
+    a = parse_identity("newyorkmetro.region@mkausa.org", RULES)
+    assert (a.status, a.level, a.role, a.role_title, a.region, a.majlis, a.department) == (
+        "matched", "regional", "regional_qaid", "Regional Qaid", "New York Metro", None, None)
+    assert a.flags == []
+    b = parse_identity("qaid.newyorkmetro@mkausa.org", RULES)
+    assert (b.role_title, b.region) == (a.role_title, a.region)
+    # the alias is explicit data, not a generalised {region}.region pattern
+    assert set(RULES.domains["mkausa.org"]["regional_mailbox_aliases"]) == {"newyorkmetro.region"}
+    assert "regional_mailbox_aliases" not in RULES.domains["atfalusa.org"]
+    assert RULES.collisions() == []
+
+
+def test_alias_to_unknown_region_fails_closed():
+    raw = copy.deepcopy(RULES.raw)
+    raw["domains"]["mkausa.org"]["regional_mailbox_aliases"]["east.region"] = {"region": "nowhere", "department": None, "role": "regional_qaid"}
+    r = IdentityRules.from_dict(raw, MAJLIS_TO_REGION)
+    assert parse_identity("east.region@mkausa.org", r).status == "unrecognized"
+    raw["domains"]["mkausa.org"]["regional_mailbox_aliases"]["east.region"]["region"] = "east"
+    assert parse_identity("east.region@mkausa.org", IdentityRules.from_dict(raw, MAJLIS_TO_REGION)).region == "East"
+
+
+def test_newyorkmetro_region_slug_gone_from_rules():
+    assert "newyorkmetro-region" not in json.dumps(RULES.raw)
 
 
 def test_regional_department_title_and_counts():
@@ -401,7 +442,7 @@ def test_non_ascii_never_matches():
 # --- rules file integrity -------------------------------------------------------------------------
 
 def test_rules_version_and_domains():
-    assert RULES.version == "2026.2"
+    assert RULES.version == "2026.3"
     assert set(RULES.domains) == {"mkausa.org", "atfalusa.org"}
 
 
