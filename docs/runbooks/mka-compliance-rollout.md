@@ -6,14 +6,15 @@ Role/access setup for viewers: `docs/runbooks/mka-compliance-roles.md`.
 
 ## What ships
 - API: `/api/v1/mka/attributes/*`, `/api/v1/mka/compliance/*`; login hook in `services/auth/session.py`.
-- Tables (all NEW, no ALTER of upstream tables): `mka_user_profile`, `mka_user_attributes`, `mka_user_attributes_audit`,
+- Tables, no ALTER of upstream tables. NEW in this branch (6): `mka_user_attributes`, `mka_user_attributes_audit`,
   `mka_roster_override`, `mka_compliance_cycle`, `mka_compliance_cycle_course`, `mka_compliance_expected`.
+  `mka_user_profile` (Majlis/mobile/AMC ID/tanzeem) is NOT new: it is already live on dev and holds members' data.
 - Web: `/orgs/<slug>/dash/compliance`, course tab `compliance`, nav items (hooks H1-H3).
 
 ## Schema: how the tables get created (verified locally)
 Nothing runs Alembic automatically (entrypoint does not call it); the API creates missing tables at startup via
 `SQLModel.metadata.create_all` (`core/events/database.py::_bootstrap_schema`). So after the first deploy of this
-branch the 7 tables above already exist, with the indexes/constraints declared on the models, and `alembic_version`
+branch the 6 new tables above already exist, with the indexes/constraints declared on the models, and `alembic_version`
 does not know about them.
 
 The three migrations (`mka_20261004_user_profile` -> `mka_20261004_user_attributes` -> `mka_20261004_compliance`,
@@ -34,7 +35,7 @@ migration run starts from the wrong revision). If ilm-dev `alembic current` is n
 
 ## Order of steps
 1. Back up the DB (or take a snapshot).
-2. Deploy the API image of this branch. On startup `create_all` creates the 7 tables. Check the API log for errors.
+2. Deploy the API image of this branch. On startup `create_all` creates the 6 new tables. Check the API log for errors.
 3. (Recommended) `alembic current` should show `b1c2d3e4f5a6`; then `alembic upgrade head` (no-ops, advances the stamp).
 4. Deploy the web image (build with the env above).
 5. Backfill attributes for existing Google users (idempotent, safe to repeat; it can only reuse proof recorded by a
@@ -62,8 +63,12 @@ after any rules bump so attributes are refreshed.
 - Web: redeploy the previous web image (hooks are inert without it).
 - API: redeploy the previous image. The new tables are unused by old code and harmless; leave them. The login hook
   is fail-open, so the previous image is not affected by the extra rows.
-- Data removal (only if requested): `alembic downgrade b1c2d3e4f5a6` drops the 7 tables (deletes imported cycles,
-  rosters and derived attributes) - export first. Clearing just a roster: `DELETE /mka/compliance/cycles/{id}/expected`.
+- Data removal (only if requested), export first. **WARNING: never run `alembic downgrade b1c2d3e4f5a6`** - it also
+  runs `mka_20261004_user_profile.downgrade()`, which drops `mka_user_profile` and DELETES every member's Majlis, mobile,
+  AMC ID and tanzeem. To remove only what this branch adds use `alembic downgrade mka_20261004_user_profile` (chain:
+  `b1c2d3e4f5a6` -> `mka_20261004_user_profile` -> `mka_20261004_user_attributes` -> `mka_20261004_compliance`); it drops
+  the 6 new tables (imported cycles, rosters, derived attributes and audit rows). Clearing just a roster:
+  `DELETE /mka/compliance/cycles/{id}/expected`.
 
 ## Known risks to keep in mind
 - Identity proof for Google-only domains: a Google-signup account on a domain in `MKA_GOOGLE_ONLY_DOMAINS` is treated
