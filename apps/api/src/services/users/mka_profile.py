@@ -189,17 +189,26 @@ async def get_profile(db_session: AsyncSession, user_id: int) -> Optional[MkaUse
 
 
 async def profile_status(db_session: AsyncSession, user_id: int) -> dict:
+    from src.services.mka.attributes import export_attributes  # lazy: avoids an import cycle
+
     row = await get_profile(db_session, user_id)
     if row is None:
-        return {"complete": False}
-    return {
-        "complete": True,
-        "majlis": row.majlis,
-        "region": row.region,
-        "mobile": row.mobile,
-        "amc_id": row.amc_id,
-        "tanzeem": row.tanzeem,
-    }
+        out: dict = {"complete": False}
+    else:
+        out = {
+            "complete": True,
+            "majlis": row.majlis,
+            "region": row.region,
+            "mobile": row.mobile,
+            "amc_id": row.amc_id,
+            "tanzeem": row.tanzeem,
+        }
+    # Server-derived identity attributes ride along ONLY when a row exists, so the
+    # GDPR export (which calls this function) includes them. Own data only.
+    attrs = await export_attributes(db_session, user_id)
+    if attrs is not None:
+        out["mka_attributes"] = attrs
+    return out
 
 
 async def delete_profile(db_session: AsyncSession, user_id: int) -> None:
@@ -208,9 +217,12 @@ async def delete_profile(db_session: AsyncSession, user_id: int) -> None:
 
     Hard-deleting a user needs no call to this: the FK cascades in the DB.
     """
+    from src.services.mka.attributes import delete_attributes  # lazy: avoids an import cycle
+
     await db_session.execute(
         delete(MkaUserProfile).where(MkaUserProfile.user_id == user_id)  # type: ignore[arg-type]
     )
+    await delete_attributes(db_session, user_id)
 
 
 async def _amc_taken(

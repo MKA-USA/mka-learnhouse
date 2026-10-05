@@ -24,6 +24,7 @@ from src.security.auth import create_access_token, create_refresh_token, decode_
 from src.security.session_context import AMR_CLAIM, AUTH_METHOD_GOOGLE, SORG_CLAIM, session_claims
 from src.services.auth.mfa import is_mfa_active
 from src.services.auth.mka_google_only import block_non_google_auth  # MKA fork
+from src.services.mka.attributes import mka_refresh_on_login  # MKA fork
 
 MFA_PENDING_PURPOSE = "mfa_pending"
 # Long enough to open an authenticator app and read a code, short enough that a
@@ -110,6 +111,7 @@ async def issue_session_or_challenge(
     (``amr`` / ``org_id``) is carried through both branches."""
     if amr != AUTH_METHOD_GOOGLE:  # MKA fork: Google-only domains may only sign in via Google
         block_non_google_auth(user.email)
+    await mka_refresh_on_login(db_session, user, amr)  # MKA fork: fail-open, Google-only
     if await is_mfa_active(db_session, user.id):
         return SessionIssueResult(
             mfa_required=True,
