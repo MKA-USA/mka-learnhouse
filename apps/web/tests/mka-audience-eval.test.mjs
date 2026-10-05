@@ -39,7 +39,7 @@ describe("parity hardening", () => {
   test("v must be a SAFE integer", () => {
     const rule = (v) => ({ v, mode: "show", groups: [{}] });
     expect(validateRule(rule(9007199254740991)).ok).toBe(true);
-    expect(validateRule(rule(9007199254740993)).ok).toBe(false);
+    expect(validateRule(rule(Number.MAX_SAFE_INTEGER + 2)).ok).toBe(false);
     expect(validateRule(rule(1e300)).ok).toBe(false);
   });
 });
