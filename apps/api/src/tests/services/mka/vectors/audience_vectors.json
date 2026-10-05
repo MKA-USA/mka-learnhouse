@@ -94,7 +94,12 @@
     {"name": "label of 501 chars is invalid => hides", "rule": {"v": 1, "mode": "show", "groups": [{}], "label": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}, "viewer": "local_tabligh_albany", "expect": false},
     {"name": "label of 500 chars is fine", "rule": {"v": 1, "mode": "show", "groups": [{}], "label": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}, "viewer": "local_tabligh_albany", "expect": true},
     {"name": "negative v is invalid => hides", "rule": {"v": -1, "mode": "show", "groups": [{}]}, "viewer": "local_tabligh_albany", "expect": false},
-    {"name": "whitespace-only value is a valid (non-matching) string", "rule": {"v": 1, "mode": "show", "groups": [{"majlis": [" "]}]}, "viewer": "local_tabligh_albany", "expect": false}
+    {"name": "whitespace-only value is a valid (non-matching) string", "rule": {"v": 1, "mode": "show", "groups": [{"majlis": [" "]}]}, "viewer": "local_tabligh_albany", "expect": false},
+    {"name": "__proto__ group key (show) is an unknown key, never inherited", "rule": {"v": 1, "mode": "show", "groups": [{"__proto__": {"level": ["local"]}}]}, "viewer": "local_tabligh_albany", "expect": false},
+    {"name": "__proto__ group key (hide) is an unknown key, never inherited", "rule": {"v": 1, "mode": "hide", "groups": [{"__proto__": {"level": ["local"]}}]}, "viewer": "local_tabligh_albany", "expect": true},
+    {"name": "constructor group key (show) is an unknown key, never inherited", "rule": {"v": 1, "mode": "show", "groups": [{"constructor": ["x"]}]}, "viewer": "local_tabligh_albany", "expect": false},
+    {"name": "constructor group key (hide) is an unknown key, never inherited", "rule": {"v": 1, "mode": "hide", "groups": [{"constructor": ["x"]}]}, "viewer": "local_tabligh_albany", "expect": true},
+    {"name": "__proto__ group key alongside a real key stays non-matching (show)", "rule": {"v": 1, "mode": "show", "groups": [{"level": ["local"], "__proto__": {"x": 1}}]}, "viewer": "local_tabligh_albany", "expect": false}
   ],
   "validate": [
     {"name": "minimal ok", "rule": {"v": 1, "mode": "show", "groups": [{}]}, "ok": true, "normalized": {"v": 1, "mode": "show", "groups": [{}]}},
@@ -156,6 +161,8 @@
     {"name": "boolean rule invalid", "rule": true, "ok": false},
     {"name": "empty lists everywhere normalise to empty group", "rule": {"v": 1, "mode": "show", "groups": [{"level": [], "department": [], "role": [], "region": [], "majlis": []}]}, "ok": true, "normalized": {"v": 1, "mode": "show", "groups": [{}]}},
     {"name": "dedupe across all keys", "rule": {"v": 1, "mode": "show", "groups": [{"role": ["qaid", "qaid"], "department": ["tabligh", "maal", "tabligh"]}]}, "ok": true, "normalized": {"v": 1, "mode": "show", "groups": [{"role": ["qaid"], "department": ["tabligh", "maal"]}]}},
-    {"name": "v large integer ok", "rule": {"v": 999999, "mode": "show", "groups": [{}]}, "ok": true, "normalized": {"v": 999999, "mode": "show", "groups": [{}]}}
+    {"name": "v large integer ok", "rule": {"v": 999999, "mode": "show", "groups": [{}]}, "ok": true, "normalized": {"v": 999999, "mode": "show", "groups": [{}]}},
+    {"name": "__proto__ group key kept as an ordinary unknown key", "rule": {"v": 1, "mode": "show", "groups": [{"__proto__": {"level": ["local"]}}]}, "ok": true, "normalized": {"v": 1, "mode": "show", "groups": [{"__proto__": {"level": ["local"]}}]}},
+    {"name": "constructor group key kept as an ordinary unknown key", "rule": {"v": 1, "mode": "hide", "groups": [{"constructor": ["x"]}]}, "ok": true, "normalized": {"v": 1, "mode": "hide", "groups": [{"constructor": ["x"]}]}}
   ]
 }

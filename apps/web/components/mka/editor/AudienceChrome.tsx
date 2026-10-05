@@ -4,7 +4,7 @@
  *  - the Audience bar (viewing mode / preview-as) for authors and `can_view_all` viewers;
  *  - the learner notes ("tailored by role", "nothing applies to you"), once per activity.
  */
-import React, { useCallback, useEffect, useMemo, useRef } from 'react'
+import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef } from 'react'
 import type { Editor } from '@tiptap/react'
 import { useEditorProvider } from '@components/Contexts/Editor/EditorContext'
 import { useLHSession } from '@components/Contexts/LHSessionContext'
@@ -18,12 +18,15 @@ import {
 } from '@services/mka/attributes'
 import { mkaAudienceEnabled, mkaAudienceMock } from '@services/mka/flags'
 import type { AudienceView } from '../audience/types'
-import { AudienceBar } from './AudienceBar'
 import type { PreviewPerson } from './PreviewMenu'
+import { applyLearnerFilter } from './learnerFilter'
 import { MkaErrorBoundary } from './MkaErrorBoundary'
 import { getAudienceStore, useAudienceStore } from './store'
 import { computeLearnerNotes, DEFAULT_COPY } from './logic'
 import type { AudienceNodeOptions } from './AudienceNodeView'
+
+// Lazy: the preview bar is author chrome and must not weigh down learner bundles.
+const AudienceBar = lazy(() => import('./AudienceBar'))
 
 const NOTE_CLASS = 'my-2 rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700 dark:bg-slate-800 dark:text-slate-200'
 
@@ -74,7 +77,22 @@ function Inner({ editor, options }: Props) {
     [editor],
   )
 
-  const showBar = mkaAudienceEnabled() && st.sectionCount > 0 && (editable || me.canViewAll)
+  // Learner view: keep hidden content out of the editor STATE (TOC, copy, AI read editor.state.doc), not just the DOM.
+  const learnerDoc = !editable && !options.editable
+  useEffect(() => {
+    if (!learnerDoc || me.state === 'loading') return
+    const store = getAudienceStore(editor)
+    if (me.canViewAll) {
+      applyLearnerFilter(editor, 'all')
+      store.set({ copyPolicy: { kind: 'all' } })
+    } else {
+      applyLearnerFilter(editor, me.viewer)
+      store.set({ copyPolicy: { kind: 'viewer', viewer: me.viewer } })
+    }
+  }, [learnerDoc, me.state, me.viewer, me.canViewAll, st.originalVersion, editor])
+
+  // The bar is the only way out of a preview, so it shows whenever a preview is active, flag or not.
+  const showBar = previewing || (mkaAudienceEnabled() && st.sectionCount > 0 && (editable || me.canViewAll))
 
   const onChangeView = useCallback((view: AudienceView) => getAudienceStore(editor).set({ view }), [editor])
   const searchPeople = useCallback(
@@ -116,6 +134,7 @@ function Inner({ editor, options }: Props) {
   return (
     <>
       {showBar && (
+        <Suspense fallback={null}>
         <AudienceBar
           sectionCount={st.sectionCount}
           view={st.view}
@@ -126,6 +145,7 @@ function Inner({ editor, options }: Props) {
           pickPerson={pickPerson}
           options={orgOptions}
         />
+        </Suspense>
       )}
       {notes?.unrecognized && (
         <p role="note" data-testid="mka-note-unrecognized" className={NOTE_CLASS}>
