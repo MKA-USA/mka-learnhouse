@@ -133,6 +133,41 @@ def test_a_disabled_run_says_so_and_stays_green(tmp_path):
     assert rc == 0 and "::notice::Reminders are switched off on the server (feature_off)" in out
 
 
+@pytest.mark.parametrize("stopped", ["send_cap_reached", "too_many_consecutive_failures"])
+def test_an_early_stop_with_people_left_on_the_last_window_day_is_red(tmp_path, stopped):
+    rc, out, _ = run(REMINDERS, [resp(sent=60, remaining=9, stopped=stopped, last_window_day=True)], tmp_path)
+    assert rc == 1 and "::error::" in out and "LAST day" in out and f"({stopped})" in out and "next daily run" not in out
+
+
+def test_an_early_stop_on_the_last_day_with_nobody_left_stays_green(tmp_path):
+    rc, out, _ = run(REMINDERS, [resp(sent=400, remaining=0, stopped="send_cap_reached", last_window_day=True)], tmp_path)
+    assert rc == 0 and "::error::" not in out
+
+
+def test_an_invalid_test_recipient_is_red(tmp_path):
+    rc, out, _ = run(REMINDERS, [resp(disabled_reason="invalid_test_recipient")], tmp_path)
+    assert rc == 1 and "::error::" in out and "invalid_test_recipient" in out
+
+
+def test_a_disabled_reason_still_applies_the_failure_rules_to_the_rest_of_the_answer(tmp_path):
+    rc, out, _ = run(REMINDERS, [resp(sent=60, failed=1, newly_quarantined=1, disabled_reason="feature_off")], tmp_path)
+    assert rc == 1 and "newly quarantined" in out and "switched off" in out
+    rc, out, _ = run(REMINDERS, [resp(sent=60, failed=1, disabled_reason="feature_off")], tmp_path)
+    assert rc == 0 and "::error::" not in out and "run total:" in out
+
+
+def test_free_text_fields_are_sanitised_before_they_are_echoed(tmp_path):
+    rc, out, _ = run(REMINDERS, [resp(disabled_reason="x\n::error::pwned Evil", stopped="y::warning::z")], tmp_path)
+    assert "(xerrorpwnedvil)" in out  # only [a-z0-9_] survives: no colons, spaces or capitals
+    assert "::error::" not in out and "::warning::" not in out
+
+
+@pytest.mark.parametrize("field, value", [("sent", "5"), ("failed", 1.5), ("remaining", -1), ("newly_quarantined", True)])
+def test_a_non_integer_count_is_red(tmp_path, field, value):
+    rc, out, n = run(REMINDERS, [resp(**{field: value})], tmp_path)
+    assert rc == 1 and n == 1 and "not an integer" in out
+
+
 @pytest.mark.parametrize("answer", [(500, {"detail": "boom"}), (404, {"detail": "no"}), (200, b"<html>maintenance</html>")])
 def test_red_on_a_non_2xx_or_a_non_json_answer_and_the_body_is_never_echoed(tmp_path, answer):
     rc, out, _ = run(REMINDERS, [answer], tmp_path)

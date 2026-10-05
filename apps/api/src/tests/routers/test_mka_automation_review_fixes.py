@@ -115,6 +115,24 @@ async def test_a_manual_recipient_still_gets_the_scheduled_reminder_inside_the_w
     assert twice == manual  # the only people mailed twice are the manual recipients, the second mail being the last-day one
 
 
+async def test_a_manual_remind_on_the_last_day_itself_still_blocks_the_scheduled_run(db, org, world, transport, on, real_mode, monkeypatch):  # noqa: F811
+    """Round 4 H1: only manual reminders sent BEFORE local midnight of the last day are lifted. A manual Remind on the
+    last day (+1 h) followed by the cron (+2 h) must not mail the same people twice 1 h apart."""
+    monkeypatch.setenv("MKA_REMINDER_WINDOW_DAYS", "4")
+    last_day = MON + timedelta(days=3)
+    monkeypatch.setattr(rem, "current_instant", lambda: last_day + timedelta(hours=1))
+    async with client_for(db, 1) as c:
+        assert (await real(c, TABLIGH, org)).json()["sent"] == 4
+    manual = {r.intended_email for r in (await db.execute(select(MkaAutomationSendLog))).scalars().all()
+              if r.org_id == org.id and r.dedupe_key.startswith("manual:")}
+    rep = await rem.run_all(db, dry_run=False, kind="reminder", now=last_day + timedelta(hours=2))
+    mine = next(o for o in rep["orgs"] if o["org_id"] == org.id)["reminder"]
+    assert mine["sent"] == 4 and mine["skipped_cooldown"] == 4  # only the 4 who did not get the manual mail
+    scheduled = {r.intended_email for r in (await db.execute(select(MkaAutomationSendLog))).scalars().all()
+                 if r.org_id == org.id and r.dedupe_key.startswith("reminder:")}
+    assert not (scheduled & manual)
+
+
 async def test_the_last_day_rule_does_not_lift_the_scheduled_cooldown_or_the_weekly_cap(db, org, world, transport, on, real_mode, monkeypatch):  # noqa: F811
     monkeypatch.setenv("MKA_REMINDER_WINDOW_DAYS", "4")
     await rem.run_all(db, dry_run=False, kind="reminder", now=MON + timedelta(hours=2))  # everybody, scheduled
