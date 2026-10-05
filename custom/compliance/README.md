@@ -18,7 +18,7 @@ bun install
 cp .env.example .env              # set COMPLIANCE_DB_PASSWORD (openssl rand -hex 16) and LH_ORG_SLUG=default
 bun run db:up                     # docker postgres bound to 127.0.0.1:5433 (password from .env)
 bun run db:migrate                # applies packages/core/drizzle/*.sql
-bun run db:seed                   # idempotent upsert of 21 departments
+bun run db:seed                   # idempotent upsert of 21 departments (Atfal is stored with `active=false`)
 bun test packages apps            # unit tests (no DB or network needed)
 bun run typecheck
 bun run probe                     # READ-ONLY GETs against STAGING; writes docs/probe-report.md
@@ -33,7 +33,7 @@ The client logs only `METHOD path status`, redacts emails in paths and keeps res
 ## Provisioner commands (run from `apps/provisioner`; `lh` wraps the keychain token + `.env`)
 ```
 bun run start roster | import ... | seed-thinkific | gap-report      # data (no LearnHouse access)
-bun run lh plan --pilot                                  # dry run (default): General + Aitmad + Tabligh
+bun run lh plan --pilot                                  # dry run (default): General + Aitmad + Tabligh (all other commands: Atfal excluded unless --include-atfal)
 bun run lh apply --confirm-staging --pilot               # creates DRAFT courses on STAGING only (refuses any other host)
 bun run lh reconcile --pilot                             # dry run: enroll existing users only
 bun run lh reconcile --pilot --apply --confirm-staging
@@ -56,8 +56,18 @@ Courses stay `public: false` (visible to enrolled learners only).
 `bun run start export-courses` (also run by `apply`) writes `out/cycle-courses.json`: cycle, deadline, and per course the activity uuids plus the
 assignment/task uuids of the final sign-off and the contact self-check, for the in-LearnHouse analytics view.
 
-## Unconfirmed
-Regional department mailboxes `{dept}.{region}@mkausa.org` (200 roster rows, source `formula-unconfirmed`) come from the Thinkific directories and are not yet confirmed by the user. Atfal has none (no evidence).
+## Excluded departments (Atfal is OFF by default)
+Product decision 2026-10-05: ignore Atfal for now. One config concept, `DEFAULT_EXCLUDED_DEPARTMENTS = ["atfal"]` in `packages/core/src/config.ts`
+(`resolveConfig`, `activeDepartments`, `withoutExcluded`), is the only place that knows. Everything derives from it: `roster` (no Atfal `person_role` rows: no national,
+regional or local `nazim.{majlis}@atfalusa.org` / `murabbi.{majlis}@atfalusa.org`; stale generated rows are pruned), `plan` / `apply` / `publish` / `export-courses`
+(no Atfal course; `out/cycle-courses.json` has General + 20 department courses), `push-cycle`, `push-roster`, `reconcile`, `gap-report` (counts exclude Atfal),
+`assign-authors` (CSV rows for Atfal are skipped with a message). `--only atfal` fails with a clear error. The `department` table keeps Atfal as a canonical department with `active=false`.
+**Switch it back on:** add `--include-atfal` to the commands (roster, plan, apply, push-*, reconcile, gap-report), or empty the config list; then `roster`, `plan`, `apply`.
+Roster totals (52 Majlis): 26 national + 210 regional (10 regional Qaids + 200 regional department officers) + 1144 local (52 x 22) = **1380** (was 1485 with Atfal).
+
+## Unconfirmed flag
+Regional department mailboxes `{dept}.{region}@mkausa.org` are CONFIRMED (2026-10-05) and use source `formula`. The mechanism stays for anything else unconfirmed:
+rows with source `formula-unconfirmed` (`UNCONFIRMED_SOURCE` in `roster/generate.ts`) are pushed with `formula_unconfirmed: true` and counted in the gap report.
 
 ## Fork compliance API (push to the in-LearnHouse analytics)
 Not deployed anywhere yet; nothing here has been applied. All commands are dry-run by default and refuse non-staging hosts.
@@ -67,8 +77,8 @@ bun run lh push-roster --all|--pilot|--only a,b [--apply --confirm-staging] [--b
 bun run lh assign-authors --map mohtamims.csv [--apply --confirm-staging]
 ```
 Cycle dates are config, not code: flags > `cycle` table row > built-in default for known labels (`roster --starts-on ... --deadline-on ...` stores them).
-`push-cycle` sends `out/cycle-courses.json` to `POST /mka/compliance/cycles`; `push-roster` sends the expected roster (every role, regional included,
-`formula_unconfirmed` flagged) to `POST /mka/compliance/expected/import` in batches (API limit 2000). Auth: org API token plus `org_slug`.
+`push-cycle` sends `out/cycle-courses.json` to `POST /mka/compliance/cycles`; `push-roster` sends the expected roster (every role of the non-excluded departments, regional included;
+rows with source `formula-unconfirmed` carry `formula_unconfirmed: true`, currently none) to `POST /mka/compliance/expected/import` in batches (API limit 2000). Auth: org API token plus `org_slug`.
 Per-row errors go to `out/push-roster-report.json`; console shows counts only. Runbook: `docs/runbooks/cycle-rollout.md`.
 
 ## Contract check against the fork's real code

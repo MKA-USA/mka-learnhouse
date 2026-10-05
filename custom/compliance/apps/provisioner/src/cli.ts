@@ -18,7 +18,8 @@ const USAGE = `provisioner <command>
   push-cycle [--apply --confirm-staging] [--starts-on --deadline-on]   -> fork POST /mka/compliance/cycles
   push-roster --all|--pilot|--only [--apply --confirm-staging] [--batch-size N]   -> POST /mka/compliance/expected/import
   assign-authors --map mohtamims.csv [--apply --confirm-staging]
-  gap-report [--cycle] [--data <dir>] [--carry-over 2025-26]`;
+  gap-report [--cycle] [--data <dir>] [--carry-over 2025-26]
+  (any command) --include-atfal   Atfal is excluded by default (core config); this switches it back on`;
 try {
   switch (cmd) {
     case "roster": await cmdRoster(a); break;

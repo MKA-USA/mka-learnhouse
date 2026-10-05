@@ -18,7 +18,12 @@ Everything below is staging first; production only with the owner's explicit say
 | 10 | Publish | **Owner (human)** | `bun run lh publish --all` (dry run lists the flips), then `--execute --confirm-staging`, or publish in the UI | unpublish in the UI |
 | 11 | Monitor | Operator | scheduled `reconcile`; the fork API serves the analytics | n/a |
 
-Open confirmations before go-live: regional department mailbox pattern `{dept}.{region}@mkausa.org`; Muqami as a Majlis; Atfal regional officers; the fork's deployment of the compliance API.
+Confirmed: regional department mailbox pattern `{dept}.{region}@mkausa.org` (2026-10-05). Open before go-live: Muqami as a Majlis; the fork's deployment of the compliance API.
+
+**Atfal is excluded by config** (decision 2026-10-05): no Atfal course, no Atfal roster rows (national, regional or local `@atfalusa.org` roles), no Atfal rows pushed or enrolled, and the analytics/gap counts leave it out
+(those accounts cannot be proven under the Google-only SSO and would show as "not signed in" forever). The switch is `DEFAULT_EXCLUDED_DEPARTMENTS` in `packages/core/src/config.ts`.
+To include Atfal later: pass `--include-atfal` to `roster`, `plan`, `apply`, `export-courses`, `push-cycle`, `push-roster`, `reconcile`, `publish`, `assign-authors` and `gap-report` (or empty the list),
+run `bun run db:seed` (flips `department.active`), then `roster`, `plan`, `apply --only atfal`, and re-push. Removing Atfal after it was provisioned: re-run `roster` (prunes generated rows), delete the draft course by hand; the toolkit never deletes LearnHouse courses.
 
 ## Org API token: how to create it and which scopes to tick
 Only an org **admin** can do this, in the ilm-dev admin UI (Organization settings, API Tokens; Pro plan). Name it e.g. `compliance-provisioner`, set an expiry,

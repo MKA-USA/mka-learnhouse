@@ -1,11 +1,12 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  DEPARTMENTS, LhApi, LhClient, LhHttpError, MAX_EXPECTED_ROWS, SafetyError, STAGING_API_BASE, assertStaging, assignAuthors, buildCyclePayload, chunk, connect, courseMap, getCycleId,
-  loadRoster, parseCsv, pushCycle, pushExpected, resolveDepartment, selectLearners, toExpectedRow, validateCyclePayload, validateExpected, type CycleCoursesFile, type RosterRow,
+  LhApi, LhClient, LhHttpError, MAX_EXPECTED_ROWS, SafetyError, STAGING_API_BASE, assertStaging, assignAuthors, buildCyclePayload, chunk, connect, courseMap, getCycleId,
+  loadRoster, parseCsv, pushCycle, pushExpected, resolveDepartment, selectLearners, withoutExcluded, toExpectedRow, validateCyclePayload, validateExpected, type CycleCoursesFile, type RosterRow,
 } from "@mka/compliance-core";
 import { eq } from "drizzle-orm";
 import type { Args } from "./args";
+import { assertNotExcluded, configFrom } from "./config";
 import { OUT_DIR, writeOut } from "./commands-data";
 import { DEFAULT_CYCLE, loadCycleDef } from "./cycles";
 import { PILOT } from "./world";
@@ -33,7 +34,8 @@ export async function cmdPushCycle(a: Args) {
     const def = await loadCycleDef(db, cycle, a);
     const file = a.str("file", join(OUT_DIR, "cycle-courses.json"))!;
     if (!existsSync(file)) throw new Error(`${file} not found; run export-courses (or apply) first`);
-    const payload = buildCyclePayload(JSON.parse(readFileSync(file, "utf8")) as CycleCoursesFile, def.startsOn, def.deadlineOn);
+    const cfg = JSON.parse(readFileSync(file, "utf8")) as CycleCoursesFile; const excl = configFrom(a).excludedDepartments;
+    const payload = buildCyclePayload({ ...cfg, courses: cfg.courses.filter((c) => !excl.includes(c.department_slug)) }, def.startsOn, def.deadlineOn);
     const errs = validateCyclePayload(payload);
     console.log(`PUSH-CYCLE ${apply ? "APPLY" : "(dry run, nothing is sent)"} ${payload.cycle}: starts ${payload.starts_on}, deadline ${payload.deadline}, ${payload.courses.length} courses`);
     if (errs.length) { errs.forEach((e) => console.log("  invalid: " + e)); throw new Error("refusing: payload would be rejected by the API"); }
@@ -52,10 +54,10 @@ export async function cmdPushRoster(a: Args) {
   const only = a.has("pilot") ? PILOT : a.has("only") ? String(a.str("only")).split(",").map((s) => s.trim()) : a.has("all") ? undefined : null;
   if (only === null) throw new SafetyError("push-roster requires --all, --pilot or --only <slugs>");
   const batch = Number(a.str("batch-size", "1000")); if (!(batch >= 1 && batch <= MAX_EXPECTED_ROWS)) throw new SafetyError(`--batch-size must be 1..${MAX_EXPECTED_ROWS}`);
-  const cycle = a.str("cycle", DEFAULT_CYCLE)!; const { db, sql } = connect();
+  const cycle = a.str("cycle", DEFAULT_CYCLE)!; const config = configFrom(a); assertNotExcluded(only ?? undefined, config); const { db, sql } = connect();
   try {
     const cid = await getCycleId(db, cycle); if (cid === null) throw new Error(`cycle ${cycle} not found`);
-    const roster = (await loadRoster(db, cid)).map((r) => ({ ...r, level: r.level as RosterRow["level"] })) as RosterRow[];
+    const roster = (await loadRoster(db, cid, config.excludedDepartments)).map((r) => ({ ...r, level: r.level as RosterRow["level"] })) as RosterRow[];
     const rows = selectLearners(roster, only).map(toExpectedRow);
     const v = validateExpected(rows);
     console.log(`PUSH-ROSTER ${apply ? (a.has("server-dry-run") ? "APPLY (server dry_run)" : "APPLY") : "(dry run, nothing is sent)"} ${cycle}: ${rows.length} rows, ${v.errors.length} rejected locally, ${v.duplicates} duplicate keys, ${rows.filter((r) => r.formula_unconfirmed).length} flagged formula_unconfirmed`);
@@ -82,15 +84,16 @@ export async function cmdAssignAuthors(a: Args) {
   const { headers, rows } = parseCsv(readFileSync(map, "utf8"));
   const di = headers.indexOf("department"), ei = headers.indexOf("email");
   if (di < 0 || ei < 0) throw new Error("CSV needs columns department,email");
-  const cycle = a.str("cycle", DEFAULT_CYCLE)!; const { db, sql } = connect();
+  const cycle = a.str("cycle", DEFAULT_CYCLE)!; const config = configFrom(a); const { db, sql } = connect();
   try {
     const cid = await getCycleId(db, cycle); if (cid === null) throw new Error(`cycle ${cycle} not found`);
-    const maps = await db.select().from(courseMap).where(eq(courseMap.cycleId, cid));
+    const maps = withoutExcluded(await db.select().from(courseMap).where(eq(courseMap.cycleId, cid)), config.excludedDepartments);
     const course = new Map(maps.filter((m) => m.kind === "department").map((m) => [m.departmentSlug, m.lhCourseUuid]));
     const todo: { department: string; email: string; courseUuid: string }[] = []; const skipped: string[] = [];
     for (const r of rows) {
       const slug = resolveDepartment(r.cells[di] ?? ""); const email = (r.cells[ei] ?? "").trim().toLowerCase();
       if (!slug || !email.includes("@")) { skipped.push(`line ${r.line}: bad department or email`); continue; }
+      if (config.excludedDepartments.includes(slug)) { skipped.push(`line ${r.line}: ${slug} is excluded by config (pass --include-atfal to include Atfal); row ignored`); continue; }
       const c = course.get(slug); if (!c) { skipped.push(`line ${r.line}: ${slug} has no provisioned course`); continue; }
       todo.push({ department: slug, email, courseUuid: c });
     }
@@ -102,6 +105,5 @@ export async function cmdAssignAuthors(a: Args) {
     const tally = res.reduce<Record<string, number>>((m, r) => ((m[r.status] = (m[r.status] ?? 0) + 1), m), {});
     console.log(`result: ${JSON.stringify(tally)}`);
     writeOut("assign-authors-report.json", JSON.stringify({ cycle, apply, results: res, skipped }, null, 1));
-    void DEPARTMENTS;
   } finally { await sql.end(); }
 }
