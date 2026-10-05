@@ -651,3 +651,42 @@ diff --git a/apps/web/components/Auth/TurnstileWidget.tsx b/apps/web/components/
 (`delete_profile`, called by upstream `anonymize_user`, now also deletes attribute/audit/roster rows: the change is inside the fork file `services/users/mka_profile.py`, no upstream edit.)
 
 - **Not touched**: `cli.py` (backfill is `python -m src.services.mka.backfill`), `MKA_GOOGLE_ONLY_DOMAINS` / any SSO restriction.
+
+## MKA native compliance analytics: web hooks H1-H3 (apps/web)
+
+- **Date**: 2026-10-04
+- **Reason**: Native "Compliance" nav item + course tab. All logic is fork-only (`services/mka/compliance*.ts`, `components/mka/compliance/*`, `app/orgs/[orgslug]/dash/compliance/*`, dev-only `app/examples/mka-compliance-preview/*`, test `tests/mka-compliance-format.test.mjs`). Upstream files get ONLY the pure-addition lines below (no existing line edited). Visibility is cosmetic; the API enforces on every endpoint. Spec: `docs/superpowers/specs/2026-10-04-mka-native-compliance-analytics-design.md`.
+- **Re-apply after pulling upstream**: `grep -rn "MKA fork" apps/web/components/Dashboard/Menus apps/web/app/orgs/*/dash/courses` and run `bun test tests/mka-compliance-format.test.mjs` (the "hook guard" tests fail if a hook line is lost).
+- **No extension point exists**: nav items and course tabs are hard-coded JSX / an inline array in upstream.
+
+1. H1 `apps/web/components/Dashboard/Menus/DashLeftMenu.tsx` (hook placed beside `useAdminStatus()`, before the early return, to respect Rules of Hooks; `MenuLink` is a local const so the link must live in this file)
+```diff
+ import useAdminStatus from '@components/Hooks/useAdminStatus'
++import { ShieldCheck } from '@phosphor-icons/react' // MKA fork
++import { useMkaComplianceScope } from '@services/mka/compliance' // MKA fork
+@@
+   const { canManageOrg } = useAdminStatus()
++  const mkaScope = useMkaComplianceScope() // MKA fork
+@@ after the Analytics </HoverMenu>
++            {mkaScope !== 'none' && <MenuLink href="/dash/compliance" icon={<ShieldCheck size={20} weight="fill" />} label="Compliance" isCollapsed={isCollapsed} active={isActivePath('/dash/compliance')} />} {/* MKA fork */}
+```
+2. H2 `apps/web/components/Dashboard/Menus/DashMobileMenu.tsx` (`PanelItem` is a local const, not exported)
+```diff
+ import { useCommandPalette } from '@components/Dashboard/CommandPalette/CommandPaletteContext'
++import { ShieldCheck } from '@phosphor-icons/react' // MKA fork
++import { useMkaComplianceScope } from '@services/mka/compliance' // MKA fork
+@@
+   const { toggle: openSearch } = useCommandPalette()
++  const mkaScope = useMkaComplianceScope() // MKA fork
+@@ after the Analytics PanelItem
++                {mkaScope !== 'none' && <PanelItem href="/dash/compliance" icon={<ShieldCheck size={15} weight="fill" />} label="Compliance" active={isActive('/dash/compliance')} onClick={close} />} {/* MKA fork */}
+```
+3. H3 `apps/web/app/orgs/[orgslug]/dash/courses/course/[courseuuid]/[subpage]/page.tsx` (push AFTER the array's `]` so no upstream line is edited; `useMkaCourseTabs` is unconditional, before any early return; it keeps the tab while the scope query is pending so a deep link to `/compliance` is not bounced by the page's unknown-subpage redirect)
+```diff
+ import { DashTabBar, DashTabItem } from '@components/Dashboard/Shared/DashTabBar/DashTabBar';
++import MkaCourseComplianceTab, { useMkaCourseTabs } from '@components/mka/compliance/course-tab' // MKA fork
+@@ after the `tabs` array closing `]`
++  tabs.push(...useMkaCourseTabs(params.courseuuid)) // MKA fork
+@@ after the analytics render block
++            {!rightsLoading && params.subpage == 'compliance' && hasPermission('update') ? <MkaCourseComplianceTab courseUUID={courseuuid} /> : null} {/* MKA fork */}
+```
