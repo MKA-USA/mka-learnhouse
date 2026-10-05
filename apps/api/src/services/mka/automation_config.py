@@ -178,6 +178,12 @@ def reminder_window_days() -> int:
     return min(_int("MKA_REMINDER_WINDOW_DAYS", 4, 1), 7)
 
 
+def reminder_max_address_failures() -> int:
+    """An address with this many failed reminder sends in the last 7 days is quarantined (not selected) until the
+    failures age out (default 3)."""
+    return _int("MKA_REMINDER_MAX_ADDRESS_FAILURES", 3, 1)
+
+
 def claim_lease_seconds() -> int:
     """A ``queued`` send-log claim older than this is presumed crashed and may be re-claimed once (default 900)."""
     return _int("MKA_AUTOMATION_CLAIM_LEASE_SECONDS", 900, 1)
@@ -301,5 +307,6 @@ def status_snapshot() -> dict:
         "run_time_budget_seconds": run_time_budget_seconds(),
         "reminder_window_days": reminder_window_days(),
         "claim_lease_seconds": claim_lease_seconds(),
+        "reminder_max_address_failures": reminder_max_address_failures(),
         "weekly_reminder_cap": weekly_reminder_cap(),
     }

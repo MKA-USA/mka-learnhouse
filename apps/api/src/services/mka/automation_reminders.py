@@ -48,6 +48,7 @@ from src.services.mka.automation_send import (
     SendBudget,
     current_iso_week,
     current_mode_is_test,
+    failing_addresses,
     iso_week_label,
     manual_dedupe_key,
     reminder_dedupe_key,
@@ -179,7 +180,7 @@ def _blank_counts() -> dict:
     return {
         "would_send": 0, "sent": 0, "skipped_recent": 0, "skipped_attested": 0, "skipped_excluded": 0,
         "suppressed": 0, "failed": 0, "disabled": 0, "stopped": None, "disabled_reason": None,
-        "remaining": 0, "time_budget_hit": False,
+        "remaining": 0, "time_budget_hit": False, "quarantined": 0,
     }
 
 
@@ -196,6 +197,7 @@ class Selection:
     pending: list  # e-mail addresses, least recently reminded first
     key_week: str  # ISO week label used in the dedupe key (scheduled: the window's first week)
     already: int  # people dropped because they were already reminded in this window / week
+    quarantined: int = 0  # people dropped because their address keeps failing (review N1)
     last_sent: dict = field(default_factory=dict)
 
 
@@ -221,11 +223,17 @@ async def select_pending(
         cutoff = min(week_window_utc(week)[0], _local_midnight_utc(window_start or today))
         last_sent = await reminder_rows_by_person(db, org_id, key_like=f"{SCHEDULED_KEY_PREFIX}%", test_mode=test_mode)
         excluded_people = {e for e, last in last_sent.items() if last is not None and last >= cutoff}
+    # Addresses whose sends keep failing (review N1) are quarantined; the ones with some recent failure go LAST so a few
+    # bad mailboxes can never sit at the head of the queue and trip the consecutive-failure stop for everybody else.
+    fails = await failing_addresses(db, org_id, test_mode=test_mode, now=now)
+    limit = cfg.reminder_max_address_failures()
+    quarantined = {e for e in people if e not in excluded_people and fails.get(e, 0) >= limit}
     pending = sorted(
-        (e for e in people if e not in excluded_people),
-        key=lambda e: (last_sent.get(e) or datetime.min, e),
+        (e for e in people if e not in excluded_people and e not in quarantined),
+        key=lambda e: (fails.get(e, 0) > 0, last_sent.get(e) or datetime.min, e),
     )
-    return Selection(pending, key_week, len(people) - len(pending), last_sent)
+    already = sum(1 for e in people if e in excluded_people)
+    return Selection(pending, key_week, already, len(quarantined), last_sent)
 
 
 async def _send_reminders(
@@ -247,6 +255,7 @@ async def _send_reminders(
     week = current_iso_week(now)
     pending = sel.pending
     counts["skipped_recent"] += sel.already
+    counts["quarantined"] += sel.quarantined
     for index, email in enumerate(pending):
         p = people[email]
         dedupe_key = (
@@ -320,7 +329,10 @@ def digest_targets(roster: list, excluded: frozenset) -> list[DigestTarget]:
     return sorted(out.values(), key=lambda t: t.email)
 
 
-def digest_view(target: DigestTarget, roster: list, per_course: list, user_map: dict, excluded: frozenset):
+def digest_view(
+    target: DigestTarget, roster: list, per_course: list, user_map: dict, excluded: frozenset,
+    failing: frozenset = frozenset(),
+):
     """(counts, role titles that need a nudge) for the people in the target's scope. Role titles only."""
     people, _ = collect_people(per_course, user_map, excluded)
     attested_pool = {
@@ -344,7 +356,9 @@ def digest_view(target: DigestTarget, roster: list, per_course: list, user_map: 
                 counts["attested"] += 1
             continue
         counts[p.worst if p.worst in counts else "in_progress"] += 1
-        nudge.append(tpl.addressee(role_title=p.role_title, majlis=p.place) or "Unnamed role")
+        label = tpl.addressee(role_title=p.role_title, majlis=p.place) or "Unnamed role"
+        # reminders to this mailbox keep failing: the supervisor has to reach the person another way (review N1)
+        nudge.append(f"{label} (address failing)" if email in failing else label)
     return counts, sorted(nudge)
 
 
@@ -356,9 +370,11 @@ async def _send_digests(
               "suppressed": 0, "disabled": 0, "stopped": None, "disabled_reason": None, "remaining": 0,
               "time_budget_hit": False}
     targets = digest_targets(ds.roster, excluded)
+    fails = await failing_addresses(db, org.id, test_mode=current_mode_is_test(), now=now)  # type: ignore[arg-type]
+    failing = frozenset(e for e, n in fails.items() if n >= cfg.reminder_max_address_failures())
     week = current_iso_week(now)
     for index, target in enumerate(targets):
-        view, nudge = digest_view(target, ds.roster, per_course, ds.user_map, excluded)
+        view, nudge = digest_view(target, ds.roster, per_course, ds.user_map, excluded, failing)
         if not nudge:
             counts["skipped_nothing_outstanding"] += 1
             continue

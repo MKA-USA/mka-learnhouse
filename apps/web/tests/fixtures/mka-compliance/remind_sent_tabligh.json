@@ -6,6 +6,7 @@
     "enabled": true,
     "failed": 0,
     "preview_digest": null,
+    "quarantined": 0,
     "remaining": 0,
     "sent": 4,
     "skipped_attested": 1,

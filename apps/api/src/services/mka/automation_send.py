@@ -214,6 +214,45 @@ async def reminded_this_week(db: AsyncSession, org_id: int, email: str, iso_week
     return await reminders_this_week(db, org_id, email, iso_week) >= cfg.weekly_reminder_cap()
 
 
+FAILURE_WINDOW = timedelta(days=7)
+_FAILS = re.compile(r"\[fails=(\d+)\]")
+
+
+def _fail_count(error: Optional[str]) -> int:
+    """Failed attempts recorded on a send-log row (``error`` ends in ``[fails=N]``; a bare error counts as one)."""
+    if not error:
+        return 0
+    m = _FAILS.search(error)
+    return int(m.group(1)) if m else 1
+
+
+async def _previous_failures(db: AsyncSession, org_id: int, kind: str, key: str) -> int:
+    error = (
+        await db.execute(
+            select(MkaAutomationSendLog.error).where(
+                MkaAutomationSendLog.org_id == org_id, MkaAutomationSendLog.kind == kind,
+                MkaAutomationSendLog.dedupe_key == key, MkaAutomationSendLog.status == "failed",
+            )
+        )
+    ).scalars().first()
+    return _fail_count(error)
+
+
+async def failing_addresses(db: AsyncSession, org_id: int, *, test_mode: bool, now: datetime) -> dict:
+    """``{intended_email: failed attempts in the last 7 days}`` for reminder sends (scheduled and manual) in the
+    current mode. Used to quarantine addresses that keep being rejected and to order the others first (review N1)."""
+    since = (now.astimezone(timezone.utc).replace(tzinfo=None) if now.tzinfo else now) - FAILURE_WINDOW
+    stmt = select(MkaAutomationSendLog.intended_email, MkaAutomationSendLog.error).where(
+        MkaAutomationSendLog.org_id == org_id, MkaAutomationSendLog.kind == "reminder",
+        MkaAutomationSendLog.status == "failed", MkaAutomationSendLog.test_mode == test_mode,
+        MkaAutomationSendLog.created_at >= since,
+    )
+    out: dict = {}
+    for email, error in (await db.execute(stmt)).all():
+        out[email] = out.get(email, 0) + _fail_count(error)
+    return out
+
+
 def current_mode_is_test() -> bool:
     """True when a send right now would go to the test recipient (a malformed test address counts: it refuses sends)."""
     try:
@@ -440,6 +479,7 @@ async def send_automation_email(
         intended_email=intended, subject=effective_subject, status="suppressed" if suppressed else "queued",
         test_mode=test_mode, cycle_id=cycle_id, course_id=course_id, created_at=created,
     )
+    previous_failures = await _previous_failures(db, org_id, kind, effective_key) if not suppressed else 0
     claimed = await _claim(db, row)
     if claimed is None:
         return result("already_handled")
@@ -457,7 +497,7 @@ async def send_automation_email(
     except Exception as exc:  # transport failure: record it, never leak the message (may contain addresses)
         code = getattr(exc, "status_code", None)
         error = f"{type(exc).__name__}" + (f" {code}" if code else "")
-        await _finish(db, log_id, status="failed", error=error[:200])
+        await _finish(db, log_id, status="failed", error=f"{error[:150]} [fails={previous_failures + 1}]")
         if budget is not None:
             budget.record(False)
         logger.warning("automation send failed kind=%s org=%s log=%s error=%s", kind, org_id, log_id, error)

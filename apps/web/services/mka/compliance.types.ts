@@ -204,6 +204,8 @@ export interface RemindResponse {
   /** Still to do when the run stopped early (time budget or send cap). Run it again; nobody is mailed twice. */
   remaining: number
   time_budget_hit: boolean
+  /** Addresses skipped because their reminders keep failing (they are listed as 'address failing' in the Monday digest). */
+  quarantined: number
   /** Preview only: fingerprint of the list shown. A real send must pass it back; the API refuses (409) when the list changed. */
   preview_digest: string | null
 }

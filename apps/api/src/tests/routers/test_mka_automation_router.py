@@ -81,7 +81,7 @@ async def test_org_admin_session_gets_the_status(db, org, seeded):
     assert r.status_code == 200 and r.headers["cache-control"] == "private, no-store"
     body = r.json()
     assert body["config"]["enabled"] is False and body["config"]["test_mode"] is False
-    assert body["send_log"] == {"total": 3, "by_status": {"sent": 2, "failed": 1}, "test_mode_rows": 1, "stale_queued": 0}
+    assert body["send_log"] == {"total": 3, "by_status": {"sent": 2, "failed": 1}, "test_mode_rows": 1, "stale_queued": 0, "failing_addresses": 0}
     assert body["events"] == {"total": 1, "by_status": {"processed": 1}}
     assert body["autoenroll"] == {"errors_recent": 0, "window_days": 7}
 
