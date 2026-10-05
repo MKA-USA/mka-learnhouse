@@ -97,8 +97,30 @@ reset endpoints. Not small; left documented. Backend limiters exist (login
 - FAIL OPEN when Redis is unavailable or errors (logged).
 - 429 `detail` "Too many sign-up attempts from your network. Please try again in
   about N minutes." plus `Retry-After`; the forms render any string `detail`.
-- Client IP: upstream `get_client_ip` (same as login): trusts
-  `X-Forwarded-For` / `X-Real-IP` only when the direct peer is loopback/private.
+- Client IP: fork `mka_client_ip` (see IP trust model).
+
+## IP trust model
+
+- Upstream `get_client_ip` trusts `X-Forwarded-For` only from a loopback/private
+  direct peer and then takes its FIRST entry.
+- The container nginx has no `real_ip` / `set_real_ip_from` directives and sets
+  `X-Forwarded-For $proxy_add_x_forwarded_for`, i.e. it APPENDS its peer (the
+  Traefik hop) to whatever XFF arrived. If Traefik (or Cloudflare in front of
+  it) passes a client-supplied XFF through, the first entry is attacker-chosen:
+  rotating it would mint a fresh bucket per request. The loopback Next -> API
+  hop forwards the same header verbatim, so it does not change this.
+- Fork fix (guard only; upstream `get_client_ip` and the login limiter are
+  unchanged): `mka_client_ip` takes the RIGHT-MOST globally routable XFF entry
+  when the direct peer is loopback/private. Entries on the right are appended
+  by the proxy chain, so a client cannot choose them. Private entries (proxy
+  hops) are skipped; with no global entry, or an empty/unknown IP, the limiter
+  is skipped and never creates a key. A public direct peer is used as-is.
+- Residual: if a CDN (e.g. Cloudflare proxy) sits in front of Traefik, the
+  right-most global entry is the CDN edge, not the member, so buckets become
+  per-edge (coarser, never spoofable). Because only Turnstile-passing requests
+  count, filling a bucket costs solved challenges. If that is the topology,
+  raise `MKA_SIGNUP_RATE_LIMIT_PER_HOUR` or set `0`.
+- Turnstile `remoteip` uses the same IP.
 
 ## G2: Google SSO account creation
 

@@ -294,5 +294,5 @@ Still open:
 - Google SSO account creation is not rate limited (G2 verdict).
 - Login / forgot / reset: Turnstile is still enforced only client-side via `/api/turnstile/verify` (needs the token threaded through upstream login/reset endpoints); backend limiters cover them (login 30/5 min/IP, reset 5/5 min/email).
 - On loopback the API sees `Host: 127.0.0.1:9000` (Node fetch cannot override Host). Host is only a last-resort fallback for email link/logo URLs (after Origin/Referer, `frontend_domain`, `LEARNHOUSE_MEDIA_URL`/`LEARNHOUSE_BACKEND_URL`, `LEARNHOUSE_DOMAIN`); check email links after deploy.
-- Limiter IP trust equals login's: forwarded headers are trusted only from a loopback/private peer; spoof resistance depends on the edge proxy (Traefik + container nginx) appending the real peer.
+- IP trust: the container nginx APPENDS to incoming `X-Forwarded-For` and upstream `get_client_ip` takes the first (client-controllable) entry, so the guard uses fork `mka_client_ip`: the right-most globally routable XFF entry behind a local proxy (upstream helper and login limiter unchanged). Behind a CDN the bucket is the CDN edge (coarser, not spoofable).
 - Unverified at runtime: widget rendering, real siteverify with a real token, the 403/429 paths in the browser, per-IP Redis keys behind the real proxy, Redis down, SaaS-mode regression.
