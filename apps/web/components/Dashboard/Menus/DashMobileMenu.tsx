@@ -44,6 +44,8 @@ import { usePlan } from '@components/Hooks/usePlan'
 import { planMeetsRequirement } from '@services/plans/plans'
 import { FeedbackModal } from '@components/Objects/Modals/FeedbackModal'
 import { useCommandPalette } from '@components/Dashboard/CommandPalette/CommandPaletteContext'
+import { ShieldCheck } from '@phosphor-icons/react' // MKA fork
+import { useMkaComplianceScope } from '@services/mka/compliance' // MKA fork
 
 function DashMobileMenu() {
   const org = useOrg() as any
@@ -52,6 +54,7 @@ function DashMobileMenu() {
   const pathname = usePathname() || ''
   const plan = usePlan()
   const { toggle: openSearch } = useCommandPalette()
+  const mkaScope = useMkaComplianceScope() // MKA fork
   const [menuOpen, setMenuOpen] = useState(false)
   const [feedbackModalOpen, setFeedbackModalOpen] = useState(false)
   const [langExpanded, setLangExpanded] = useState(false)
@@ -227,6 +230,7 @@ function DashMobileMenu() {
                 {isEnabled('playgrounds') && <PanelItem href="/dash/playgrounds" icon={<Cube size={15} weight="fill" />} label="Playgrounds" active={isActive('/dash/playgrounds')} onClick={close} />}
                 {isEnabled('payments') && <PanelItem href="/dash/payments/overview" icon={<CurrencyCircleDollar size={15} weight="fill" />} label={t('common.payments')} active={isActive('/dash/payments')} onClick={close} />}
                 <PanelItem href="/dash/analytics" icon={<ChartBar size={15} weight="fill" />} label="Analytics" active={isActive('/dash/analytics')} onClick={close} />
+                {mkaScope !== 'none' && <PanelItem href="/dash/compliance" icon={<ShieldCheck size={15} weight="fill" />} label="Compliance" active={isActive('/dash/compliance')} onClick={close} />} {/* MKA fork */}
                 <PanelItem href="/dash/org/settings/general" icon={<Buildings size={15} weight="fill" />} label={t('common.organization')} active={isActive('/dash/org')} onClick={close} />
                 <PanelItem href="/dash/developers/api" icon={<Code size={15} weight="fill" />} label={t('dashboard.developers.breadcrumb', { defaultValue: 'Developers' })} active={isActive('/dash/developers')} onClick={close} />
 

@@ -1,0 +1,142 @@
+{
+  "version": "2026.1",
+  "_comment": "MKA fork. Data, not code: reviewed in PRs and exercised by src/tests/services/mka/test_identity_parser.py. The Majlis -> Region map is NOT here: it is MAJLIS_TO_REGION in services/users/mka_profile.py.",
+
+  "departments": [
+    {"key": "aitmad", "name": "Aitmad", "aka": ["General Secretary"]},
+    {"key": "tabligh", "name": "Tabligh"},
+    {"key": "tarbiyyat", "name": "Tarbiyyat"},
+    {"key": "maal", "name": "Maal"},
+    {"key": "sanat_o_tijarat", "name": "Sanat-o-Tijarat"},
+    {"key": "sehat_e_jismani", "name": "Sehat-e-Jismani"},
+    {"key": "ishaat", "name": "Ishaat"},
+    {"key": "khidmat_e_khalq", "name": "Khidmat-e-Khalq"},
+    {"key": "tahrik_e_jadid", "name": "Tahrik-e-Jadid"},
+    {"key": "tajneed", "name": "Tajneed"},
+    {"key": "taleem", "name": "Taleem"},
+    {"key": "nau_mubaeen", "name": "Nau Mubaeen"},
+    {"key": "amoomi", "name": "Amoomi"},
+    {"key": "amoor_e_tuluba", "name": "Amoor-e-Tuluba"},
+    {"key": "waqar_e_amal", "name": "Waqar-e-Amal"},
+    {"key": "mohasib", "name": "Mohasib"},
+    {"key": "rishta_nata", "name": "Rishta Nata"},
+    {"key": "wasiyyat", "name": "Wasiyyat"},
+    {"key": "waqf_e_nau", "name": "Waqf-e-Nau"},
+    {"key": "new_immigrants", "name": "New Immigrants"},
+    {"key": "atfal", "name": "Atfal"}
+  ],
+
+  "_comment_titles": "Role display titles. Lookup order: 'role:level' then 'role'. {department} is replaced by the department name. UNVERIFIED org vocabulary: change here, no deploy of code needed beyond the file.",
+  "role_titles": {
+    "sadr": "Sadr",
+    "naib_sadr": "Naib Sadr",
+    "mohtamim": "Mohtamim {department}",
+    "nazim_dept": "Nazim {department}",
+    "qaid": "Qaid",
+    "naib_qaid": "Naib Qaid",
+    "regional_qaid": "Regional Qaid",
+    "motamid": "Motamid",
+    "motamid:national": "National Motamid",
+    "regional_nazim_dept": "Regional Nazim {department}",
+    "regional_motamid": "Regional Motamid",
+    "nazim_atfal": "Nazim Atfal",
+    "murabbi_atfal": "Murabbi Atfal",
+    "national_staff": "National staff"
+  },
+
+  "_comment_regions": "Region slug -> canonical region name (must equal a value of MAJLIS_TO_REGION).",
+  "regions": {
+    "east": "East",
+    "greatlakes": "Great Lakes",
+    "gulf": "Gulf",
+    "midwest": "Midwest",
+    "newyorkmetro": "New York Metro",
+    "northeast": "Northeast",
+    "northwest": "Northwest",
+    "southeast": "Southeast",
+    "southwest": "Southwest",
+    "virginia": "Virginia"
+  },
+
+  "_comment_slugs": "Majlis slugs are generated from MAJLIS_TO_REGION (lowercase, spaces removed, hyphens kept). Global aliases map extra slugs to a canonical Majlis name. Unconfirmed slugs are known-but-unresolved: parse as partial + needs_review (OPEN QUESTION: what newyorkmetro-region refers to).",
+  "slug_aliases": {},
+  "unconfirmed_slugs": ["newyorkmetro-region"],
+
+  "domains": {
+    "mkausa.org": {
+      "slug_aliases": {},
+      "_comment_prefixes": "{prefix}.{slug}@domain. 'regional' = role used when the slug is a Region (only qaid has one).",
+      "local_prefixes": {
+        "tabligh": {"department": "tabligh", "role": "nazim_dept", "regional": "regional_nazim_dept"},
+        "tarbiyyat": {"department": "tarbiyyat", "role": "nazim_dept", "regional": "regional_nazim_dept"},
+        "maal": {"department": "maal", "role": "nazim_dept", "regional": "regional_nazim_dept"},
+        "sanat-o-tijarat": {"department": "sanat_o_tijarat", "role": "nazim_dept", "regional": "regional_nazim_dept"},
+        "sehat-e-jismani": {"department": "sehat_e_jismani", "role": "nazim_dept", "regional": "regional_nazim_dept"},
+        "ishaat": {"department": "ishaat", "role": "nazim_dept", "regional": "regional_nazim_dept"},
+        "khidmat-e-khalq": {"department": "khidmat_e_khalq", "role": "nazim_dept", "regional": "regional_nazim_dept"},
+        "tahrik-e-jadid": {"department": "tahrik_e_jadid", "role": "nazim_dept", "regional": "regional_nazim_dept"},
+        "tajneed": {"department": "tajneed", "role": "nazim_dept", "regional": "regional_nazim_dept"},
+        "taleem": {"department": "taleem", "role": "nazim_dept", "regional": "regional_nazim_dept"},
+        "nau-mubaeen": {"department": "nau_mubaeen", "role": "nazim_dept", "regional": "regional_nazim_dept"},
+        "amoomi": {"department": "amoomi", "role": "nazim_dept", "regional": "regional_nazim_dept"},
+        "amoor-e-tuluba": {"department": "amoor_e_tuluba", "role": "nazim_dept", "regional": "regional_nazim_dept"},
+        "waqar-e-amal": {"department": "waqar_e_amal", "role": "nazim_dept", "regional": "regional_nazim_dept"},
+        "mohasib": {"department": "mohasib", "role": "nazim_dept", "regional": "regional_nazim_dept"},
+        "rishtanata": {"department": "rishta_nata", "role": "nazim_dept", "regional": "regional_nazim_dept", "flags": ["shared_mailbox_note"]},
+        "wasiyyat": {"department": "wasiyyat", "role": "nazim_dept", "regional": "regional_nazim_dept"},
+        "waqf-e-nau": {"department": "waqf_e_nau", "role": "nazim_dept", "regional": "regional_nazim_dept"},
+        "immigrants": {"department": "new_immigrants", "role": "nazim_dept", "regional": "regional_nazim_dept"},
+        "motamid": {"department": "aitmad", "role": "motamid", "regional": "regional_motamid"},
+        "qaid": {"department": null, "role": "qaid", "regional": "regional_qaid"},
+        "naibqaid": {"department": null, "role": "naib_qaid"}
+      },
+      "_comment_national": "Mailboxes without a dot: national role mailboxes. 'status' overrides the default 'matched'.",
+      "national_exact": {
+        "sadr": {"department": null, "role": "sadr"},
+        "motamid": {"department": "aitmad", "role": "motamid"},
+        "atfal": {"department": "atfal", "role": "mohtamim"},
+        "tabligh": {"department": "tabligh", "role": "mohtamim"},
+        "tarbiyyat": {"department": "tarbiyyat", "role": "mohtamim"},
+        "taleem": {"department": "taleem", "role": "mohtamim"},
+        "maal": {"department": "maal", "role": "mohtamim"},
+        "ishaat": {"department": "ishaat", "role": "mohtamim"},
+        "amoomi": {"department": "amoomi", "role": "mohtamim"},
+        "amoor-e-tuluba": {"department": "amoor_e_tuluba", "role": "mohtamim"},
+        "tahrik-e-jadid": {"department": "tahrik_e_jadid", "role": "mohtamim"},
+        "tajneed": {"department": "tajneed", "role": "mohtamim"},
+        "nau-mubaeen": {"department": "nau_mubaeen", "role": "mohtamim"},
+        "waqar-e-amal": {"department": "waqar_e_amal", "role": "mohtamim"},
+        "sanat-o-tijarat": {"department": "sanat_o_tijarat", "role": "mohtamim"},
+        "sehat-e-jismani": {"department": "sehat_e_jismani", "role": "mohtamim"},
+        "khidmat-e-khalq": {"department": "khidmat_e_khalq", "role": "mohtamim"},
+        "mohasib": {"department": "mohasib", "role": "mohtamim"},
+        "rishtanata": {"department": "rishta_nata", "role": "mohtamim"},
+        "waqf-e-nau": {"department": "waqf_e_nau", "role": "mohtamim"},
+        "wasiyyat": {"department": "wasiyyat", "role": "mohtamim"},
+        "immigrants": {"department": "new_immigrants", "role": "mohtamim"},
+        "legal": {"department": null, "role": "national_staff"},
+        "events": {"department": null, "role": "national_staff"},
+        "it": {"department": null, "role": "national_staff"},
+        "media": {"department": null, "role": "national_staff"},
+        "expense": {"department": null, "role": "national_staff"},
+        "muqami": {"status": "partial", "flags": ["needs_review", "muqami_unconfirmed"]}
+      },
+      "_comment_personal": "Explicit personal-name mailboxes (national officers). Anything else of the form first.last is 'unrecognized' (the roster/admin override fills it in).",
+      "personal_mailboxes": {
+        "mahmood.kauser": {"department": null, "role": "naib_sadr"},
+        "ashfaq.khan": {"department": null, "role": "naib_sadr"},
+        "abdul.naseer": {"department": null, "role": "naib_sadr"},
+        "ibrahim.chaudhry": {"department": null, "role": "naib_sadr"}
+      }
+    },
+    "atfalusa.org": {
+      "slug_aliases": {"syracuse": "Syracuse-Binghamton"},
+      "local_prefixes": {
+        "nazim": {"department": "atfal", "role": "nazim_atfal"},
+        "murabbi": {"department": "atfal", "role": "murabbi_atfal"}
+      },
+      "national_exact": {},
+      "personal_mailboxes": {}
+    }
+  }
+}

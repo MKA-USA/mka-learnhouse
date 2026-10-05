@@ -2433,7 +2433,7 @@ async def export_user_data(
         "user_groups": [
             UserGroupRead.model_validate(g).model_dump() for g, _ in group_rows
         ],
-        "mka_profile": await profile_status(db_session, user_id),  # MKA fork
+        "mka_profile": await profile_status(db_session, user_id, include_attributes=True),  # MKA fork
         "exported_at": datetime.now().isoformat(),
     }
 

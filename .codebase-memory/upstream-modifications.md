@@ -618,3 +618,95 @@ diff --git a/apps/web/components/Auth/TurnstileWidget.tsx b/apps/web/components/
 ---
 
 **Reminder**: Before modifying an upstream file, verify that no extension point, plugin, or wrapper approach exists. Document the change here immediately after making it.
+
+
+### MKA identity attributes (`mka_user_attributes`, Feature A, milestones M1+M2)
+
+- **Date**: 2026-10-04
+- **Reason**: Server-derived identity attributes (level / department / role / Majlis / Region) from the Google-verified email, with admin + roster overrides and an audit trail. All logic is fork-only (`services/mka/`, `routers/mka_attributes.py`, `db/mka_user_attributes.py`, migration `mka_20261004_user_attributes`, tests under `src/tests/**/mka*`). Upstream files get ONLY the three hooks below. Spec: `docs/superpowers/specs/2026-10-04-mka-conditional-visibility-design.md` (A1/A2/GDPR).
+- **Re-apply after pulling upstream**: `grep -rn "MKA fork" apps/api/src` and run `uv run pytest src/tests/services/mka src/tests/routers/test_mka_attributes_router.py src/tests/routers/test_mka_attributes_security.py`.
+
+1. `apps/api/src/router.py` (hook A1: mount the router; same pattern as the `mka_profile` block). The router admits a session OR an org API token and gates every handler itself (admin routes reuse upstream's `_require_api_token` + `_resolve_org_slug`, as `/admin/{org_slug}/...` does).
+```diff
++from src.routers import mka_attributes as mka_attributes_router_module  # MKA fork
+@@ after the mka_profile include_router block
++v1_router.include_router(  # MKA fork: session (/me) + org API token (admin routes), gated per handler
++    mka_attributes_router_module.router,
++    prefix="/mka/attributes",
++    tags=["mka-attributes"],
++    dependencies=[Depends(require_authenticated_user_or_api_token)],
++)
+```
+2. `apps/api/src/services/auth/session.py` (hook A2: derive on login; fail-open, Google-only, SAVEPOINT; the function itself swallows every error)
+```diff
++from src.services.mka.attributes import mka_refresh_on_login  # MKA fork
+@@ issue_session_or_challenge, right after the block_non_google_auth lines
++    await mka_refresh_on_login(db_session, user, amr)  # MKA fork: fail-open, Google-only
+```
+3. `apps/api/src/services/admin/admin.py` (GDPR export: one-token change to the EXISTING `# MKA fork` line; `profile_status` returns attributes only when `include_attributes=True`, so learner-facing routes never see them)
+```diff
+-        "mka_profile": await profile_status(db_session, user_id),  # MKA fork
++        "mka_profile": await profile_status(db_session, user_id, include_attributes=True),  # MKA fork
+```
+(`delete_profile`, called by upstream `anonymize_user`, now also deletes attribute/audit/roster rows: the change is inside the fork file `services/users/mka_profile.py`, no upstream edit.)
+
+- **Fork-owned file changed (no upstream edit)**: `apps/api/src/services/auth/mka_google_only.py` (fork, added in 4ca921bd) now records the verified `hd` of every Google login in a request-scoped ContextVar (`take_verified_hd`), set inside the existing `require_workspace_hd` call that upstream `signWithGoogle` already makes. The attribute login hook uses it as proof of Workspace ownership (per address). Behaviour of `require_workspace_hd` (accept/reject) is unchanged.
+- **Not touched**: `cli.py` (backfill is `python -m src.services.mka.backfill`), `MKA_GOOGLE_ONLY_DOMAINS` / any SSO setting.
+- Re-apply test command also includes `src/tests/routers/test_mka_attributes_review_fixes.py`.
+
+
+### MKA native compliance analytics API (hook H4)
+
+- **Date**: 2026-10-04
+- **Reason**: org-scoped compliance cycles / expected roster / read endpoints. All logic is fork-only (`routers/mka_compliance.py`, `services/mka/compliance*.py`, `db/mka_compliance.py`, migration `mka_20261004_compliance`, tests, runbook). Spec: `docs/superpowers/specs/2026-10-04-mka-native-compliance-analytics-design.md`.
+- **Re-apply after pulling upstream**: `grep -n "MKA fork" apps/api/src/router.py`; run `uv run --with greenlet pytest src/tests/services/mka src/tests/routers/test_mka_compliance_router.py`.
+
+`apps/api/src/router.py` (import + mount; same pattern as the mka_attributes block; per-handler gating, tokens admitted):
+```diff
++from src.routers import mka_compliance as mka_compliance_router_module  # MKA fork
+@@ after the mka_attributes include_router block
++v1_router.include_router(  # MKA fork: compliance analytics; session (scope-gated) or org API token, gated per handler
++    mka_compliance_router_module.router,
++    prefix="/mka/compliance",
++    tags=["mka-compliance"],
++    dependencies=[Depends(require_authenticated_user_or_api_token)],
++)
+
+## MKA native compliance analytics: web hooks H1-H3 (apps/web)
+
+- **Date**: 2026-10-04
+- **Reason**: Native "Compliance" nav item + course tab. All logic is fork-only (`services/mka/compliance*.ts`, `components/mka/compliance/*`, `app/orgs/[orgslug]/dash/compliance/*`, dev-only `app/examples/mka-compliance-preview/*`, test `tests/mka-compliance-format.test.mjs`). Upstream files get ONLY the pure-addition lines below (no existing line edited). Visibility is cosmetic; the API enforces on every endpoint. Spec: `docs/superpowers/specs/2026-10-04-mka-native-compliance-analytics-design.md`.
+- **Re-apply after pulling upstream**: `grep -rn "MKA fork" apps/web/components/Dashboard/Menus apps/web/app/orgs/*/dash/courses` and run `bun test tests/mka-compliance-format.test.mjs` (the "hook guard" tests fail if a hook line is lost).
+- **No extension point exists**: nav items and course tabs are hard-coded JSX / an inline array in upstream.
+
+1. H1 `apps/web/components/Dashboard/Menus/DashLeftMenu.tsx` (hook placed beside `useAdminStatus()`, before the early return, to respect Rules of Hooks; `MenuLink` is a local const so the link must live in this file)
+```diff
+ import useAdminStatus from '@components/Hooks/useAdminStatus'
++import { ShieldCheck } from '@phosphor-icons/react' // MKA fork
++import { useMkaComplianceScope } from '@services/mka/compliance' // MKA fork
+@@
+   const { canManageOrg } = useAdminStatus()
++  const mkaScope = useMkaComplianceScope() // MKA fork
+@@ after the Analytics </HoverMenu>
++            {mkaScope !== 'none' && <MenuLink href="/dash/compliance" icon={<ShieldCheck size={20} weight="fill" />} label="Compliance" isCollapsed={isCollapsed} active={isActivePath('/dash/compliance')} />} {/* MKA fork */}
+```
+2. H2 `apps/web/components/Dashboard/Menus/DashMobileMenu.tsx` (`PanelItem` is a local const, not exported)
+```diff
+ import { useCommandPalette } from '@components/Dashboard/CommandPalette/CommandPaletteContext'
++import { ShieldCheck } from '@phosphor-icons/react' // MKA fork
++import { useMkaComplianceScope } from '@services/mka/compliance' // MKA fork
+@@
+   const { toggle: openSearch } = useCommandPalette()
++  const mkaScope = useMkaComplianceScope() // MKA fork
+@@ after the Analytics PanelItem
++                {mkaScope !== 'none' && <PanelItem href="/dash/compliance" icon={<ShieldCheck size={15} weight="fill" />} label="Compliance" active={isActive('/dash/compliance')} onClick={close} />} {/* MKA fork */}
+```
+3. H3 `apps/web/app/orgs/[orgslug]/dash/courses/course/[courseuuid]/[subpage]/page.tsx` (push AFTER the array's `]` so no upstream line is edited; `useMkaCourseTabs` is unconditional, before any early return; it keeps the tab while the scope query is pending so a deep link to `/compliance` is not bounced by the page's unknown-subpage redirect)
+```diff
+ import { DashTabBar, DashTabItem } from '@components/Dashboard/Shared/DashTabBar/DashTabBar';
++import MkaCourseComplianceTab, { useMkaCourseTabs } from '@components/mka/compliance/course-tab' // MKA fork
+@@ after the `tabs` array closing `]`
++  tabs.push(...useMkaCourseTabs(params.courseuuid)) // MKA fork
+@@ after the analytics render block
++            {!rightsLoading && params.subpage == 'compliance' && hasPermission('update') ? <MkaCourseComplianceTab courseUUID={courseuuid} /> : null} {/* MKA fork */}
+```

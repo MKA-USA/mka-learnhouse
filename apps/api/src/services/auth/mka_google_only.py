@@ -11,6 +11,7 @@ domain (a consumer Google account using an @mkausa.org address has no ``hd``).
 Unset/empty env var = no enforcement (upstream behaviour). Read at call time.
 """
 
+import contextvars
 import logging
 import os
 from typing import Optional
@@ -69,8 +70,27 @@ def block_email_change(old_email: Optional[str], new_email: Optional[str]) -> No
     block_non_google_auth(old_email)
 
 
+# Request-scoped record of the ``hd`` claim of the Google login in progress, so the
+# attribute login hook (services/mka/attributes.py) can tell whether Workspace ownership
+# of the email domain was PROVEN by this login. Set for EVERY Google login (configured
+# Google-only domain or not); each request runs in its own context, so it never leaks.
+_VERIFIED_HD: contextvars.ContextVar[Optional[tuple[str, str]]] = contextvars.ContextVar(
+    "mka_verified_hd", default=None
+)
+
+
+def take_verified_hd(email: Optional[str]) -> Optional[str]:
+    """The ``hd`` seen for ``email`` in this request's Google login, or None."""
+    rec = _VERIFIED_HD.get()
+    if rec is None or not email:
+        return None
+    return rec[1] if rec[0] == str(email).strip().lower() else None
+
+
 def require_workspace_hd(email: Optional[str], hosted_domain: Optional[str]) -> None:
     """Google path: for Google-only emails, ``hd`` must equal the email domain."""
+    if email:
+        _VERIFIED_HD.set((str(email).strip().lower(), str(hosted_domain).strip().lower() if hosted_domain else ""))
     if not is_google_only_email(email):
         return
     domain = _domain_of(email)
