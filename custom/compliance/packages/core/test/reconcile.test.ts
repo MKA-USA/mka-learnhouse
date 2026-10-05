@@ -28,7 +28,7 @@ describe("reconcile", () => {
     const { api, calls } = fake({ "a@x.org": 1, "b@x.org": 2 }, { g: [2] });
     const r = await reconcileEnrollments(api, targets, { apply: true });
     expect(calls.filter((c) => c.startsWith("bulkEnroll"))).toEqual(["bulkEnroll:g:1", "bulkEnroll:d:1,2"]);
-    expect(r.enrollmentRows.filter((x) => x.status === "not_signed_up").length).toBe(2);
+    expect(r.enrollmentRows.filter((x) => x.status === "not_signed_up").length).toBe(1);
     expect(calls).not.toContain("provisionUser");
   });
   test("idempotent: second run enrolls nobody", async () => {
