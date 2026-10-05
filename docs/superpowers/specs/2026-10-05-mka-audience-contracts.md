@@ -170,3 +170,9 @@ Supersedes the matching lines above; earlier text is left as written.
   Example for a Local Nazim Tabligh in Albany: national `tabligh@mkausa.org`, regional `tabligh.northeast@mkausa.org` (Regional Nazim Tabligh), regional `qaid.northeast@mkausa.org` (Regional Qaid); no local row (it would be their own role).
 - **§2.1 personas:** "Atfal Nazim · Syracuse-Binghamton" is replaced by "Regional Nazim Tabligh · Northeast" (id `regional-nazim-tabligh-northeast`; `role: regional_nazim_dept`, `level: regional`, `department: tabligh`, `region: Northeast`, `majlis: null`). Atfal stays a selectable department in `/options`; no other Atfal behaviour changes.
 - **§2.2 `expected`:** `matching` / `total` count DISTINCT people (lower-cased email in the cycle); a person matches if ANY of their roster rows matches.
+
+## Amendment 2026-10-05 (review fixes)
+
+- **§2 `/me?course_uuid=`:** when `course_uuid` names an EXISTING course, `can_view_all` = superadmin OR admin/maintainer IN THAT COURSE'S ORG OR active author of that course (member of the course's org, passing the upstream `update` check). An admin of another org gets `false`. Without `course_uuid`, or with an unknown one, the legacy rule applies unchanged (superadmin OR admin/maintainer of ANY org); unknown uuids are ignored (no 404).
+- **§2 `POST /audience/count`:** the route parses the body itself. Body > 128 KB, invalid JSON, `NaN` / `Infinity` anywhere, a wrong shape, or a rule whose serialized JSON exceeds 64 KB are all `422` (never 500). The rule is compiled once (lists become sets) and the per-member evaluation runs in a worker thread.
+- **§1.1 validation:** `v` must be a SAFE integer, `1 <= v <= 2^53-1` (TS `Number.isSafeInteger`). Vectors added: `9007199254740991` valid, `9007199254740993` invalid. Prototype-ish group keys (`__proto__`, `constructor`, ...) are ordinary unknown keys.

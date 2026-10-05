@@ -25,10 +25,11 @@ Audience block routes (contract docs/superpowers/specs/2026-10-05-mka-audience-c
 * ``GET/POST /preview-people[...]``  org admin / maintainer / superadmin: find a person, read their effective attributes.
 """
 
+import json
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response
-from pydantic import BaseModel, ConfigDict, Field, StrictInt
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, ValidationError
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -55,6 +56,7 @@ REVIEW_STATUSES = ["unrecognized", "ambiguous", "partial"]
 MAX_ROSTER_IMPORT = 1000
 MAX_DB_INT = 2_147_483_647  # ids are int4: a bigger number is a 422, never a database error
 NO_STORE = "private, no-store"
+MAX_COUNT_BODY = 128 * 1024  # a valid body is org_id + <= 64 KB rule; anything bigger is refused before parsing
 
 
 # ---------------------------------------------------------------------------
@@ -184,26 +186,28 @@ async def api_get_me(
     """The signed-in user's own effective attributes (no source / flag metadata).
 
     A user with no stored row yet is reported as ``unrecognized`` (unknown), never as "not an officeholder".
-    ``can_view_all`` is true for org admins/maintainers (of any org) and superadmins and, when ``course_uuid`` names a course the
-    user ACTIVELY authors (CREATOR/MAINTAINER/CONTRIBUTOR, passing the upstream ``update`` check, member of the course's org),
-    for that course. An unknown course_uuid is ignored: no 404, no elevation, no information.
+    ``can_view_all``: without a ``course_uuid`` (or with an unknown one: no 404, no information) it is true for org
+    admins/maintainers of ANY org and superadmins. When ``course_uuid`` names an existing course it is true only for a superadmin,
+    an admin/maintainer of THAT course's org, or an ACTIVE author of the course (CREATOR/MAINTAINER/CONTRIBUTOR passing the
+    upstream ``update`` check and a member of the org).
     """
     uid = _uid(current_user)
     response.headers["Cache-Control"] = NO_STORE
     me = await db_session.get(User, uid)
     attrs, stale = svc.read_effective_from_row(await svc.get_row(db_session, uid), me)  # fails closed
-    can_view_all = await is_user_superadmin(uid, db_session)
-    if not can_view_all:
-        can_view_all = (
-            await db_session.execute(
-                select(UserOrganization.org_id).where(
-                    UserOrganization.user_id == uid,
-                    UserOrganization.role_id.in_(ADMIN_OR_MAINTAINER_ROLE_IDS),  # type: ignore[attr-defined]
+    # With a course that exists, the course decides (an admin of ANOTHER org gets false); otherwise the legacy any-org rule.
+    can_view_all = await audience_svc.course_view_all(request, uid, course_uuid, db_session)
+    if can_view_all is None:
+        can_view_all = await is_user_superadmin(uid, db_session)
+        if not can_view_all:
+            can_view_all = (
+                await db_session.execute(
+                    select(UserOrganization.org_id).where(
+                        UserOrganization.user_id == uid,
+                        UserOrganization.role_id.in_(ADMIN_OR_MAINTAINER_ROLE_IDS),  # type: ignore[attr-defined]
+                    )
                 )
-            )
-        ).first() is not None
-    if not can_view_all and course_uuid:
-        can_view_all = await audience_svc.author_can_view_all(request, uid, course_uuid, db_session)
+            ).first() is not None
     return {
         "attributes": attrs,
         "stale": stale,
@@ -229,15 +233,36 @@ async def api_audience_options(
     return build_options(svc.get_rules())
 
 
+def _reject_constant(name: str):
+    raise ValueError(f"{name} is not allowed in JSON")
+
+
+async def _count_body(request: Request) -> AudienceCountIn:
+    """Parse the count body ourselves: NaN / Infinity anywhere, bad JSON, oversize or a wrong shape are a plain 422 (FastAPI would echo
+    a NaN in its error body and fail to serialise it)."""
+    raw = await request.body()
+    if len(raw) > MAX_COUNT_BODY:
+        raise HTTPException(status_code=422, detail="request body is too large")
+    try:
+        data = json.loads(raw, parse_constant=_reject_constant)
+    except (ValueError, RecursionError):  # JSONDecodeError and UnicodeDecodeError are ValueErrors
+        raise HTTPException(status_code=422, detail="request body must be valid JSON")
+    try:
+        return AudienceCountIn.model_validate(data)
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.errors(include_url=False, include_context=False, include_input=False))
+
+
 @router.post("/audience/count")
 async def api_audience_count(
     request: Request,
     response: Response,
-    body: AudienceCountIn,
     current_user=Depends(get_authenticated_user),
     db_session: AsyncSession = Depends(get_db_session),
 ) -> dict:
-    """How many members of the org the rule currently reaches. Aggregates only (never names). Authors count only for THEIR course."""
+    """How many members of the org the rule currently reaches. Aggregates only (never names). Authors count only for THEIR course.
+    Body: ``{org_id: int, course_uuid?: str, rule: <rule, at most 64 KB serialized>}``."""
+    body = await _count_body(request)
     await audience_svc.course_author_or_admin(request, current_user, body.org_id, body.course_uuid, db_session)
     rule = audience_svc.parse_rule_or_422(body.rule)
     response.headers["Cache-Control"] = NO_STORE

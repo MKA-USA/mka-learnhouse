@@ -163,6 +163,8 @@
     {"name": "dedupe across all keys", "rule": {"v": 1, "mode": "show", "groups": [{"role": ["qaid", "qaid"], "department": ["tabligh", "maal", "tabligh"]}]}, "ok": true, "normalized": {"v": 1, "mode": "show", "groups": [{"role": ["qaid"], "department": ["tabligh", "maal"]}]}},
     {"name": "v large integer ok", "rule": {"v": 999999, "mode": "show", "groups": [{}]}, "ok": true, "normalized": {"v": 999999, "mode": "show", "groups": [{}]}},
     {"name": "__proto__ group key kept as an ordinary unknown key", "rule": {"v": 1, "mode": "show", "groups": [{"__proto__": {"level": ["local"]}}]}, "ok": true, "normalized": {"v": 1, "mode": "show", "groups": [{"__proto__": {"level": ["local"]}}]}},
-    {"name": "constructor group key kept as an ordinary unknown key", "rule": {"v": 1, "mode": "hide", "groups": [{"constructor": ["x"]}]}, "ok": true, "normalized": {"v": 1, "mode": "hide", "groups": [{"constructor": ["x"]}]}}
+    {"name": "constructor group key kept as an ordinary unknown key", "rule": {"v": 1, "mode": "hide", "groups": [{"constructor": ["x"]}]}, "ok": true, "normalized": {"v": 1, "mode": "hide", "groups": [{"constructor": ["x"]}]}},
+    {"name": "v max safe integer (2^53-1) ok", "rule": {"v": 9007199254740991, "mode": "show", "groups": [{}]}, "ok": true, "normalized": {"v": 9007199254740991, "mode": "show", "groups": [{}]}},
+    {"name": "v above max safe integer (2^53+1) invalid", "rule": {"v": 9007199254740993, "mode": "show", "groups": [{}]}, "ok": false}
   ]
 }
