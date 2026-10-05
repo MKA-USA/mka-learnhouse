@@ -710,3 +710,32 @@ diff --git a/apps/web/components/Auth/TurnstileWidget.tsx b/apps/web/components/
 @@ after the analytics render block
 +            {!rightsLoading && params.subpage == 'compliance' && hasPermission('update') ? <MkaCourseComplianceTab courseUUID={courseuuid} /> : null} {/* MKA fork */}
 ```
+
+### Audience block editor hooks (W1/W2/W3, `mkaEditorExtensions`)
+
+- **Date**: 2026-10-05
+- **Reason**: TipTap 3.31.3 runs with `enableContentCheck: false`, so a document containing a node the instance does not register renders the WHOLE lesson blank. Every TipTap instance that loads activity content must therefore register the fork's `mkaAudience` / `mkaViewerField` / `mkaCounterparts` nodes. The extension arrays are inline literals in three upstream files, so each gets one import line and one spread line. All logic is fork-only in `apps/web/components/mka/editor/`, `components/mka/audience/`, `services/mka/attributes*.ts`. The guard test `apps/web/tests/mka-editor-hooks.test.mjs` fails if a new upstream TipTap site appears without the hook. `mkaEditorExtensions` never throws and always returns the nodes.
+- **Not hooked (verified)**: `DiscussionEditor.tsx` / `DiscussionContent.tsx` (discussion content, never activity JSON), `Boards/BoardCanvas.tsx` (stores an `activityBlock` reference; the activity itself renders through `DynamicCanva`, covered by W2).
+- **Hook sites and diffs**:
+
+1. W1 `apps/web/components/Objects/Editor/Editor.tsx` (authoring editor, `extensions` useMemo)
+```diff
+ import AIStreamingMark from './Extensions/AIStreaming/AIStreamingMark'
++import { mkaEditorExtensions } from '@components/mka/editor' // MKA fork
+@@ after `MagicBlock.configure({ editable: true, activity: stableActivity }),`
++      ...mkaEditorExtensions({ editable: true, activity: stableActivity, courseUuid: props.course?.course_uuid }), // MKA fork
+```
+2. W2 `apps/web/components/Objects/Activities/DynamicCanva/DynamicCanva.tsx` (learner/embed/board viewer; its editor is `editable: true` internally but read-only via the EditorContext provider, so `editable: false` is passed)
+```diff
+ import AICanvaToolkit from './AI/AICanvaToolkit'
++import { mkaEditorExtensions } from '@components/mka/editor' // MKA fork
+@@ after the `MagicBlock.configure({ editable: false, activity: props.activity }),` entry
++      ...mkaEditorExtensions({ editable: false, activity: props.activity, courseUuid: props.courseUuid }), // MKA fork
+```
+3. W3 `apps/web/components/Objects/Editor/EditorPreview.tsx` (version history / merge conflict previews)
+```diff
+ import MagicBlock from './Extensions/MagicBlocks/MagicBlock'
++import { mkaEditorExtensions } from '@components/mka/editor' // MKA fork
+@@ after the `MagicBlock.configure({ editable: false, activity: activity }),` entry
++      ...mkaEditorExtensions({ editable: false, activity }), // MKA fork
+```
