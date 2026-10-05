@@ -249,3 +249,10 @@ async def test_purge_test_rows_only_removes_that_orgs_test_rows(db, org, other_o
     await db.commit()
     assert await gdpr.purge_test_rows(db, org.id) == 1
     assert {(s.org_id, s.dedupe_key) for s in await all_of(db, MkaAutomationSendLog)} == {(org.id, "r"), (other_org.id, "t")}
+
+
+@pytest.mark.asyncio
+async def test_export_omits_the_section_when_the_user_has_no_automation_records(db, org, user_role):
+    u = await _create_user(db, user_id=330, username="empty", email="empty@mkausa.org")
+    await _add_user_to_org(db, u, org, role_id=user_role.id)
+    assert await mka_profile.profile_status(db, 330, include_attributes=True) == {"complete": False}

@@ -213,7 +213,9 @@ async def profile_status(
             out["mka_attributes"] = attrs
         from src.services.mka.automation_gdpr import export_user_records  # lazy: avoids an import cycle
 
-        out["mka_automation"] = await export_user_records(db_session, user_id)
+        records = await export_user_records(db_session, user_id)
+        if any(records.values()):  # absent (not empty) when there is nothing: keeps the no-data export shape unchanged
+            out["mka_automation"] = records
     return out
 
 
