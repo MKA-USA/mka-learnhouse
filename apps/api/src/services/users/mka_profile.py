@@ -211,6 +211,11 @@ async def profile_status(
         attrs = await export_attributes(db_session, user_id)
         if attrs is not None:
             out["mka_attributes"] = attrs
+        from src.services.mka.automation_gdpr import export_user_records  # lazy: avoids an import cycle
+
+        records = await export_user_records(db_session, user_id)
+        if any(records.values()):  # absent (not empty) when there is nothing: keeps the no-data export shape unchanged
+            out["mka_automation"] = records
     return out
 
 
@@ -221,7 +226,11 @@ async def delete_profile(db_session: AsyncSession, user_id: int) -> None:
     Hard-deleting a user needs no call to this: the FK cascades in the DB.
     """
     from src.services.mka.attributes import delete_attributes  # lazy: avoids an import cycle
+    from src.services.mka.automation_gdpr import scrub_user_records  # lazy: avoids an import cycle
 
+    # FIRST: it reads the pending (pre-anonymise) User.email and the attributes row's email_seen, both of which
+    # are gone after the statements below / delete_attributes. Covers automation rows AND the expected roster.
+    await scrub_user_records(db_session, user_id)
     await db_session.execute(
         delete(MkaUserProfile).where(MkaUserProfile.user_id == user_id)  # type: ignore[arg-type]
     )

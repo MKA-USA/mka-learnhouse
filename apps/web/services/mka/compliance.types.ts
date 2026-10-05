@@ -179,3 +179,38 @@ export interface LearnerFilters {
   page?: number
   page_size?: number
 }
+
+/**
+ * POST /courses/{course_uuid}/remind?dry_run=  (seam C). `dry_run: true` is a preview: nothing is sent, nothing is
+ * recorded. Errors: 403 (no access / API token), 404 (outside the viewer's scope), 409 (reminders switched off / not the current cycle / the list changed since the preview), 422 (a real send without the preview digest),
+ * 429 (this course was already reminded in the last 24 h; `Retry-After` seconds).
+ */
+export interface RemindResponse {
+  dry_run: boolean
+  /** Master switch + reminders flag are on. When false a preview is still returned but nothing can be sent. */
+  enabled: boolean
+  /** Test mode: every email goes to the owner's test address, never to the officeholders. */
+  test_mode: boolean
+  candidates: number
+  would_send: number
+  sent: number
+  skipped_recent: number
+  skipped_attested: number
+  skipped_excluded: number
+  suppressed: number
+  failed: number
+  disabled: number
+  stopped: string | null
+  /** Still to do when the run stopped early (time budget or send cap). Run it again; nobody is mailed twice. */
+  remaining: number
+  time_budget_hit: boolean
+  /** Addresses skipped because their reminders keep failing (they are listed as 'address failing' in the Monday digest). */
+  quarantined: number
+  /** Addresses whose failed attempt in THIS run pushed them over the failure limit. */
+  newly_quarantined: number
+  /** Part of `skipped_recent`: people left out because ANY reminder reached them within `cooldown_days`. */
+  skipped_cooldown: number
+  cooldown_days: number
+  /** Preview only: fingerprint of the list shown. A real send must pass it back; the API refuses (409) when the list changed. */
+  preview_digest: string | null
+}

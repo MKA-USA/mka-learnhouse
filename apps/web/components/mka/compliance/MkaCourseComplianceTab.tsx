@@ -8,13 +8,14 @@ import {
 } from '@services/mka/compliance'
 import type { ComplianceStatus, LearnerFilters, LearnerLevel } from '@services/mka/compliance.types'
 import { Breakdown } from './Breakdown'
-import { DownloadChaseList, RemindPlaceholder } from './ChaseActions'
+import { DownloadChaseList } from './ChaseActions'
+import { RemindButton } from './RemindDialog'
 import { CyclePicker } from './CyclePicker'
 import { LearnersPanel } from './LearnersPanel'
 import { RagBadge } from './badges'
 import { SummaryCards } from './SummaryCards'
 import { ErrorState, NoCycleState, NoExpectedState, PageLoading } from './states'
-import { deptLabel, isStatus, nz, sameCourse } from './format'
+import { deptLabel, isStatus, nz, remindBlockedReason, sameCourse } from './format'
 
 const KINDS = { general: 'General course', department: 'Department course' } as const
 
@@ -74,7 +75,13 @@ export default function MkaCourseComplianceTab({ courseUUID }: { courseUUID: str
           <CyclePicker cycle={data.cycle} cycles={scope.data?.cycles} onChange={setCycleId} today={today} />
         </div>
         <div className={cn('flex flex-col gap-2 sm:flex-row sm:items-start')}>
-          <RemindPlaceholder />
+          <RemindButton
+            courseUuid={courseUUID}
+            courseName={name}
+            cycleId={data.cycle.id}
+            disabled={data.totals.expected === 0}
+            blockedReason={remindBlockedReason(data.cycle, scope.data?.cycles, today)}
+          />
           <DownloadChaseList
             courseUuid={courseUUID}
             courseName={name}

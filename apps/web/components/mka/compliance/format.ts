@@ -6,10 +6,12 @@ import type {
   AttentionItem,
   CellRow,
   ComplianceCounts,
+  ComplianceCycle,
   ComplianceRag,
   ComplianceStatus,
   DepartmentRow,
   LearnerFilters,
+  RemindResponse,
 } from '@services/mka/compliance.types'
 
 /** Fixed "today" for the mock layer so fixtures and screenshots are deterministic. */
@@ -290,3 +292,105 @@ export function truncationNotice(truncated: string | null | undefined, limit: st
   const rows = Number.isFinite(n) && n > 0 ? n : 5000
   return `List truncated at ${rows.toLocaleString('en-US')} rows. Narrow the filters to get the rest.`
 }
+
+// ---- "Remind" (seam C) ---------------------------------------------------------------
+
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
+
+/** "12 people will be reminded" (preview) / "Reminded 12 people" (after sending). */
+export function remindHeadline(r: Pick<RemindResponse, 'dry_run' | 'would_send' | 'sent'> & { remaining?: number }): string {
+  if (r.dry_run) {
+    if (r.would_send === 0) return 'Nobody needs a reminder right now'
+    return `${plural(r.would_send, 'person', 'people')} will be reminded`
+  }
+  const left = r.remaining ?? 0
+  // The server stops a long run on purpose (time or send cap); what is left is NOT lost, it is sent by running it again.
+  if (left > 0) return `Sent ${r.sent} so far; ${left} remaining. Run it again to send the rest.`
+  return r.sent === 0 ? 'No reminders were sent' : `Reminded ${plural(r.sent, 'person', 'people')}`
+}
+
+/** "5 skipped: already reminded this week" (one reason) / "7 skipped: 5 already reminded this week, 2 already signed off". */
+export function remindSkipped(
+  r: Pick<RemindResponse, 'skipped_recent' | 'skipped_attested' | 'skipped_excluded' | 'suppressed' | 'failed'> &
+    Partial<Pick<RemindResponse, 'skipped_cooldown' | 'cooldown_days' | 'quarantined'>>,
+): string | null {
+  const cool = Math.min(r.skipped_cooldown ?? 0, r.skipped_recent)
+  const reasons: [number, string][] = [
+    [r.skipped_recent - cool, 'already reminded this week'],
+    [cool, `reminded in the last ${plural(r.cooldown_days ?? 3, 'day', 'days')}`],
+    [r.skipped_attested, 'already signed off'],
+    [r.skipped_excluded, 'in a department that is not reminded'],
+    [r.suppressed, 'no deliverable address'],
+    [r.quarantined ?? 0, 'address keeps failing'],
+  ]
+  const parts = reasons.filter(([n]) => n > 0)
+  const total = parts.reduce((a, [n]) => a + n, 0)
+  if (total === 0) return null
+  return parts.length === 1
+    ? `${total} skipped: ${parts[0][1]}`
+    : `${total} skipped: ${parts.map(([n, why]) => `${n} ${why}`).join(', ')}`
+}
+
+/**
+ * The cycle the server treats as CURRENT (same rule as the API's default cycle): the one whose window contains
+ * `today`, else the most recent one that has started. `null` when none has started.
+ */
+export function currentCycle(cycles: ComplianceCycle[] | undefined, today: string): ComplianceCycle | null {
+  const sorted = [...(cycles ?? [])].sort((a, b) => (a.starts_on < b.starts_on ? 1 : a.starts_on > b.starts_on ? -1 : 0))
+  return (
+    sorted.find((c) => c.starts_on <= today && today <= c.deadline_on) ?? sorted.find((c) => c.starts_on <= today) ?? null
+  )
+}
+
+/** Why Remind must be off for the cycle on screen, or null when it may be used (the server enforces this too: 409). */
+export function remindBlockedReason(viewed: ComplianceCycle, cycles: ComplianceCycle[] | undefined, today: string): string | null {
+  if (viewed.starts_on > today) return `Cycle ${viewed.label} hasn't started yet, so reminders can't be sent for it.`
+  const current = currentCycle(cycles?.length ? cycles : [viewed], today)
+  if (current && current.id !== viewed.id) {
+    return `Reminders only go out for the current cycle (${current.label}). Switch to it to send one.`
+  }
+  return null
+}
+
+/** What a 409 from the remind endpoint means. The API words them; the web keys off these stable fragments. */
+export type RemindConflict = 'preview_changed' | 'not_current' | 'disabled'
+export function remindConflict(detail: string | null | undefined): RemindConflict {
+  const d = (detail ?? '').toLowerCase()
+  if (d.includes('changed since the preview')) return 'preview_changed'
+  if (d.includes('current cycle')) return 'not_current'
+  return 'disabled'
+}
+
+/** Calm, specific wording for each status the remind endpoint can answer with. */
+export function remindErrorMessage(
+  status: number | null,
+  ctx: { sending?: boolean; detail?: string | null } = {},
+): string {
+  switch (status) {
+    case 403:
+      return "You don't have permission to send reminders for this course."
+    case 404:
+      return "This course isn't available to you."
+    case 409:
+      switch (remindConflict(ctx.detail)) {
+        case 'preview_changed':
+          return 'The list of people changed since the preview, so nothing more was sent. Please review it again.'
+        case 'not_current':
+          return 'Reminders only go out for the current cycle. Switch to it and try again.'
+        default:
+          return "Reminders aren't switched on yet, so nothing was sent."
+      }
+    case 422:
+      return 'Please review the list again before sending.'
+    case 429:
+      return 'This course was already reminded in the last 24 hours. Try again tomorrow.'
+    default:
+      // A preview never sends, so only a REAL send can leave reminders half done; never claim "nothing was sent" then.
+      return ctx.sending
+        ? 'The request timed out or was interrupted, so some reminders may already have gone out. Check before trying again.'
+        : "Couldn't reach the reminder service. Nothing was sent. Please try again."
+  }
+}
+
+/** Can the preview be confirmed? Needs someone to remind and the feature switched on. */
+export const canSendReminders = (r: Pick<RemindResponse, 'enabled' | 'would_send'>): boolean => r.enabled && r.would_send > 0

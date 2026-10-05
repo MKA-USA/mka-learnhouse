@@ -1,0 +1,7 @@
+{
+  "body": {
+    "detail": "Course not found"
+  },
+  "path": "courses/course_general/remind",
+  "status": 404
+}

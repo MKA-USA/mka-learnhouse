@@ -1,0 +1,21 @@
+SUBJECT: Reminder: 2026-27 compliance training
+
+--- TEXT ---
+Hello Nazim Tabligh, Albany,
+
+A quick reminder about the 2026-27 compliance training. The deadline is December 1, 2026 (9 days left).
+
+Still to complete:
+- General course: not started
+- Tabligh Department: in progress
+
+You can pick up where you left off here.
+
+Open your courses: https://ilm.example.invalid/courses/general
+
+Questions? Write to help@example.invalid.
+
+This is an automatic notice from MKA USA.
+
+--- HTML ---
+<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.5;color:#222;max-width:560px"><p style="margin:0 0 12px">Hello Nazim Tabligh, Albany,</p><p style="margin:0 0 12px">A quick reminder about the 2026-27 compliance training. The deadline is December 1, 2026 (9 days left).</p><p style="margin:0 0 4px">Still to complete:</p><ul style="margin:0 0 12px;padding-left:20px"><li>General course: not started</li><li>Tabligh Department: in progress</li></ul><p style="margin:0 0 12px">You can pick up where you left off here.</p><p style="margin:0 0 12px"><a href="https://ilm.example.invalid/courses/general">Open your courses</a></p><p style="margin:0 0 12px">Questions? Write to <a href="mailto:help@example.invalid">help@example.invalid</a>.</p><p style="margin:16px 0 0;color:#666;font-size:12px">This is an automatic notice from MKA USA.</p></div>

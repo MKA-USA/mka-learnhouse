@@ -461,12 +461,13 @@ async def mka_refresh_on_login(db_session: AsyncSession, user: User, amr: Option
     except Exception:  # noqa: BLE001
         logger.exception("MKA hook: could not read the user (ignored)")
         return
+    refreshed = False
     try:
         async with _new_session(db_session) as s:
             try:
                 await refresh_attributes(s, snap, action="derive", proof_hd=proof)  # type: ignore[arg-type]
                 await s.commit()
-                return
+                refreshed = True
             except IntegrityError:
                 await s.rollback()
                 logger.info("MKA attribute refresh lost an insert race on login (ignored)")
@@ -480,6 +481,23 @@ async def mka_refresh_on_login(db_session: AsyncSession, user: User, amr: Option
                 await s.commit()  # best effort: reads fail closed until a refresh succeeds
     except Exception:  # noqa: BLE001
         logger.exception("MKA attribute stale-mark failed (ignored)")
+    if refreshed:
+        await _autoenroll_after_refresh(db_session, snap)
+
+
+async def _autoenroll_after_refresh(db_session: AsyncSession, snap: Any) -> None:
+    """Auto-enrol (spec 2026-10-05 A): flag-gated, own session, never raises. Runs only after a SUCCESSFUL
+    refresh so the proof it relies on (``is_address_proven``) is the row just written."""
+    try:
+        from src.services.mka import automation_config as _acfg
+
+        if not _acfg.autoenroll_enabled():
+            return
+        from src.services.mka.automation_enroll import autoenroll_user
+
+        await autoenroll_user(lambda: _new_session(db_session), snap)
+    except Exception:  # noqa: BLE001
+        logger.exception("MKA auto-enrol hook failed (ignored)")
 
 
 async def recompute_users(
