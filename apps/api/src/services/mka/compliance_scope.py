@@ -178,8 +178,11 @@ async def resolve_scope(
 
     user = await db.get(User, uid)
     if user is not None:
-        effective, _stale = attrs.read_effective_from_row(await attrs.get_row(db, uid), user)  # fails closed
-        if attributes_grant_all(effective):
+        row = await attrs.get_row(db, uid)
+        effective, _stale = attrs.read_effective_from_row(row, user)  # fails closed
+        # A roster/override row can set attributes for ANY address, so it must never grant `all` by itself: the account's
+        # CURRENT address must also carry real Workspace/Google proof (M1 of the final review).
+        if attributes_grant_all(effective) and attrs.is_address_proven(row, user):
             return Scope("all", resolved_org, "attributes", uid)
 
     own = await _own_course_ids(request, uid, resolved_org, db)
