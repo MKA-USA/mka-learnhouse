@@ -6,7 +6,8 @@ Mirrors the web rules in ``apps/web/lib/mka-turnstile.ts`` / ``lib/turnstile.ts`
   only one set the widget and the secret disagree and enforcing would lock out
   every signup.
 - A missing or invalid token is REJECTED.
-- Cloudflare/network errors and unreadable replies FAIL OPEN (logged): a
+- Cloudflare/network errors, HTTP >= 500, unreadable replies and
+  ``success:false`` with ``internal-error`` FAIL OPEN (logged): a
   Cloudflare outage must not take member signups down; the signup rate limit
   still bounds abuse meanwhile.
 
@@ -70,6 +71,8 @@ async def verify_turnstile_token(
     try:
         async with _client() as client:
             res = await client.post(SITEVERIFY_URL, data=data)
+        if res.status_code >= 500:
+            raise RuntimeError(f"siteverify HTTP {res.status_code}")
         payload = res.json()
         success = bool(payload.get("success"))
         codes = list(payload.get("error-codes") or [])
@@ -77,6 +80,10 @@ async def verify_turnstile_token(
         logger.warning("Turnstile siteverify failed (failing open)", exc_info=True)
         return TurnstileResult(ok=True, reason="error")
 
+    if not success and "internal-error" in codes:
+        # Cloudflare-side failure, not a verdict on the token: fail open.
+        logger.warning("Turnstile siteverify internal-error (failing open)")
+        return TurnstileResult(ok=True, reason="error", error_codes=codes)
     if success:
         return TurnstileResult(ok=True)
     logger.info("Turnstile verification rejected: %s", codes)

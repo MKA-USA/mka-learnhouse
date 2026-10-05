@@ -11,7 +11,7 @@ from src.services.security import mka_signup_guard as guard
 PATCH_CHECK = "src.services.security.mka_signup_guard.check_rate_limit"
 
 
-def _request(client_host="127.0.0.1", headers=None):
+def _request(client_host="8.8.8.8", headers=None):
     scope = {
         "type": "http",
         "method": "POST",
@@ -33,7 +33,7 @@ def _clear_env(monkeypatch):
 
 @pytest.mark.parametrize(
     "raw,expected",
-    [(None, 30), ("", 30), ("12", 12), ("0", 0), ("abc", 30), ("-3", 30), (" 7 ", 7)],
+    [(None, 60), ("", 60), ("12", 12), ("0", 0), ("abc", 60), ("-3", 60), (" 7 ", 7)],
 )
 def test_limit_from_env(monkeypatch, raw, expected):
     if raw is not None:
@@ -42,11 +42,11 @@ def test_limit_from_env(monkeypatch, raw, expected):
 
 
 def test_allowed_uses_real_client_ip_and_default_limit():
-    req = _request("127.0.0.1", {"X-Forwarded-For": "203.0.113.9, 10.0.0.2"})
+    req = _request("127.0.0.1", {"X-Forwarded-For": "8.8.4.4, 10.0.0.2"})
     with patch(PATCH_CHECK, return_value=(True, 1, 3600)) as check:
         guard.enforce_mka_signup_rate_limit(req)
     check.assert_called_once_with(
-        key="signup:203.0.113.9", max_attempts=30, window_seconds=3600
+        key="signup:8.8.4.4", max_attempts=60, window_seconds=3600
     )
 
 
@@ -72,7 +72,7 @@ def test_zero_disables_without_touching_redis(monkeypatch):
 
 
 def test_exceeded_returns_429_with_message_and_retry_after():
-    with patch(PATCH_CHECK, return_value=(False, 30, 1500)):
+    with patch(PATCH_CHECK, return_value=(False, 60, 1500)):
         with pytest.raises(HTTPException) as exc:
             guard.enforce_mka_signup_rate_limit(_request())
     assert exc.value.status_code == 429
@@ -83,7 +83,7 @@ def test_exceeded_returns_429_with_message_and_retry_after():
 
 
 def test_exceeded_singular_minute():
-    with patch(PATCH_CHECK, return_value=(False, 30, 30)):
+    with patch(PATCH_CHECK, return_value=(False, 60, 30)):
         with pytest.raises(HTTPException) as exc:
             guard.enforce_mka_signup_rate_limit(_request())
     assert "about 1 minute." in exc.value.detail
@@ -98,3 +98,28 @@ def test_redis_not_configured_fails_open():
 def test_redis_error_fails_open():
     with patch(PATCH_CHECK, side_effect=ConnectionError("redis down")):
         guard.enforce_mka_signup_rate_limit(_request())
+
+
+@pytest.mark.parametrize(
+    "peer,headers",
+    [
+        ("127.0.0.1", {}),  # loopback, nothing forwarded
+        ("10.0.0.5", {}),  # private proxy hop, nothing forwarded
+        ("127.0.0.1", {"X-Forwarded-For": "172.18.0.3"}),  # forwarded private hop
+        ("127.0.0.1", {"X-Forwarded-For": "0.0.0.0"}),  # unspecified
+        ("127.0.0.1", {"X-Forwarded-For": "::1"}),
+        ("127.0.0.1", {"X-Forwarded-For": "203.0.113.9"}),  # documentation range, not global
+    ],
+)
+def test_non_global_client_ip_skips_limiter(peer, headers):
+    # A shared bucket must never be created from an IP that cannot tell members apart.
+    with patch(PATCH_CHECK) as check:
+        guard.enforce_mka_signup_rate_limit(_request(peer, headers))
+    check.assert_not_called()
+
+
+def test_unknown_client_skips_limiter():
+    scope = {"type": "http", "method": "POST", "path": "/", "headers": [], "query_string": b""}
+    with patch(PATCH_CHECK) as check:
+        guard.enforce_mka_signup_rate_limit(Request(scope))
+    check.assert_not_called()
