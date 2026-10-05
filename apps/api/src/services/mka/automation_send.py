@@ -17,7 +17,8 @@ Nothing else in the codebase may call ``send_email`` for automation mail; seams 
    re-claimed atomically (UPDATE ... WHERE status='failed'), so a later run retries failures but never
    duplicates a ``queued``/``sent`` one. A crash between claim and send leaves ``queued`` (at-most-once).
    NOTE: this function COMMITS the caller's session (the claim must be durable before the email leaves).
-5. **Reminder cap.** ``kind == 'reminder'`` is refused (``capped``) when the person already has
+5. **Reminder cap.** a SCHEDULED reminder (``reminder:`` key; manual ``manual:`` keys are their own allowance, one per
+   person per course per week) is refused (``capped``) when the person already has
    ``MKA_AUTOMATION_WEEKLY_REMINDER_CAP`` real reminders in the ISO week. Build the reminder dedupe key with
    :func:`reminder_dedupe_key` so the unique constraint also makes the cap atomic under concurrency.
 6. **Budget.** An optional :class:`SendBudget` enforces the per-run cap, an inter-send delay and a hard stop after N
@@ -156,6 +157,15 @@ def reminder_dedupe_key(email: str, iso_week: str) -> str:
     return f"reminder:{iso_week}:{email.strip().lower()}"
 
 
+def manual_dedupe_key(course_id: int, iso_week: str, email: str) -> str:
+    """Manual "Remind" button key: its own key space (review M3), one per person per course per ISO week. It never
+    touches the scheduled ``reminder:`` allowance, and it is not counted by the scheduled weekly cap."""
+    return f"manual:{int(course_id)}:{iso_week}:{email.strip().lower()}"
+
+
+SCHEDULED_KEY_PREFIX = "reminder:"
+
+
 def _week_window_utc(iso_week: str) -> tuple[datetime, datetime]:
     m = _ISO_WEEK.match(iso_week or "")
     if not m:
@@ -171,11 +181,13 @@ def _week_window_utc(iso_week: str) -> tuple[datetime, datetime]:
 
 
 async def reminders_this_week(db: AsyncSession, org_id: int, email: str, iso_week: str) -> int:
-    """Real (non-test) reminders queued/sent to ``email`` in the ISO week. Org-scoped."""
+    """Real (non-test) SCHEDULED reminders queued/sent to ``email`` in the ISO week. Org-scoped. Manual-button rows
+    (``manual:`` keys) are a separate allowance and are not counted."""
     start, end = _week_window_utc(iso_week)
     stmt = select(func.count()).select_from(MkaAutomationSendLog).where(
         MkaAutomationSendLog.org_id == org_id,
         MkaAutomationSendLog.kind == "reminder",
+        MkaAutomationSendLog.dedupe_key.like(f"{SCHEDULED_KEY_PREFIX}%"),  # type: ignore[attr-defined]
         MkaAutomationSendLog.intended_email == email.strip().lower(),
         MkaAutomationSendLog.test_mode == False,  # noqa: E712
         MkaAutomationSendLog.status.in_(("queued", "sent")),  # type: ignore[attr-defined]
@@ -188,6 +200,37 @@ async def reminders_this_week(db: AsyncSession, org_id: int, email: str, iso_wee
 async def reminded_this_week(db: AsyncSession, org_id: int, email: str, iso_week: str) -> bool:
     """True when the person has already used up this week's reminder allowance."""
     return await reminders_this_week(db, org_id, email, iso_week) >= cfg.weekly_reminder_cap()
+
+
+def current_mode_is_test() -> bool:
+    """True when a send right now would go to the test recipient (a malformed test address counts: it refuses sends)."""
+    try:
+        return cfg.test_recipient() is not None
+    except cfg.InvalidTestRecipient:
+        return True
+
+
+async def reminder_rows_by_person(
+    db: AsyncSession, org_id: int, *, key_like: str, test_mode: bool, since: Optional[datetime] = None
+) -> dict:
+    """``{intended_email: latest created_at}`` of reminder log rows in the CURRENT mode (real or test) whose dedupe
+    key matches ``key_like`` (a SQL LIKE pattern WITHOUT the ``test:`` prefix) and which are ``queued``/``sent``/
+    ``suppressed`` (``failed`` rows are retried, so they are not 'done'). One query for the whole roster, used to
+    pick who still needs a reminder BEFORE any per-run cap is applied."""
+    stmt = (
+        select(MkaAutomationSendLog.intended_email, func.max(MkaAutomationSendLog.created_at))
+        .where(
+            MkaAutomationSendLog.org_id == org_id,
+            MkaAutomationSendLog.kind == "reminder",
+            MkaAutomationSendLog.test_mode == test_mode,
+            MkaAutomationSendLog.dedupe_key.like(f"{TEST_KEY_PREFIX if test_mode else ''}{key_like}"),  # type: ignore[attr-defined]
+            MkaAutomationSendLog.status.in_(("queued", "sent", "suppressed")),  # type: ignore[attr-defined]
+        )
+        .group_by(MkaAutomationSendLog.intended_email)
+    )
+    if since is not None:
+        stmt = stmt.where(MkaAutomationSendLog.created_at >= since)
+    return {email: last for email, last in (await db.execute(stmt)).all()}
 
 
 async def has_real_send(db: AsyncSession, org_id: int, kind: str, dedupe_key: str) -> bool:
@@ -353,7 +396,7 @@ async def send_automation_email(
         return result("budget_exhausted", reason=budget.stop_reason)
 
     suppressed = _is_suppressed(intended)
-    if kind == "reminder" and not suppressed and not test_mode:
+    if kind == "reminder" and key.startswith(SCHEDULED_KEY_PREFIX) and not suppressed and not test_mode:
         week = current_iso_week(now)
         if await reminded_this_week(db, org_id, intended, week):
             return result("capped", reason="weekly_reminder_cap")

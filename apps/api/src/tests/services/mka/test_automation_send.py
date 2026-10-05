@@ -386,11 +386,11 @@ async def test_cap_is_per_org_per_person_and_ignores_test_failed_and_other_kinds
     week = send.current_iso_week()
     other_person = "other@example.invalid"
     db.add_all([
-        MkaAutomationSendLog(org_id=other_org.id, kind="reminder", dedupe_key="k1", to_email=REAL, intended_email=REAL, subject="s", status="sent"),
+        MkaAutomationSendLog(org_id=other_org.id, kind="reminder", dedupe_key="reminder:w:k1", to_email=REAL, intended_email=REAL, subject="s", status="sent"),
         MkaAutomationSendLog(org_id=org.id, kind="reminder", dedupe_key="k2", to_email=TESTER, intended_email=REAL, subject="s", status="sent", test_mode=True),
         MkaAutomationSendLog(org_id=org.id, kind="reminder", dedupe_key="k3", to_email=REAL, intended_email=REAL, subject="s", status="failed"),
         MkaAutomationSendLog(org_id=org.id, kind="digest", dedupe_key="k4", to_email=REAL, intended_email=REAL, subject="s", status="sent"),
-        MkaAutomationSendLog(org_id=org.id, kind="reminder", dedupe_key="k5", to_email=other_person, intended_email=other_person, subject="s", status="sent"),
+        MkaAutomationSendLog(org_id=org.id, kind="reminder", dedupe_key="reminder:w:k5", to_email=other_person, intended_email=other_person, subject="s", status="sent"),
     ])
     await db.commit()
     assert not await send.reminded_this_week(db, org.id, REAL, week)
@@ -415,8 +415,9 @@ async def test_test_mode_reminders_are_not_capped_by_or_counted_toward_the_real_
 
 async def test_week_window_uses_the_cycle_timezone(db, org, monkeypatch):
     # Sunday 23:30 New York (EST, UTC-5) == Monday 04:30 UTC: it belongs to the NY week that just ended (W44)
-    db.add(MkaAutomationSendLog(org_id=org.id, kind="reminder", dedupe_key="k", to_email=REAL, intended_email=REAL,
-                                subject="s", status="sent", created_at=datetime(2026, 11, 2, 4, 30)))
+    db.add(MkaAutomationSendLog(org_id=org.id, kind="reminder", dedupe_key="reminder:w:k", to_email=REAL,
+                                intended_email=REAL, subject="s", status="sent",
+                                created_at=datetime(2026, 11, 2, 4, 30)))
     await db.commit()
     assert await send.reminded_this_week(db, org.id, REAL, "2026-W44")
     assert not await send.reminded_this_week(db, org.id, REAL, "2026-W45")

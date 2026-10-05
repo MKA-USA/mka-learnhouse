@@ -275,17 +275,20 @@ async def test_at_most_one_manual_remind_per_course_per_24h(db, org, world, tran
 
 
 async def test_the_weekly_per_person_cap_is_honoured(db, org, world, transport, on, monkeypatch):
+    """Manual reminders are their own allowance per person AND course (review M3): a second remind of the SAME
+    course in the same week reaches nobody again, while another course is a separate email."""
     monkeypatch.delenv("MKA_AUTOMATION_TEST_RECIPIENT")  # real mode: the cap counts real reminders
     async with client_for(db, 1) as c:
         first = await c.post(GENERAL, params=q(org, dry_run="false"))
         assert first.json()["sent"] == 8
-        second = await c.post(TABLIGH, params=q(org, dry_run="false"))  # same people, same ISO week
-        preview = await c.post(f"{BASE}/courses/course_maal/remind", params=q(org))
-    assert second.status_code == 200
-    body = second.json()
-    assert body["sent"] == 0 and body["skipped_recent"] == 4 and body["skipped_attested"] == 1
-    assert preview.json()["would_send"] == 0 and preview.json()["skipped_recent"] == 3
-    assert len(transport.calls) == 8
+        monkeypatch.setattr(rem, "current_instant", lambda: MON + timedelta(hours=25))  # past the 24 h course limit
+        preview = await c.post(GENERAL, params=q(org))  # a preview takes no slot
+        again = await c.post(GENERAL, params=q(org, dry_run="false"))
+        other_course = await c.post(TABLIGH, params=q(org, dry_run="false"))  # another course: its own email
+    assert again.status_code == 200 and again.json()["sent"] == 0 and again.json()["skipped_recent"] == 8
+    assert preview.json()["would_send"] == 0 and preview.json()["skipped_recent"] == 8
+    assert other_course.json()["sent"] == 4 and other_course.json()["skipped_attested"] == 1
+    assert len(transport.calls) == 8 + 4
 
 
 async def test_a_disabled_feature_cannot_send_and_does_not_burn_the_24h_slot(db, org, world, transport, monkeypatch):

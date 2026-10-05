@@ -44,8 +44,11 @@ from src.services.mka.automation_gdpr import is_role_mailbox
 from src.services.mka.automation_send import (
     SendBudget,
     current_iso_week,
+    current_mode_is_test,
+    manual_dedupe_key,
     reminded_this_week,
     reminder_dedupe_key,
+    reminder_rows_by_person,
     send_automation_email,
 )
 
@@ -177,20 +180,31 @@ def _blank_counts() -> dict:
 
 async def _send_reminders(
     db: AsyncSession, *, org_id: int, cycle: MkaComplianceCycle, people: dict, url: str, today: date,
-    dry_run: bool, budget: SendBudget, now: datetime, counts: dict,
+    dry_run: bool, budget: SendBudget, now: datetime, counts: dict, manual_course_id: Optional[int] = None,
 ) -> dict:
     week = current_iso_week(now)
+    manual_done: dict = {}
+    if manual_course_id is not None:  # one query: who already got THIS course's manual reminder this week
+        manual_done = await reminder_rows_by_person(
+            db, org_id, key_like=manual_dedupe_key(manual_course_id, week, "%"), test_mode=current_mode_is_test()
+        )
     for email in sorted(people):
         p = people[email]
-        if await reminded_this_week(db, org_id, email, week):
+        if manual_course_id is None and await reminded_this_week(db, org_id, email, week):
             counts["skipped_recent"] += 1
             continue
+        if email in manual_done:
+            counts["skipped_recent"] += 1
+            continue
+        dedupe_key = (
+            reminder_dedupe_key(email, week) if manual_course_id is None else manual_dedupe_key(manual_course_id, week, email)
+        )
         mail = tpl.render_reminder(
             addressee=addressee_for(p), cycle_label=cycle.label, outstanding=p.items, deadline=cycle.deadline_on,
             today=today, url=url, contact_email=cfg.contact_email(),
         )
         result = await send_automation_email(
-            db, org_id=org_id, kind="reminder", dedupe_key=reminder_dedupe_key(email, week), to_email=email,
+            db, org_id=org_id, kind="reminder", dedupe_key=dedupe_key, to_email=email,
             subject=mail.subject, html_body=mail.html, user_id=p.user_id, cycle_id=cycle.id, dry_run=dry_run,
             budget=budget, now=now,
         )
@@ -484,7 +498,7 @@ async def remind_course(
 
     counts = await _send_reminders(
         db, org_id=org.id, cycle=cycle, people=people, url=url, today=today, dry_run=dry_run,
-        budget=SendBudget(), now=moment, counts=counts,
+        budget=SendBudget(), now=moment, counts=counts, manual_course_id=link.course_id,
     )
     if event_id is not None:
         event = await db.get(MkaAutomationEvent, event_id)
