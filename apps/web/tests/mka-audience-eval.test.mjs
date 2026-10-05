@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { validateRule, evaluateRule } from "../components/mka/audience/evaluate.ts";
+import { validateRule, evaluateRule, effectiveViewer } from "../components/mka/audience/evaluate.ts";
 
 const vectors = JSON.parse(
   readFileSync(new URL("../../api/src/tests/services/mka/vectors/audience_vectors.json", import.meta.url), "utf8"),
@@ -24,3 +24,12 @@ describe("shared audience vectors: validate", () => {
     });
   }
 });
+
+describe("effectiveViewer parity: non-object viewers are anonymous", () => {
+  for (const bad of [1, "v", [], true]) {
+    test(`viewer ${JSON.stringify(bad)}`, () => {
+      expect(effectiveViewer(bad).signedIn).toBe(false)
+      expect(evaluateRule({ v: 1, mode: "show", groups: [{ officeholder: false }] }, bad)).toBe(false)
+    })
+  }
+})

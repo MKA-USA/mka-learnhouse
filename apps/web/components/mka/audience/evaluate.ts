@@ -32,7 +32,7 @@ const isObject = (x: unknown): x is Record<string, unknown> => typeof x === 'obj
 export function validateRule(raw: unknown): ValidateResult {
   if (!isObject(raw)) return { ok: false, error: 'rule is not an object' }
   const { v, mode, groups, label } = raw
-  if (typeof v !== 'number' || !Number.isInteger(v) || v < 1) return { ok: false, error: 'v must be an integer >= 1' }
+  if (typeof v !== 'number' || !Number.isSafeInteger(v) || v < 1) return { ok: false, error: 'v must be a safe integer >= 1' }
   if (mode !== 'show' && mode !== 'hide') return { ok: false, error: 'mode must be show or hide' }
   if (!Array.isArray(groups) || groups.length === 0 || groups.length > MAX_GROUPS) {
     return { ok: false, error: 'groups must be a non-empty array of at most 20' }
@@ -82,7 +82,8 @@ export const NULL_VIEWER: EffectiveViewer = {
 }
 
 export function effectiveViewer(viewer: MkaViewerAttributes | null | undefined): EffectiveViewer {
-  if (!viewer) return NULL_VIEWER
+  // Parity with Python: any non-object viewer (number, string, array) is anonymous.
+  if (!isObject(viewer)) return NULL_VIEWER
   if (viewer.status !== 'matched' && viewer.status !== 'partial') {
     return { ...NULL_VIEWER, signedIn: true, is_officeholder: viewer.is_officeholder === false ? false : null }
   }
