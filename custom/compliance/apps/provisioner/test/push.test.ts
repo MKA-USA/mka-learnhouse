@@ -74,9 +74,11 @@ describe("push-roster payload", () => {
   test("levels, department keys, unconfirmed flag, person_name", () => {
     expect(new Set(rows.map((r) => r.level))).toEqual(new Set(["national", "regional", "local"]));
     expect(rows.find((r) => r.email === "tabligh.boston@mkausa.org")).toMatchObject({ level: "local", majlis: "Boston", region: "Northeast", department: "tabligh", person_name: "Known Name", formula_unconfirmed: false });
-    expect(rows.find((r) => r.email === "sanat-o-tijarat.east@mkausa.org")).toMatchObject({ level: "regional", department: "sanat_o_tijarat", majlis: null, formula_unconfirmed: true });
+    expect(rows.find((r) => r.email === "sanat-o-tijarat.east@mkausa.org")).toMatchObject({ level: "regional", department: "sanat_o_tijarat", majlis: null, formula_unconfirmed: false });
     expect(rows.find((r) => r.email === "qaid.east@mkausa.org")).toMatchObject({ level: "regional", department: "" });
-    expect(rows.filter((r) => r.formula_unconfirmed).length).toBe(200);
+    expect(rows.filter((r) => r.formula_unconfirmed).length).toBe(0); // regional mailboxes confirmed; flag mechanism kept
+    expect(toExpectedRow({ ...roster[0]!, source: "formula-unconfirmed" }).formula_unconfirmed).toBe(true);
+    expect(rows.some((r) => r.department === "atfal" || r.email.endsWith("@atfalusa.org"))).toBe(false);
   });
   test("bad rows are refused locally", () => {
     const bad = [{ ...rows[0]!, email: "nope" }, { ...rows[1]!, level: "region" }, { ...rows[2]!, role_title: "x".repeat(201) }];
@@ -141,7 +143,7 @@ void ({} as RosterRow);
 import { explainHttp } from "../src/commands-push";
 describe("early, clear failures", () => {
   test("403/401/409/404 messages are actionable and PII-free", () => {
-    expect(explainHttp(new LhHttpError("POST", "/x", 403, "API token lacks organizations.action_update"))).toContain("organizations.action_update");
+    expect(explainHttp(new LhHttpError("POST", "/x", 403, "API token lacks courses.action_update"))).toContain("Full Access");
     expect(explainHttp(new LhHttpError("POST", "/x", 403, "no bob@x.org"))).not.toContain("bob@x.org");
     expect(explainHttp(new LhHttpError("POST", "/x", 401))).toContain("rejected");
     expect(explainHttp(new LhHttpError("POST", "/x", 409))).toContain("re-run");

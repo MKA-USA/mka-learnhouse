@@ -47,7 +47,7 @@ from src.services.mka import attributes as svc
 from src.services.mka import audience as audience_svc
 from src.services.mka.audience_config import build_options
 from src.services.mka.counterparts import counterparts_for
-from src.services.mka.token_rights import TOKEN_READ, TOKEN_WRITE, token_may
+from src.services.mka.token_rights import TOKEN_READ, TOKEN_WRITE_FULL, token_may
 
 router = APIRouter()
 
@@ -126,7 +126,7 @@ async def _resolve_admin(
         if not org_slug:
             raise HTTPException(status_code=422, detail="org_slug is required for API-token access")
         token_user = _require_api_token(current_user)
-        token_may(token_user, *token_right)     # empty rights refused; reads need users.action_read, writes organizations.action_update
+        token_may(token_user, *token_right)     # empty rights refused; reads need courses+assignments read, writes all Full Access update rights
         org = await _resolve_org_slug(org_slug, token_user, db_session)
         return _Admin(org.id, None, "companion")
     if isinstance(current_user, SuperadminAPITokenUser):
@@ -481,7 +481,7 @@ async def api_import_roster(
 ) -> dict:
     """Bulk roster upsert (<= 1000 rows). One bad row never aborts the batch: each row
     gets ``ok`` / ``error``. ``dry_run`` validates without writing."""
-    admin = await _resolve_admin(current_user, org_id, org_slug, db_session, allow_token=True, token_right=TOKEN_WRITE)
+    admin = await _resolve_admin(current_user, org_id, org_slug, db_session, allow_token=True, token_right=TOKEN_WRITE_FULL)
     return await svc.import_roster(
         db_session, admin.org_id,
         [r.model_dump() for r in body.rows],
@@ -498,7 +498,7 @@ async def api_put_roster(
     current_user=Depends(get_authenticated_user),
     db_session: AsyncSession = Depends(get_db_session),
 ) -> dict:
-    admin = await _resolve_admin(current_user, org_id, org_slug, db_session, allow_token=True, token_right=TOKEN_WRITE)
+    admin = await _resolve_admin(current_user, org_id, org_slug, db_session, allow_token=True, token_right=TOKEN_WRITE_FULL)
     try:
         row = await svc.upsert_roster(
             db_session, admin.org_id, email, body.attributes, source=admin.source, note=body.note,
@@ -519,7 +519,7 @@ async def api_delete_roster(
     current_user=Depends(get_authenticated_user),
     db_session: AsyncSession = Depends(get_db_session),
 ) -> dict:
-    admin = await _resolve_admin(current_user, org_id, org_slug, db_session, allow_token=True, token_right=TOKEN_WRITE)
+    admin = await _resolve_admin(current_user, org_id, org_slug, db_session, allow_token=True, token_right=TOKEN_WRITE_FULL)
     try:
         deleted = await svc.delete_roster(db_session, admin.org_id, email, admin.actor_user_id)
     except svc.CrossOrgConflict as exc:

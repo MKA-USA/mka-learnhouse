@@ -1,16 +1,18 @@
-import { DEPARTMENTS } from "../seed/departments";
+import { DEFAULT_EXCLUDED_DEPARTMENTS, activeDepartments, withoutExcluded } from "../config";
 import type { RosterRow } from "../roster/generate";
 import type { Issue } from "./types";
 
 export interface PlanStatus { departmentSlug: string; level: string; stale: boolean; source: string }
-export interface GapReportInput { cycleLabel: string; roster: RosterRow[]; plans: PlanStatus[]; issues: Issue[]; notes?: string[] }
+export interface GapReportInput { cycleLabel: string; roster: RosterRow[]; plans: PlanStatus[]; issues: Issue[]; notes?: string[]; excludedDepartments?: readonly string[] }
 export interface GapCounts {
   rosterRows: number; rosterByLevel: Record<string, number>; unconfirmedMailboxes: number; missingNames: number; duplicateMailboxes: number; departmentsWithoutPlan: number; departmentsStalePlanOnly: number;
   byCode: Record<string, number>;
 }
 
 export function buildGapReport(input: GapReportInput): { markdown: string; counts: GapCounts } {
-  const { roster, plans, issues } = input;
+  const excluded = input.excludedDepartments ?? DEFAULT_EXCLUDED_DEPARTMENTS;
+  const DEPARTMENTS = activeDepartments(excluded);
+  const roster = withoutExcluded(input.roster, excluded); const plans = withoutExcluded(input.plans, excluded); const { issues } = input;
   const byLevel: Record<string, number> = {}; for (const r of roster) byLevel[r.level] = (byLevel[r.level] ?? 0) + 1;
   const unconfirmed = roster.filter((r) => r.source === "formula-unconfirmed").length;
   const missing = roster.filter((r) => !r.personName);
@@ -34,11 +36,12 @@ export function buildGapReport(input: GapReportInput): { markdown: string; count
   L.push("## Headline", "",
     `- Roster roles generated: **${roster.length}** (every Majlis has every role).`,
     `- By level: ${Object.entries(byLevel).map(([k, v]) => `${k} ${v}`).join(", ")}.`,
-    `- **UNCONFIRMED mailbox pattern:** ${unconfirmed} regional department mailboxes (\`{dept}.{region}@mkausa.org\`, derived from the Thinkific directories; the user has not confirmed them).`,
+    ...(unconfirmed ? [`- **UNCONFIRMED mailbox pattern:** ${unconfirmed} mailboxes flagged \`formula-unconfirmed\` (pattern not yet confirmed by the user).`] : []),
     `- Roles with **no person name**: **${missing.length}** of ${roster.length}.`,
     `- Departments with **no plan**: **${noPlan.length}** of ${DEPARTMENTS.length}; with only **stale** plans: **${staleOnly.length}**.`,
     `- Duplicate mailboxes in roster: **${dupes.length}**.`,
     `- Import issues: **${issues.length}** (${Object.entries(byCode).map(([k, v]) => `${k}: ${v}`).join(", ") || "none"}).`, "");
+  if (excluded.length) L.push(`- Excluded by config (not counted anywhere above): ${excluded.join(", ")}.`, "");
   if (input.notes?.length) { L.push("## Notes", "", ...input.notes.map((n) => `- ${n}`), ""); }
   L.push("## Missing names by department", "", "| Department | Roles | Missing names |", "|---|---|---|");
   for (const [k, tot] of [...totByDept.entries()].sort()) L.push(`| ${k} | ${tot} | ${missByDept.get(k) ?? 0} |`);

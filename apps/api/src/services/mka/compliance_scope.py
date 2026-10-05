@@ -43,7 +43,7 @@ from src.security.rbac.rbac import authorization_verify_based_on_roles_and_autho
 from src.security.superadmin import is_user_superadmin
 from src.services.admin.admin import _require_api_token, _resolve_org_slug
 from src.services.mka import attributes as attrs
-from src.services.mka.token_rights import TOKEN_READ, TOKEN_WRITE, token_may  # noqa: F401  (shared helper, W1a)
+from src.services.mka.token_rights import TOKEN_READ, TOKEN_WRITE_FULL, token_may  # noqa: F401  (shared helper, W1a)
 
 # UNCONFIRMED (owner to confirm before go-live): which attribute holders may see ALL cycle courses.
 # A rule matches when every listed key equals the viewer's EFFECTIVE attribute (fail-closed read, status must be
