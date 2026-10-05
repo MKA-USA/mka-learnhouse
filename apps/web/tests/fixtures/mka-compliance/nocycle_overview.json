@@ -1,0 +1,20 @@
+{
+  "body": {
+    "as_of": "2026-11-16",
+    "attention": [],
+    "cells": [],
+    "cycle": null,
+    "departments": [],
+    "totals": {
+      "attested": 0,
+      "completed": 0,
+      "expected": 0,
+      "in_progress": 0,
+      "not_signed_in": 0,
+      "not_started": 0,
+      "overdue": 0
+    }
+  },
+  "path": "overview",
+  "status": 200
+}

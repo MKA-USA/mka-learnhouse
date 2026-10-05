@@ -134,13 +134,15 @@ export function buildHeatmap(departments: DepartmentRow[], cells: CellRow[]): He
   const byDept = new Map<string, HeatmapRow>()
   for (const d of departments) byDept.set(d.department, { department: d.department, label: deptLabel(d.department, d.department_name), summary: d, cells: {} })
   for (const c of cells) {
-    regionSet.add(c.region)
+    // The API sends region: null for rows with no recorded region: normalise to '' (never a null map key / sort operand).
+    const region = nz(c.region) ?? ''
+    regionSet.add(region)
     let row = byDept.get(c.department)
     if (!row) {
       row = { department: c.department, label: deptLabel(c.department, c.department_name), summary: null, cells: {} }
       byDept.set(c.department, row)
     }
-    row.cells[c.region] = c
+    row.cells[region] = c
   }
   const rows = [...byDept.values()].sort(
     (a, b) =>
@@ -153,6 +155,7 @@ export function buildHeatmap(departments: DepartmentRow[], cells: CellRow[]): He
 
 /** Accessible label for one heatmap cell. */
 export function cellLabel(department: string, region: string, c: CellRow | undefined): string {
+  region = nz(region) ?? 'no region recorded'
   if (!c || !c.expected) return `${department}, ${region}: no expected learners`
   return `${department}, ${region}: ${RAG_META[safeRag(c.rag)].label}, ${fmtPct(attestedPct(c))} attested of ${c.expected}${
     c.overdue ? `, ${c.overdue} overdue` : ''
@@ -272,12 +275,12 @@ export function deptLabel(department: string | null | undefined, name?: string |
 export function learnerKey(l: {
   id?: string | number
   email: string
-  role_title: string
+  role_title: string | null
   department: string
   level: string
   majlis?: string | null
 }): string {
-  return l.id !== undefined && l.id !== null ? `id:${l.id}` : [l.email, l.role_title, l.department, l.level, l.majlis ?? ''].join('|')
+  return l.id !== undefined && l.id !== null ? `id:${l.id}` : [l.email, l.role_title ?? '', l.department, l.level, l.majlis ?? ''].join('|')
 }
 
 /** Notice for a capped CSV (`X-Truncated: true`; `X-Row-Limit` when sent), else null. */

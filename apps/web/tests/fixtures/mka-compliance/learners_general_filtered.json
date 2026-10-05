@@ -1,0 +1,55 @@
+{
+  "body": {
+    "as_of": "2026-11-16",
+    "course": {
+      "course_uuid": "course_general",
+      "department": null,
+      "department_name": null,
+      "kind": "general",
+      "name": "General 2026-27"
+    },
+    "cycle": {
+      "deadline_on": "2026-12-01",
+      "id": 1,
+      "label": "2026-27",
+      "starts_on": "2026-11-01"
+    },
+    "items": [
+      {
+        "attested_at": null,
+        "completed_at": null,
+        "contact_check": {
+          "answers": null,
+          "mismatch": null
+        },
+        "days_overdue": 0,
+        "department": "tabligh",
+        "department_name": "Tabligh",
+        "due_on": "2026-12-01",
+        "email": "ghost1@example.invalid",
+        "id": 5,
+        "last_activity_at": null,
+        "lessons_done": 0,
+        "lessons_total": 3,
+        "level": "local",
+        "majlis": "Dallas",
+        "overdue": false,
+        "person_name": "=HYPERLINK(\"http://evil.invalid\",\"x\")",
+        "region": "Southwest",
+        "role_title": "Nazim Tabligh",
+        "role_titles": [
+          "Nazim Tabligh"
+        ],
+        "signed_in": false,
+        "stage": "not_signed_in",
+        "status": "not_signed_in",
+        "trailrun_status": null
+      }
+    ],
+    "page": 1,
+    "page_size": 50,
+    "total": 1
+  },
+  "path": "courses/course_general/learners",
+  "status": 200
+}

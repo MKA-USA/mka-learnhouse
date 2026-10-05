@@ -82,11 +82,11 @@ export function Breakdown({
     () =>
       [...byMajlis]
         .filter((m) => !region || m.region === region)
-        .sort((a, b) => chaseTotal(b) - chaseTotal(a) || a.majlis.localeCompare(b.majlis)),
+        .sort((a, b) => chaseTotal(b) - chaseTotal(a) || (a.majlis ?? '').localeCompare(b.majlis ?? '')),
     [byMajlis, region],
   )
   const regions = useMemo(
-    () => [...byRegion].sort((a, b) => chaseTotal(b) - chaseTotal(a) || a.region.localeCompare(b.region)),
+    () => [...byRegion].sort((a, b) => chaseTotal(b) - chaseTotal(a) || (a.region ?? '').localeCompare(b.region ?? '')),
     [byRegion],
   )
   const shown = showAll ? majalis : majalis.slice(0, MAJLIS_INITIAL)
@@ -111,7 +111,7 @@ export function Breakdown({
                 rag={r.rag}
                 active={region === r.region}
                 onClick={() => {
-                  onRegion(region === r.region ? '' : r.region)
+                  onRegion(region === r.region ? '' : (r.region ?? ''))
                   onMajlis('')
                 }}
               />
@@ -137,7 +137,7 @@ export function Breakdown({
                 counts={m}
                 rag={m.rag}
                 active={majlis === m.majlis}
-                onClick={() => onMajlis(majlis === m.majlis ? '' : m.majlis)}
+                onClick={() => onMajlis(majlis === m.majlis ? '' : (m.majlis ?? ''))}
               />
             ))}
           </ul>

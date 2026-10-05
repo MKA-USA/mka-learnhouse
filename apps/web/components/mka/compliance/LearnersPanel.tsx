@@ -88,7 +88,7 @@ function PersonCell({ l }: { l: LearnerItem }) {
       <div className="truncate text-sm font-medium text-gray-900">{l.person_name ?? l.email}</div>
       {l.person_name ? <div className="truncate text-xs text-gray-500">{l.email}</div> : null}
       <div className="truncate text-xs text-gray-500">
-        {l.role_title}
+        {nz(l.role_title)}
         {where ? ` · ${where}` : ''}
       </div>
       {l.contact_check.mismatch === true ? (
@@ -140,7 +140,7 @@ export function LearnersPanel({
 
   const majlisOptions = byMajlis
     .filter((m) => nz(m.majlis) && (!filters.region || m.region === filters.region))
-    .map((m) => ({ value: m.majlis, label: m.majlis }))
+    .map((m) => ({ value: m.majlis ?? '', label: m.majlis ?? '' }))
     .sort((a, b) => a.label.localeCompare(b.label))
 
   return (
@@ -195,7 +195,7 @@ export function LearnersPanel({
           label="Region"
           value={filters.region ?? ''}
           allLabel="All regions"
-          options={byRegion.filter((r) => nz(r.region)).map((r) => ({ value: r.region, label: r.region }))}
+          options={byRegion.filter((r) => nz(r.region)).map((r) => ({ value: r.region ?? '', label: r.region ?? '' }))}
           onChange={(v) => onFilters({ region: v, majlis: '' })}
         />
         <FilterSelect

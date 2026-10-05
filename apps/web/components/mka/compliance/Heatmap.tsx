@@ -111,7 +111,7 @@ export function Heatmap({
               </th>
               {map.regions.map((r) => (
                 <th key={r} scope="col" className="pb-1 text-center text-xs font-medium leading-tight text-gray-500">
-                  {r}
+                  {r || 'No region'}
                 </th>
               ))}
             </tr>
@@ -157,7 +157,7 @@ export function Heatmap({
                         department={row.label}
                         region={region}
                         cell={row.cells[region]}
-                        href={course && row.cells[region]?.expected ? courseTabHref(orgslug, course.course_uuid, { region }) : null}
+                        href={course && row.cells[region]?.expected ? courseTabHref(orgslug, course.course_uuid, region ? { region } : {}) : null}
                       />
                     </td>
                   ))}

@@ -76,7 +76,8 @@ export interface DepartmentRow extends ComplianceCounts, RagFields {
 export interface CellRow extends ComplianceCounts {
   department: string
   department_name?: string | null
-  region: string
+  /** null when the roster rows have no region (contract test: the API sends null, not ""). */
+  region: string | null
   rag: ComplianceRag
   reasons: string[]
   attested_pct?: number // (open)
@@ -113,10 +114,10 @@ export interface BreakdownRow extends ComplianceCounts {
   reasons?: string[] // (open)
 }
 export interface RegionRow extends BreakdownRow {
-  region: string
+  region: string | null // API sends null for unassigned
 }
 export interface MajlisRow extends BreakdownRow {
-  majlis: string
+  majlis: string | null // API sends null for unassigned
   region?: string | null // (open)
 }
 export interface LevelRow extends BreakdownRow {
@@ -146,7 +147,7 @@ export interface LearnerItem {
   /** Stable unique id of the list item (React key). Fallback key is built when an older API omits it. */
   id?: string | number
   email: string
-  role_title: string
+  role_title: string | null
   person_name: string | null
   department: string
   department_name?: string | null
