@@ -70,8 +70,8 @@ jobs:
         run: |
           set -eu
           if [ -z "$MKA_AUTOMATION_CRON_SECRET" ]; then
-            echo "::error::Repository secret MKA_AUTOMATION_CRON_SECRET is not set for the development environment"
-            exit 1
+            echo "::notice::MKA_AUTOMATION_CRON_SECRET is not set (secrets are not available to forks or unconfigured environments). Skipping: nothing was called."
+            exit 0
           fi
           echo "::add-mask::$MKA_AUTOMATION_CRON_SECRET"
           # The header goes through curl's config on stdin so the secret never appears in a process list or in the log.
@@ -88,8 +88,8 @@ jobs:
         run: |
           set -u
           if [ -z "$MKA_AUTOMATION_CRON_SECRET" ]; then
-            echo "::error::Repository secret MKA_AUTOMATION_CRON_SECRET is not set for the development environment"
-            exit 1
+            echo "::notice::MKA_AUTOMATION_CRON_SECRET is not set (secrets are not available to forks or unconfigured environments). Skipping: nothing was called."
+            exit 0
           fi
           echo "::add-mask::$MKA_AUTOMATION_CRON_SECRET"
           status=$(printf 'header = "X-MKA-Cron-Secret: %s"\n' "$MKA_AUTOMATION_CRON_SECRET" | curl --config - \
