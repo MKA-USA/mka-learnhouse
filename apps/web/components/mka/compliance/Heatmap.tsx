@@ -12,6 +12,7 @@ const CELL_TONE: Record<ComplianceRag, string> = {
   amber: 'bg-amber-50 text-amber-900 ring-amber-200 hover:bg-amber-100',
   green: 'bg-emerald-50 text-emerald-900 ring-emerald-200 hover:bg-emerald-100',
   none: 'bg-gray-50 text-gray-400 ring-gray-100',
+  not_started: 'bg-gray-50 text-gray-500 ring-gray-200',
 }
 
 function Cell({
