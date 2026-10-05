@@ -15,6 +15,8 @@ from src.tests.routers.test_mka_compliance_review import token_with
 from src.tests.routers.test_mka_compliance_router import (  # noqa: F401  (fixtures + helpers)
     BASE, _app, client_for, freeze_today, q, world,
 )
+from src.tests.routers.test_mka_compliance_review import REAL_TODAY
+from src.tests.conftest import other_org  # noqa: F401
 
 ATTR = "/api/v1/mka/attributes"
 NATIONAL = {"level": "national", "department": "aitmad", "role": "motamid"}
@@ -84,3 +86,58 @@ def test_contact_check_recognises_national_motamid_as_department_head():
     assert check["mismatches"] == ["dept_head"]                                 # a wrong head is now flagged for Aitmad
     ok = svc.self_check_for(roster[1], {"majlis": "Albany", "regional_qaid": None, "dept_head": "Head Person"}, idx)
     assert ok["mismatches"] == []
+
+
+# ---- L3: tests for the redundant defence-in-depth checks --------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_l3_proven_python_recheck_rejects_proof_for_another_domain(db, org, world):
+    """SQL only requires a non-null verified_hd; the Python re-check also binds it to the address's own domain."""
+    row = await attrs.get_row(db, 31)
+    row.verified_hd = "other.example.invalid"
+    db.add(row)
+    await db.commit()
+    async with client_for(db, 1) as c:
+        items = (await c.get(f"{BASE}/courses/course_general/learners", params=q(org, page_size=200))).json()["items"]
+    assert {i["email"]: i["stage"] for i in items}["l1@example.invalid"] == "not_signed_in"
+
+
+@pytest.mark.asyncio
+async def test_l3_own_scope_requires_the_upstream_update_check(db, org, world, monkeypatch):
+    from fastapi import HTTPException
+    from src.services.mka import compliance_scope as scope_mod
+
+    async def deny(*a, **k):
+        raise HTTPException(status_code=403, detail="no")
+
+    monkeypatch.setattr(scope_mod, "authorization_verify_based_on_roles_and_authorship", deny)
+    async with client_for(db, 23) as c:  # ACTIVE creator of course_tabligh, but upstream denies `update`
+        assert (await c.get(f"{BASE}/scope", params=q(org))).json()["scope"] == "none"
+
+
+@pytest.mark.asyncio
+async def test_l3_course_that_moved_org_is_not_served_from_the_old_org(db, org, other_org, world):
+    from src.db.courses.courses import Course
+
+    course = (await db.execute(select(Course).where(Course.course_uuid == "course_tabligh"))).scalars().first()
+    course.org_id = other_org.id          # the link row still says org 1
+    db.add(course)
+    await db.commit()
+    async with client_for(db, 1) as c:
+        assert (await c.get(f"{BASE}/courses/course_tabligh/summary", params=q(org))).status_code == 404
+
+
+def test_l3_default_cycle_timezone_is_new_york_and_deadline_day_ends_at_midnight_there(monkeypatch):
+    import os
+    from datetime import timezone
+
+    if not os.environ.get("MKA_COMPLIANCE_TZ"):
+        assert svc.CYCLE_TIMEZONE == "America/New_York"
+
+    class FakeDT(datetime):
+        @classmethod
+        def now(cls, tz=None):  # 23:30 ET on 2026-12-01 == 04:30 UTC on 2026-12-02
+            return datetime(2026, 12, 2, 4, 30, tzinfo=timezone.utc).astimezone(tz)
+
+    monkeypatch.setattr(svc, "datetime", FakeDT)
+    assert REAL_TODAY() == "2026-12-01"
