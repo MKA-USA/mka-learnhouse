@@ -32,6 +32,9 @@ proven and is never enrolled, never receipted, never treated as that role.
 | `MKA_REMINDER_SCHEDULE` | `11-08,11-15,11-22,11-28,weekly` | Reminder days: `MM-DD` (every year), `YYYY-MM-DD`, `weekly` (every 7 days after the deadline). Invalid = default + warning. |
 | `MKA_REMINDER_EXCLUDED_DEPARTMENTS` | `atfal` | Department slugs never reminded. |
 | `MKA_REMINDER_WINDOW_DAYS` | `4` | A scheduled reminder date opens a window of this many days (1-7, the date itself counts). A run on any day inside it keeps reminding the people not yet reminded; outside every window a run does nothing (`not_a_reminder_day`). `1` = the scheduled date only. |
+| `MKA_REMINDER_COOLDOWN_DAYS` | `3` | At most ONE reminder email of any kind (scheduled or manual) per person per this many days. Scheduled reminders also stay at most one per person per ISO week. |
+| `MKA_REMINDER_OVERDUE_WEEKS` | `4` | Scheduled overdue reminders stop this many weeks after the deadline (`overdue_period_over`); the Monday digest to the Mohtamim / regional Qaid goes on (counts and the list of role titles). |
+| `MKA_REMINDER_MAX_ADDRESS_FAILURES` | `3` | An address with this many failed reminder sends in the last 7 days is quarantined (skipped) until they age out. |
 | `MKA_AUTOMATION_WEEKLY_REMINDER_CAP` | `1` | Reminders per person per ISO week. Values above 1 have no effect: the weekly dedupe key allows exactly one scheduled reminder per person per week. Leave it at 1. |
 | `MKA_AUTOMATION_RUN_SEND_CAP` | `400` | Max sends per run (0 = none). Safety stop, not the batch size: a run that hits it reports `remaining` and the next run (same or next day, inside the window) continues. |
 | `MKA_AUTOMATION_RUN_TIME_BUDGET_SECONDS` | `90` | A run stops sending after this many seconds and returns `{remaining, time_budget_hit}`; the workflow calls again. Keeps every HTTP call well inside the 150 s curl limit. |
@@ -132,6 +135,15 @@ HTTP 503 = cron secret unset on the API; 401 = GitHub secret differs from the AP
 8. Confirm the webhook ping from `/dash/developers/automations` returns 200 (the container-to-public-URL hairpin is
    unverified). The workflow now fails on any non-2xx from `reminders/run` or `receipts/sweep`, a 404 included.
 
+## Known exposure: upstream logs the recipient on a failed send
+
+LearnHouse's own `services/email/utils.py` logs the recipient address (with the exception) when a transport send fails.
+It is upstream code, so the fork does not edit it (fork policy). Our automation code never logs addresses or tracebacks.
+Consequence: when a reminder or receipt send fails, the address appears in the API logs. For reminders these are mostly
+organisational role mailboxes (`sadr@`, `tabligh.albany@`), but personal addresses can be on the roster as well. Treat
+the API logs as containing recipient addresses of failed sends and keep their access and retention accordingly; a
+logging filter on `src.services.email.utils` would remove it without touching upstream files.
+
 ## Rollout order
 
 1. Deploy with everything off. Confirm `/status` (flags false) and a dry run from the Actions tab.
@@ -159,12 +171,25 @@ HTTP 503 = cron secret unset on the API; 401 = GitHub secret differs from the AP
   of exactly who would be mailed and the real send must present it; if the list changed in between (more, fewer or
   different people) the send is refused with 409 and the dialog asks to review again. One COMPLETE real remind per
   course per 24 h (429); a run that stops early (time budget / send cap) reports `remaining`, does not hold the slot and
-  can simply be run again (nobody is mailed twice). Manual reminders have their own allowance (`manual:<course_id>:
-  <ISO week>:<email>`: one per person per course per week) and do not use up the person's weekly scheduled reminder.
+  can simply be run again (nobody is mailed twice). Manual reminders use their own key (`manual:<course_id>:<ISO
+  week>:<email>`, one per person per course per week) and do not spend the person's weekly SCHEDULED slot, but the
+  **cooldown** applies across both kinds: a person who got any reminder in the last `MKA_REMINDER_COOLDOWN_DAYS` days is
+  skipped ("reminded in the last 3 days" in the dialog). A person reminded manually on day 1 of a window is skipped by
+  the scheduled runs until the cooldown passes and still gets the scheduled reminder later in the window. A cycle that
+  has not started cannot be reminded (409, "has not started yet").
+- **Failing addresses (quarantine)**: each failed attempt is counted on the send-log row. Addresses with
+  `MKA_REMINDER_MAX_ADDRESS_FAILURES` failures in 7 days are skipped (`quarantined` in the run report,
+  `send_log.failing_addresses` in `/status`, "(address failing)" next to the role in the Monday digest) and addresses
+  with any recent failure are tried last, so a few rejected mailboxes cannot stop everybody else's reminders. The
+  consecutive-failure stop (`MKA_AUTOMATION_MAX_CONSECUTIVE_FAILURES`) counts distinct addresses (each is tried once per
+  run) and quarantined ones never reach it. They are retried automatically when the failures age out.
 - **Reminder runs are fair and resumable**: people already reminded in the current window / ISO week are dropped before
   the per-run cap applies; the rest go least-recently-reminded first. A run stops at the time budget or the cap and
-  says how many are left. The cron workflow calls `reminders/run` again (at most 10 calls, `curl --max-time 150`) while
-  the server reports `time_budget_hit` and `remaining > 0`; leftovers after a send-cap stop wait for the next daily
+  says how many are left and WHY it stopped (`stopped`: `time_budget_reached`, `send_cap_reached` or
+  `too_many_consecutive_failures`). The cron workflow runs the receipts sweep first, then calls `reminders/run` again
+  (at most 10 calls, `curl --max-time 150`, job `timeout-minutes: 30` = sweep 150 s + 10 x 155 s) while the server
+  reports `time_budget_hit` and `remaining > 0`. The job goes red only when nothing could be sent (every attempt
+  failed), on a non-2xx or non-JSON answer, or on a sweep failure; a failure stop after some sends is a warning; leftovers after a send-cap stop wait for the next daily
   run inside the window. With ~1,400 outstanding people and the default cap of 400, a window needs 4 daily runs
   (`MKA_REMINDER_WINDOW_DAYS=4`); raise the cap, not the window, if you want it done in one day.
 - **Claim before send**: a `queued` row (unique per org, kind, dedupe key) is committed before the transport is called.
