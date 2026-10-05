@@ -56,7 +56,10 @@ def test_revision_chain_is_a_single_head_after_compliance():
     assert mod.revision == "mka_20261005_automation"
     assert mod.down_revision == "mka_20261004_compliance"
     script = ScriptDirectory(str(API_DIR / "migrations"))
-    assert script.get_heads() == ["mka_20261005_automation"]
+    # Single linear chain; later revisions may be stacked on top of automation.
+    heads = script.get_heads()
+    assert len(heads) == 1
+    assert "mka_20261005_automation" in {r.revision for r in script.walk_revisions(head=heads[0])}
 
 
 def test_every_table_is_org_scoped_and_cascades():
