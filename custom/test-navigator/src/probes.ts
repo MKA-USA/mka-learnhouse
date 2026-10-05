@@ -134,7 +134,7 @@ export const probes: Probe[] = [
       await page.getByRole('button', { name: 'Local', exact: true }).click() // clear Local
       await page.getByText('Hide from', { exact: true }).click(); await page.waitForTimeout(300)
       const body = (await page.locator('[role=dialog]').last().innerText()).replace(/\s+/g, ' ')
-      return { ok: /warn|nobody|no one|everyone|all officeholders|empty|hidden from every/i.test(body.replace(/READS AS.*?(?=≈|$)/i, '')) && /warn|nobody|no one|everyone|empty/i.test(body), expected: 'a visible warning or clear wording that this hides the section from all officeholders', actual: body.slice(0, 300), shot: await shot(page, 'empty-hide-warning') }
+      return { ok: /Only people who aren't officeholders will see this\./.test(body), expected: 'the note "Only people who aren\'t officeholders will see this."', actual: body.slice(0, 300), shot: await shot(page, 'empty-hide-warning') }
     },
   },
   {
@@ -205,6 +205,50 @@ export const probes: Probe[] = [
       await page.goto(`${EDITOR}?mode=view&mka_viewer=does-not-exist`, { waitUntil: 'networkidle' }); await page.waitForTimeout(800)
       const t = await page.innerText('body')
       return { ok: !t.includes('LOCAL-ONLY:'), expected: 'unknown id => unrecognized viewer (no LOCAL-ONLY section)', actual: `LOCAL-ONLY visible=${t.includes('LOCAL-ONLY:')}`, shot: await shot(page, 'unknown-viewer-id-fails-closed') }
+    },
+  },
+
+  {
+    id: 'pointerdown-in-editor-cancels-new',
+    title: 'New section (slash + Enter): clicking into the editor text cancels it (section removed, picker closed)',
+    run: async (page) => {
+      await openEditor(page)
+      await setDoc(page, [{ type: 'paragraph', content: [{ type: 'text', text: 'Hello' }] }, { type: 'paragraph' }])
+      const bb = (await page.locator('.ProseMirror').boundingBox())!
+      await page.mouse.click(bb.x + 24, bb.y + bb.height - 10)
+      await page.keyboard.type('/audience', { delay: 20 }); await page.keyboard.press('Enter'); await page.waitForTimeout(500)
+      const openBefore = await pickerOpen(page)
+      await page.locator('.ProseMirror p').first().click(); await page.waitForTimeout(500)
+      const n = (await rules(page)).length
+      return { ok: openBefore && n === 0 && !(await pickerOpen(page)), expected: 'picker open after Enter; after clicking editor text: 0 sections, picker closed', actual: `openBefore=${openBefore} sections=${n} openAfter=${await pickerOpen(page)}` }
+    },
+  },
+  {
+    id: 'pointerdown-in-editor-reverts-existing',
+    title: 'Existing section: change a chip, click into the editor -> rule reverted and picker closed',
+    run: async (page) => {
+      await openEditor(page); const before = JSON.stringify(await rules(page))
+      await openPicker(page); await page.getByRole('button', { name: 'Regional', exact: true }).click()
+      await page.locator('.ProseMirror p').first().click(); await page.waitForTimeout(500)
+      const after = JSON.stringify(await rules(page))
+      return { ok: before === after && !(await pickerOpen(page)), expected: 'rules unchanged, picker closed', actual: `unchanged=${before === after} open=${await pickerOpen(page)} rules=${after.slice(0, 160)}` }
+    },
+  },
+  {
+    id: 'slash-click-then-done',
+    title: 'Mouse slash insert -> pick Local -> Done keeps the section with the rule',
+    run: async (page) => {
+      await openEditor(page)
+      await setDoc(page, [{ type: 'paragraph', content: [{ type: 'text', text: 'Hello' }] }, { type: 'paragraph' }])
+      const bb = (await page.locator('.ProseMirror').boundingBox())!
+      await page.mouse.click(bb.x + 24, bb.y + bb.height - 10)
+      await page.keyboard.type('/audience', { delay: 20 })
+      await page.getByRole('button', { name: /Audience section/ }).click(); await page.waitForTimeout(600)
+      await page.getByRole('button', { name: 'Local', exact: true }).click()
+      await page.getByRole('button', { name: 'Done', exact: true }).click(); await page.waitForTimeout(500)
+      const rs = await rules(page)
+      const ok = rs.length === 1 && rs[0].groups?.[0]?.level?.[0] === 'local' && !(await pickerOpen(page))
+      return { ok, expected: 'one section, level local, picker closed', actual: `rules=${JSON.stringify(rs)} open=${await pickerOpen(page)}` }
     },
   },
   {

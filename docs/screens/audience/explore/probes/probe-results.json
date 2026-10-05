@@ -1,13 +1,13 @@
 [
  {
   "id": "slash-click-audience-section",
-  "ok": false,
+  "ok": true,
   "expected": "one audience section exists and the picker opens (same as pressing Enter)",
-  "actual": "0 sections, picker open=false",
+  "actual": "1 sections, picker open=true",
   "shot": "probes/slash-click-audience-section.png",
   "kind": "bug",
   "title": "Mouse-selecting \"Audience section\" in the slash menu creates a section",
-  "passes": 0,
+  "passes": 3,
   "runs": 3
  },
  {
@@ -53,13 +53,13 @@
  },
  {
   "id": "focus-returns-after-close",
-  "ok": false,
+  "ok": true,
   "expected": "after Escape and after Cancel focus lands back on the opener (Edit) or inside the editor, not on <body>",
-  "actual": "Escape: BODY \"Viewing: Everything (author vi\" | Cancel: BODY \"Viewing: Everything (author vi\" | Done: DIV \"PUBLIC intro paragraph You are\"",
+  "actual": "Escape: BUTTON[Edit] \"Edit\" | Cancel: BUTTON[Edit] \"Edit\" | Done: BUTTON[Edit] \"Edit\"",
   "shot": "probes/focus-returns-after-close.png",
   "kind": "ux",
   "title": "Keyboard focus returns to the opener (Edit) after the picker closes",
-  "passes": 0,
+  "passes": 3,
   "runs": 3
  },
  {
@@ -86,13 +86,13 @@
  },
  {
   "id": "empty-hide-warning",
-  "ok": false,
-  "expected": "a visible warning or clear wording that this hides the section from all officeholders",
-  "actual": "Who should see this? Show to Hide from Hide from National Regional Local (any level) in department Any department More filters: role, region, Majlis READS AS Everyone except all officeholders Counting… This controls what people see. It is not a security boundary: do not put secrets in a section. Rem",
+  "ok": true,
+  "expected": "the note \"Only people who aren't officeholders will see this.\"",
+  "actual": "Who should see this? Show to Hide from Hide from National Regional Local (any level) in department Any department More filters: role, region, Majlis READS AS Everyone except all officeholders Counting… Only people who aren't officeholders will see this. This controls what people see. It is not a sec",
   "shot": "probes/empty-hide-warning.png",
   "kind": "ux",
   "title": "Hide-from with no filters (hides from every officeholder) warns the author",
-  "passes": 0,
+  "passes": 3,
   "runs": 3
  },
  {
@@ -108,13 +108,13 @@
  },
  {
   "id": "phone-picker-sheet",
-  "ok": false,
+  "ok": true,
   "expected": "no h-scroll, Done fully inside the 375x667 viewport, every control >= 40x40",
-  "actual": "scrollWidth=375/375 doneBox={\"x\":192.5,\"y\":658,\"width\":169.5,\"height\":44} doneInView=false smallTargets=[]",
+  "actual": "scrollWidth=375/375 doneBox={\"x\":192.5,\"y\":559,\"width\":169.5,\"height\":44} doneInView=true smallTargets=[]",
   "shot": "probes/phone-picker-sheet.png",
   "kind": "bug",
   "title": "On a 375x667 phone (iPhone SE size) the picker footer (Cancel/Done) is visible without scrolling",
-  "passes": 0,
+  "passes": 3,
   "runs": 3
  },
  {
@@ -141,13 +141,43 @@
  },
  {
   "id": "unknown-viewer-id-fails-closed",
-  "ok": false,
+  "ok": true,
   "expected": "unknown id => unrecognized viewer (no LOCAL-ONLY section)",
-  "actual": "LOCAL-ONLY visible=true",
+  "actual": "LOCAL-ONLY visible=false",
   "shot": "probes/unknown-viewer-id-fails-closed.png",
   "kind": "quirk",
   "title": "?mka_viewer=<unknown id> does not silently show the first persona content (mock layer)",
-  "passes": 0,
+  "passes": 3,
+  "runs": 3
+ },
+ {
+  "id": "pointerdown-in-editor-cancels-new",
+  "ok": true,
+  "expected": "picker open after Enter; after clicking editor text: 0 sections, picker closed",
+  "actual": "openBefore=true sections=0 openAfter=false",
+  "kind": "bug",
+  "title": "New section (slash + Enter): clicking into the editor text cancels it (section removed, picker closed)",
+  "passes": 3,
+  "runs": 3
+ },
+ {
+  "id": "pointerdown-in-editor-reverts-existing",
+  "ok": true,
+  "expected": "rules unchanged, picker closed",
+  "actual": "unchanged=true open=false rules=[{\"v\":1,\"mode\":\"show\",\"groups\":[{\"level\":[\"local\"]}]},{\"v\":1,\"mode\":\"show\",\"groups\":[{\"level\":[\"regional\"]}]},{\"v\":1,\"mode\":\"hide\",\"groups\":[{\"level\":[\"local\"]}",
+  "kind": "bug",
+  "title": "Existing section: change a chip, click into the editor -> rule reverted and picker closed",
+  "passes": 3,
+  "runs": 3
+ },
+ {
+  "id": "slash-click-then-done",
+  "ok": true,
+  "expected": "one section, level local, picker closed",
+  "actual": "rules=[{\"v\":1,\"mode\":\"show\",\"groups\":[{\"level\":[\"local\"]}],\"label\":\"Local officeholders\"}] open=false",
+  "kind": "bug",
+  "title": "Mouse slash insert -> pick Local -> Done keeps the section with the rule",
+  "passes": 3,
   "runs": 3
  },
  {
