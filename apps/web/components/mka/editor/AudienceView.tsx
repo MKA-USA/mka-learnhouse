@@ -10,14 +10,14 @@
  *  - If only the chrome throws, the mode already set by the controller stands and the chrome renders nothing.
  */
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { Eye, EyeOff } from 'lucide-react'
 import type { Editor } from '@tiptap/react'
 import type { Node as PMNode } from '@tiptap/pm/model'
 import { Popover, PopoverAnchor, PopoverContent } from '@components/ui/popover'
 import { useEditorProvider } from '@components/Contexts/Editor/EditorContext'
 import { useAudienceCount, useAudienceOptions, useAudienceScope, useMkaViewer } from '@services/mka/attributes'
 import { DEFAULT_RULE } from '../audience/types'
-import type { Rule } from '../audience/types'
+import type { AudienceOptions, Rule } from '../audience/types'
+import type { DescribeOptions } from '../audience/describe'
 import { validateRule } from '../audience/evaluate'
 import { describeRule } from '../audience/describe'
 import { getAudienceStore, useAudienceStore } from './store'
@@ -25,7 +25,7 @@ import { isRuleEditable, resolveSectionMode, ruleWarnings, showsPreviewLabel } f
 import type { SectionMode } from './logic'
 import type { AudienceNodeOptions, AudienceNodeViewApi } from './AudienceNodeView'
 import { MkaErrorBoundary } from './MkaErrorBoundary'
-import { AudienceHeader } from './AudienceHeader'
+import { AudienceHeader, HiddenPlaceholder, ReadOnlyBadge } from './AudienceHeader'
 import { AudiencePicker } from './AudiencePicker'
 
 type Props = {
@@ -35,6 +35,19 @@ type Props = {
   getPos: () => number | undefined
   options: AudienceNodeOptions
 }
+
+const FALLBACK_DESCRIBE: DescribeOptions = {
+  levels: [
+    { key: 'national', label: 'National' },
+    { key: 'regional', label: 'Regional' },
+    { key: 'local', label: 'Local' },
+  ],
+  departments: [],
+  roles: [],
+  regions: [],
+  majlis: [],
+}
+const describeWith = (rule: Rule, o: AudienceOptions | undefined) => describeRule(rule, o ?? FALLBACK_DESCRIBE)
 
 const DAMAGED_LABEL = 'Damaged audience: choose who should see this'
 
@@ -65,7 +78,7 @@ function ModeController(props: Props) {
     const r = validateRule(rule)
     return r.ok ? r.rule : null
   }, [rule])
-  const label = norm ? norm.label || describeRule(norm, orgOptions) : DAMAGED_LABEL
+  const label = norm ? norm.label || describeWith(norm, orgOptions) : DAMAGED_LABEL
 
   const mode = resolveSectionMode({
     view: st.view,
@@ -111,21 +124,11 @@ type ChromeProps = Props & {
 }
 
 function SectionChrome(p: ChromeProps) {
-  const { mode, editable, canViewAll, label, editor } = p
+  const { mode, editable, canViewAll, label, editor, norm } = p
   const st = useAudienceStore(editor)
   if (mode === 'chrome' && editable) return <AuthorHeader {...p} />
-  if (mode === 'chrome') return <VisibleToBadge label={label} />
-  if (mode === 'placeholder') {
-    return (
-      <div
-        data-testid="mka-audience-placeholder"
-        className="my-1 flex items-center gap-2 rounded-md border border-dashed border-slate-400 px-3 py-1.5 text-xs text-slate-600 dark:border-slate-500 dark:text-slate-300"
-      >
-        <EyeOff className="size-3.5 shrink-0" aria-hidden />
-        <span>Hidden for this viewer · Visible to {label}</span>
-      </div>
-    )
-  }
+  if (mode === 'chrome') return <ReadOnlyBadge rule={norm ?? DEFAULT_RULE} label={label} className="mb-1" />
+  if (mode === 'placeholder') return <HiddenPlaceholder label={label} className="my-1" />
   if (showsPreviewLabel(mode, st.view, editable, canViewAll)) {
     return (
       <div className="mb-1 text-[11px] text-slate-500 dark:text-slate-400" data-testid="mka-audience-preview-label">
@@ -134,18 +137,6 @@ function SectionChrome(p: ChromeProps) {
     )
   }
   return null
-}
-
-function VisibleToBadge({ label }: { label: string }) {
-  return (
-    <div
-      data-testid="mka-audience-badge"
-      className="mb-1 inline-flex items-center gap-1.5 rounded border border-slate-300 bg-slate-50 px-2 py-0.5 text-xs text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
-    >
-      <Eye className="size-3.5" aria-hidden />
-      <span>Visible to: {label}</span>
-    </div>
-  )
 }
 
 function AuthorHeader(p: ChromeProps) {
@@ -177,7 +168,7 @@ function AuthorHeader(p: ChromeProps) {
 
   const apply = (next: Rule) => {
     if (!id) return
-    const withLabel: Rule = { ...next, label: describeRule(next, orgOptions) }
+    const withLabel: Rule = { ...next, label: describeWith(next, orgOptions) }
     editor.commands.updateMkaAudienceRule(id, withLabel)
   }
 

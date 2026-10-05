@@ -12,7 +12,8 @@ export type AudienceHeaderProps = {
   rule: Rule
   label: string
   count: CountState
-  onEdit(): void
+  /** Omitted when the rule cannot be edited here (written by a newer editor). */
+  onEdit?(): void
   onPreview(): void
   onToggleCollapse(): void
   collapsed: boolean
@@ -112,7 +113,7 @@ export function AudienceHeader({
             </Tooltip>
             <CountBadge count={count} />
             <div className="ms-auto flex items-center gap-1.5">
-              <HeaderButton icon={Pencil} label="Edit" onClick={onEdit} />
+              {onEdit ? <HeaderButton icon={Pencil} label="Edit" onClick={onEdit} /> : null}
               <HeaderButton icon={ScanEye} label="Preview" onClick={onPreview} />
               <button
                 type="button"
