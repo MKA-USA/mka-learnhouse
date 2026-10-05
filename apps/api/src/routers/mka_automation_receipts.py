@@ -34,9 +34,14 @@ async def learnhouse_webhook(request: Request, db_session: AsyncSession = Depend
     declared = request.headers.get("content-length")
     if declared and declared.isdigit() and int(declared) > MAX_BODY_BYTES:
         return Response(status_code=413)
-    raw = await request.body()  # raw bytes first: the signature covers exactly these
-    if len(raw) > MAX_BODY_BYTES:
-        return Response(status_code=413)
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in request.stream():  # count as we go: never buffer past the cap (+ one chunk)
+        total += len(chunk)
+        if total > MAX_BODY_BYTES:
+            return Response(status_code=413)
+        chunks.append(chunk)
+    raw = b"".join(chunks)  # the signature covers exactly these bytes
     if not verify_webhook_signature(raw, request.headers.get("X-Webhook-Signature"), cfg.webhook_secret()):
         logger.warning("automation webhook: bad or missing signature")
         return Response(status_code=401)

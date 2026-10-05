@@ -714,3 +714,48 @@ def test_the_receipts_router_is_included_by_one_marked_hook_at_the_end_of_the_fo
     tail = text.rstrip().splitlines()[-4:]
     assert tail[0] == "# --- seam B: webhook/receipts ---"
     assert text.count("include_router(_receipts_router)") == 1
+
+
+# --- body size bound (unauthenticated until the HMAC is checked) -----------------------------------------------
+
+
+async def test_streamed_body_without_content_length_is_cut_off_at_the_cap(db, world, transport, on):
+    from src.routers.mka_automation_receipts import MAX_BODY_BYTES
+
+    chunk, read = b"x" * 8192, []
+
+    async def gen():
+        for i in range(10_000):  # ~80 MB if fully consumed
+            read.append(i)
+            yield chunk
+
+    async with make_client(db) as c:
+        r = await c.post(WEBHOOK, content=gen(), headers={"X-Webhook-Signature": "sha256=" + "0" * 64})
+    assert r.status_code == 413
+    assert len(read) * len(chunk) <= MAX_BODY_BYTES + 3 * len(chunk)
+
+
+async def test_lying_small_content_length_with_a_large_body_is_413(db, world, transport, on):
+    from src.routers.mka_automation_receipts import MAX_BODY_BYTES
+
+    big = b"y" * (MAX_BODY_BYTES + 1)
+    async with make_client(db) as c:
+        r = await c.post(WEBHOOK, content=big, headers={"Content-Length": "10"})
+    assert r.status_code in (413, 400)  # server may reject the mismatch itself; never 200/processing
+    assert transport.calls == []
+
+
+async def test_exact_cap_body_with_a_valid_signature_is_still_verified(db, world, transport, on):
+    from src.routers.mka_automation_receipts import MAX_BODY_BYTES
+
+    raw = b"[" + b" " * (MAX_BODY_BYTES - 2) + b"]"
+    assert len(raw) == MAX_BODY_BYTES
+    async with make_client(db) as c:
+        r = await post(c, None, raw=raw)
+    assert r.status_code == 400  # authenticated (not 401/413), then rejected as a non-object body
+
+
+async def test_empty_body_is_401(db, world, transport, on):
+    async with make_client(db) as c:
+        r = await c.post(WEBHOOK, content=b"")
+    assert r.status_code == 401
