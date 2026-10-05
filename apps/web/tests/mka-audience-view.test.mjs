@@ -35,7 +35,7 @@ const { mkaEditorExtensions } = await import("../components/mka/editor/index.ts"
 const { AudienceView } = await import("../components/mka/editor/AudienceView.tsx");
 const { getAudienceStore } = await import("../components/mka/editor/store.ts");
 const { undoDepth } = await import("@tiptap/pm/history");
-const { TextSelection } = await import("@tiptap/pm/state");
+const { closeHistory } = await import("@tiptap/pm/history");
 const { useMkaViewer, mkaAttributeKeys } = await import("../services/mka/attributes.ts");
 
 const h = React.createElement;
@@ -67,11 +67,11 @@ const section = (id, text, r) => ({ type: "mkaAudience", attrs: { id, rule: r },
 const doc = (...content) => ({ type: "doc", content });
 
 let current = null;
-function Harness({ content, editable, onEditor }) {
+function Harness({ content, editable, onEditor, allowDocEdits }) {
   const editor = useEditor({
     immediatelyRender: false,
     editable,
-    extensions: [StarterKit.configure({ trailingNode: false }), ...(editable ? [] : [NoTextInput]), ...mkaEditorExtensions({ editable, activity: { org_id: 1 }, courseUuid: "course_x" })],
+    extensions: [StarterKit.configure({ trailingNode: false }), ...(editable || allowDocEdits ? [] : [NoTextInput]), ...mkaEditorExtensions({ editable, activity: { org_id: 1 }, courseUuid: "course_x" })],
     content,
   });
   React.useEffect(() => { if (editor) onEditor?.(editor); }, [editor]);
@@ -80,7 +80,7 @@ function Harness({ content, editable, onEditor }) {
 
 const realFetch = globalThis.fetch;
 const mockEnv = process.env.NEXT_PUBLIC_MKA_AUDIENCE_MOCK;
-async function mount(content, { editable = false, search = "", flag = "0", pendingMe = null } = {}) {
+async function mount(content, { editable = false, search = "", flag = "0", pendingMe = null, allowDocEdits = false } = {}) {
   domWindow.happyDOM.setURL(`http://localhost/${search}`);
   process.env.NEXT_PUBLIC_MKA_AUDIENCE_ENABLED = flag;
   const container = document.createElement("div");
@@ -89,7 +89,7 @@ async function mount(content, { editable = false, search = "", flag = "0", pendi
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   let editor = null;
   await act(async () => {
-    let tree = h(QueryClientProvider, { client: qc }, h(Harness, { content, editable, onEditor: (e) => (editor = e) }));
+    let tree = h(QueryClientProvider, { client: qc }, h(Harness, { content, editable, allowDocEdits, onEditor: (e) => (editor = e) }));
     if (pendingMe) {
       // Real fetch path with a /me response the TEST controls, so "while loading" is deterministic.
       process.env.NEXT_PUBLIC_MKA_AUDIENCE_MOCK = "";
@@ -539,6 +539,173 @@ describe("labels (L9) and viewer data precedence (L8)", () => {
       process.env.NEXT_PUBLIC_MKA_AUDIENCE_MOCK = prevMock;
       await act(async () => root.unmount());
       container.remove();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------
+// Undo semantics (A) and original recapture (B)
+// ---------------------------------------------------------------------------------------------------------
+describe("undo semantics: only Done is an undo step", () => {
+  // Simulates real time passing between user actions (history groups merge within 500 ms otherwise).
+  const gap = (e) => e.view.dispatch(closeHistory(e.state.tr));
+  const click = async (label, root = document.body) => {
+    const b = [...root.querySelectorAll("button")].find((x) => x.textContent.trim() === label);
+    expect(b).toBeTruthy();
+    await act(async () => { b.click(); });
+    await settle();
+  };
+  const escape = async () => {
+    await act(async () => { document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true })); });
+    await settle();
+  };
+  const secs = (e) => e.getJSON().content.filter((n) => n.type === "mkaAudience");
+  const insertNew = async (m) => {
+    await act(async () => { m.editor().commands.setTextSelection(2); m.editor().commands.setMkaAudience(); });
+    await settle();
+    gap(m.editor());
+  };
+
+  test("Escape on a NEW section: Ctrl+Z afterwards does not resurrect it", async () => {
+    const m = await mount(doc(para("hello"), para("world")), { editable: true, flag: "1" });
+    await settle();
+    await insertNew(m);
+    await click("Local officeholders");
+    gap(m.editor());
+    await escape();
+    gap(m.editor());
+    expect(secs(m.editor()).length).toBe(0);
+    const before = JSON.stringify(m.editor().getJSON());
+    for (let i = 0; i < 3; i++) {
+      await act(async () => { m.editor().commands.undo(); });
+      await settle();
+      expect(secs(m.editor()).length).toBe(0); // after EVERY undo, not just the last
+      expect(JSON.stringify(m.editor().getJSON())).toBe(before);
+    }
+  });
+
+  test("Escape while editing an EXISTING section: Ctrl+Z does not re-apply the cancelled rule", async () => {
+    const m = await mount(doc(section("a", "x", rule("local"))), { editable: true, flag: "1" });
+    await settle();
+    await click("Edit", m.container);
+    gap(m.editor());
+    await click("Regional");
+    expect(secs(m.editor())[0].attrs.rule.groups[0].level).toEqual(["local", "regional"]); // live preview
+    gap(m.editor());
+    await escape();
+    gap(m.editor());
+    expect(secs(m.editor())[0].attrs.rule.groups[0].level).toEqual(["local"]);
+    await act(async () => { m.editor().commands.undo(); });
+    await settle();
+    expect(secs(m.editor())[0].attrs.rule.groups[0].level).toEqual(["local"]);
+  });
+
+  test("Done on an EXISTING section: one Ctrl+Z reverts the whole edit; live steps left no history", async () => {
+    const m = await mount(doc(section("a", "x", rule("local"))), { editable: true, flag: "1" });
+    await settle();
+    await click("Edit", m.container);
+    await click("Regional");
+    gap(m.editor());
+    await click("National");
+    gap(m.editor());
+    await click("Done");
+    expect(secs(m.editor())[0].attrs.rule.groups[0].level).toEqual(["local", "regional", "national"]);
+    await act(async () => { m.editor().commands.undo(); });
+    await settle();
+    expect(secs(m.editor())[0].attrs.rule.groups[0].level).toEqual(["local"]);
+    await act(async () => { m.editor().commands.undo(); });
+    expect(secs(m.editor())[0].attrs.rule.groups[0].level).toEqual(["local"]); // nothing further to undo
+    await act(async () => { m.editor().commands.redo(); });
+    expect(secs(m.editor())[0].attrs.rule.groups[0].level).toEqual(["local", "regional", "national"]);
+  });
+
+  test("Done on a NEW section: one Ctrl+Z removes it entirely (never a section without its rule); redo restores it with the rule", async () => {
+    const m = await mount(doc(para("hello"), para("world")), { editable: true, flag: "1" });
+    await settle();
+    const before = JSON.stringify(m.editor().getJSON());
+    await insertNew(m);
+    await click("Local officeholders");
+    gap(m.editor());
+    await click("Done");
+    expect(secs(m.editor()).length).toBe(1);
+    expect(secs(m.editor())[0].attrs.rule.groups[0].level).toEqual(["local"]);
+    await act(async () => { m.editor().commands.undo(); });
+    await settle();
+    expect(secs(m.editor()).length).toBe(0);
+    expect(JSON.stringify(m.editor().getJSON())).toBe(before);
+    await act(async () => { m.editor().commands.redo(); });
+    await settle();
+    expect(secs(m.editor()).length).toBe(1);
+    expect(secs(m.editor())[0].attrs.rule.groups[0].level).toEqual(["local"]);
+  });
+
+  test("Done on a NEW section that wrapped blocks: one Ctrl+Z restores the unwrapped document", async () => {
+    const m = await mount(doc(para("alpha"), para("beta")), { editable: true, flag: "1" });
+    await settle();
+    const before = JSON.stringify(m.editor().getJSON());
+    await act(async () => { m.editor().commands.setTextSelection({ from: 1, to: 8 }); m.editor().commands.setMkaAudience(); });
+    await settle();
+    gap(m.editor());
+    await click("Local officeholders");
+    gap(m.editor());
+    await click("Done");
+    expect(secs(m.editor()).length).toBe(1);
+    await act(async () => { m.editor().commands.undo(); });
+    await settle();
+    expect(JSON.stringify(m.editor().getJSON())).toBe(before);
+  });
+});
+
+describe("original document recapture (B)", () => {
+  test("a doc change made AFTER the learner filter never becomes the original: can_view_all then sees full content", async () => {
+    const m = await mount(stateDoc, { allowDocEdits: true });
+    await settle();
+    expect(tocHeadings(m.editor())).toEqual(["PUBLIC-HEADING", "LOCAL-HEADING"]);
+    // someone/something edits the (filtered) doc after the swap
+    await act(async () => {
+      const e = m.editor();
+      e.view.dispatch(e.state.tr.insertText("EDIT", 2));
+    });
+    await settle();
+    expect(m.editor().state.doc.textContent).toContain("EDIT");
+    // the same viewer is now resolved as can_view_all
+    domWindow.happyDOM.setURL("http://localhost/?mka_admin=1");
+    await act(async () => { await m.qc.invalidateQueries({ queryKey: mkaAttributeKeys.all }); });
+    await settle();
+    expect(tocHeadings(m.editor())).toEqual(["PUBLIC-HEADING", "LOCAL-HEADING", "REGIONAL-HEADING"]);
+    expect(m.editor().state.doc.textContent).toContain("REGIONAL-BODY");
+  });
+
+  test("setContent IS an explicit load: it becomes the new original and is re-filtered", async () => {
+    const m = await mount(stateDoc, { allowDocEdits: true });
+    await settle();
+    const next = doc(para("NEW-PUBLIC"), hsec("c", rule("local"), heading("NEW-LOCAL-HEADING"), para("NEW-LOCAL-BODY")), hsec("d", rule("regional"), heading("NEW-REGIONAL-HEADING"), para("NEW-REGIONAL-BODY")));
+    await act(async () => { m.editor().commands.setContent(next); });
+    await settle();
+    expect(tocHeadings(m.editor())).toEqual(["NEW-LOCAL-HEADING"]);
+    expect(m.editor().state.doc.textContent).not.toContain("NEW-REGIONAL-BODY");
+    expect(m.container.innerHTML).not.toContain("NEW-REGIONAL-BODY");
+  });
+});
+
+describe("runtime flag (C): authoring entry points appear when runtime-config.js arrives after hydration", () => {
+  const waitFor = async (cond, ms = 2000) => {
+    for (let t = 0; t < ms && !cond(); t += 25) await act(async () => { await new Promise((r) => setTimeout(r, 25)); });
+    return cond();
+  };
+  const hasPreview = (c) => [...c.querySelectorAll("button")].some((b) => b.textContent.trim() === "Preview");
+  test("flag off at mount, then on via window.__RUNTIME_CONFIG__: the Preview button and bar appear, no editor re-creation", async () => {
+    const m = await mount(content, { editable: true, flag: "0" });
+    await settle();
+    const editorBefore = m.editor();
+    expect(hasPreview(m.container)).toBe(false);
+    expect(m.container.querySelector('[aria-label="Audience preview"]')).toBeNull();
+    window.__RUNTIME_CONFIG__ = { NEXT_PUBLIC_MKA_AUDIENCE_ENABLED: "1" };
+    try {
+      expect(await waitFor(() => hasPreview(m.container) && !!m.container.querySelector('[aria-label="Audience preview"]'))).toBe(true);
+      expect(m.editor()).toBe(editorBefore);
+    } finally {
+      delete window.__RUNTIME_CONFIG__;
     }
   });
 });

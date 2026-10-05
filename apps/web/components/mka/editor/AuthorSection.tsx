@@ -6,7 +6,7 @@ import type { Editor } from '@tiptap/react'
 import type { Node as PMNode } from '@tiptap/pm/model'
 import { Popover, PopoverAnchor, PopoverContent } from '@components/ui/popover'
 import { useAudienceCount, useAudienceOptions } from '@services/mka/attributes'
-import { mkaAudienceEnabled } from '@services/mka/flags'
+import { useMkaAudienceEnabled } from '@services/mka/useMkaAudienceEnabled'
 import { DEFAULT_RULE } from '../audience/types'
 import type { Rule } from '../audience/types'
 import { describeWith } from './describeWith'
@@ -33,7 +33,7 @@ export default function AuthorSection(p: AuthorSectionProps) {
   const store = getAudienceStore(editor)
   const st = useAudienceStore(editor)
   const orgOptions = useAudienceOptions(scope.orgId).data
-  const previewEnabled = mkaAudienceEnabled()
+  const previewEnabled = useMkaAudienceEnabled()
   const count = useAudienceCount(scope.orgId, scope.courseUuid, norm)
   const narrow = useIsNarrow()
   const [open, setOpen] = useState(false)
@@ -59,7 +59,8 @@ export default function AuthorSection(p: AuthorSectionProps) {
   const apply = (next: Rule) => {
     if (!id) return
     const withLabel: Rule = { ...next, label: describeWith(next, orgOptions) }
-    editor.commands.updateMkaAudienceRule(id, withLabel)
+    // Live preview: not an undo step. Only Done records history (see commit*MkaAudience).
+    editor.commands.updateMkaAudienceRule(id, withLabel, { addToHistory: false })
   }
 
   const close = () => {
@@ -67,12 +68,20 @@ export default function AuthorSection(p: AuthorSectionProps) {
     setIsNew(false)
   }
 
+  const done = () => {
+    if (id) {
+      if (isNew) editor.commands.commitNewMkaAudience(id)
+      else editor.commands.commitEditMkaAudience(id, startRule.current)
+    }
+    close()
+  }
+
   const cancel = () => {
     if (id) {
       // Only Done commits. Cancelling a NEW section removes it (an empty inserted one entirely, a wrapped one
       // by unwrapping); cancelling an edit reverts to the rule it had when the picker opened.
       if (isNew) editor.commands.cancelNewMkaAudience(id)
-      else editor.commands.updateMkaAudienceRule(id, startRule.current)
+      else editor.commands.updateMkaAudienceRule(id, startRule.current, { addToHistory: false })
     }
     close()
   }
@@ -94,7 +103,7 @@ export default function AuthorSection(p: AuthorSectionProps) {
     <AudiencePicker
       value={norm ?? DEFAULT_RULE}
       onChange={apply}
-      onDone={close}
+      onDone={done}
       onCancel={cancel}
       onRemove={
         id

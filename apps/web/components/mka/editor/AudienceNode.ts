@@ -18,7 +18,12 @@ declare module '@tiptap/core' {
     mkaAudience: {
       /** Wrap the selected blocks (or insert an empty section with the cursor inside) and open its picker. */
       setMkaAudience: () => ReturnType
-      updateMkaAudienceRule: (id: string, rule: Rule) => ReturnType
+      /** `addToHistory: false` for live picker previews and reverts (only Done records a history step). */
+      updateMkaAudienceRule: (id: string, rule: Rule, opts?: { addToHistory?: boolean }) => ReturnType
+      /** Done on a NEW section: one history-recorded insert/wrap carrying the final rule (a single Ctrl+Z removes it). */
+      commitNewMkaAudience: (id: string) => ReturnType
+      /** Done on an EXISTING section: restore `opening` silently, then record the final rule as ONE step. */
+      commitEditMkaAudience: (id: string, opening: Rule) => ReturnType
       /** Unwrap a section, keeping its content. */
       unsetMkaAudience: (id: string) => ReturnType
       /** Cancel of a NEW section: an empty inserted one is removed entirely, a wrapped one is unwrapped. */
@@ -50,7 +55,7 @@ export const MkaAudience = Node.create<AudienceNodeOptions>({
   },
 
   addStorage() {
-    return { store: createAudienceStore({ editableDoc: this.options.editable }), original: null as unknown, stripping: false, chromeRenderer: null as unknown }
+    return { store: createAudienceStore({ editableDoc: this.options.editable }), original: null as unknown, stripping: false, explicitLoad: false, chromeRenderer: null as unknown }
   },
 
   addAttributes() {
@@ -142,11 +147,57 @@ export const MkaAudience = Node.create<AudienceNodeOptions>({
         },
 
       updateMkaAudienceRule:
-        (id, rule) =>
+        (id, rule, opts) =>
         ({ tr, state, dispatch }) => {
           const hit = findAudienceById(state.doc, id)
           if (!hit) return false
+          if (opts?.addToHistory === false) tr.setMeta('addToHistory', false)
           if (dispatch) dispatch(tr.setNodeMarkup(hit.pos, undefined, { ...hit.node.attrs, rule }))
+          return true
+        },
+
+      commitNewMkaAudience:
+        (id) =>
+        ({ state, tr: shared, editor }) => {
+          const hit = findAudienceById(state.doc, id)
+          if (!hit) return false
+          shared.setMeta('preventDispatch', true) // we dispatch our own transactions below
+          const store = getAudienceStore(editor)
+          const { [id]: wasInserted, ...rest } = store.get().inserted
+          store.set({ inserted: rest })
+          const only = hit.node.childCount === 1 ? hit.node.child(0) : null
+          const emptyInserted = !!wasInserted && !!only && only.type.name === 'paragraph' && only.content.size === 0
+          const type = state.schema.nodes[AUDIENCE_NODE]
+          const attrs = { ...hit.node.attrs }
+          const size = hit.node.nodeSize
+          // 1) silently restore the pre-insert document (insert/wrap and the live previews were not undo steps) ...
+          const pre = state.tr.setMeta('addToHistory', false)
+          if (emptyInserted) pre.delete(hit.pos, hit.pos + size)
+          else pre.replaceWith(hit.pos, hit.pos + size, hit.node.content)
+          editor.view.dispatch(pre)
+          // 2) ... then record the section with its FINAL rule as one step, so one Ctrl+Z removes it entirely.
+          const tr = editor.state.tr
+          if (emptyInserted) {
+            tr.insert(hit.pos, type.create(attrs, state.schema.nodes.paragraph.create()))
+          } else {
+            const range = tr.doc.resolve(hit.pos).blockRange(tr.doc.resolve(hit.pos + hit.node.content.size))
+            if (!range) return false
+            tr.wrap(range, [{ type, attrs }])
+          }
+          editor.view.dispatch(tr)
+          return true
+        },
+
+      commitEditMkaAudience:
+        (id, opening) =>
+        ({ state, tr: shared, editor }) => {
+          const hit = findAudienceById(state.doc, id)
+          if (!hit) return false
+          shared.setMeta('preventDispatch', true) // we dispatch our own transactions below
+          const current = hit.node.attrs.rule
+          if (JSON.stringify(current) === JSON.stringify(opening)) return true
+          editor.view.dispatch(state.tr.setNodeMarkup(hit.pos, undefined, { ...hit.node.attrs, rule: opening }).setMeta('addToHistory', false))
+          editor.view.dispatch(editor.state.tr.setNodeMarkup(hit.pos, undefined, { ...hit.node.attrs, rule: current }))
           return true
         },
 
@@ -161,6 +212,8 @@ export const MkaAudience = Node.create<AudienceNodeOptions>({
           const only = hit.node.childCount === 1 ? hit.node.child(0) : null
           const emptyInserted = !!wasInserted && !!only && only.type.name === 'paragraph' && only.content.size === 0
           if (dispatch) {
+            // Not an undo step: the cancel must not leave a Ctrl+Z that resurrects the cancelled section.
+            tr.setMeta('addToHistory', false)
             dispatch(
               emptyInserted
                 ? tr.delete(hit.pos, hit.pos + hit.node.nodeSize)
