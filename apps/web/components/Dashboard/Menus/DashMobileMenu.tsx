@@ -46,7 +46,6 @@ import { usePlan } from '@components/Hooks/usePlan'
 import { planMeetsRequirement } from '@services/plans/plans'
 import { FeedbackModal } from '@components/Objects/Modals/FeedbackModal'
 import { useCommandPalette } from '@components/Dashboard/CommandPalette/CommandPaletteContext'
-import { ShieldCheck } from '@phosphor-icons/react' // MKA fork
 import { useMkaComplianceScope } from '@services/mka/compliance' // MKA fork
 
 function DashMobileMenu() {
