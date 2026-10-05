@@ -13,7 +13,10 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any, Optional
 
+import json
+
 from fastapi import HTTPException, Request
+from starlette.concurrency import run_in_threadpool
 from sqlalchemy import or_
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -30,11 +33,12 @@ from src.security.rbac.constants import ADMIN_OR_MAINTAINER_ROLE_IDS
 from src.security.rbac.rbac import authorization_verify_based_on_roles_and_authorship
 from src.security.superadmin import is_user_superadmin
 from src.services.mka import attributes as attrs_svc
-from src.services.mka.audience_eval import evaluate_validated, validate_rule
+from src.services.mka.audience_eval import compile_rule, evaluate_compiled, validate_rule
 from src.services.mka.compliance_scope import AUTHOR_AUTHORSHIPS
 from src.services.mka.identity_parser import LEVELS
 
 MAX_PEOPLE = 20
+MAX_RULE_BYTES = 64 * 1024  # serialized rule JSON; the vocabulary is a few hundred values, a bigger rule is abuse
 PREVIEW_REASON = "Preview as (audience block)"
 COUNTED_STATUSES = ("matched", "partial", "not_applicable")  # everything else counts as "unrecognized"
 
@@ -74,13 +78,24 @@ async def is_course_author(request: Request, uid: int, course: Course, db: Async
     return True
 
 
-async def author_can_view_all(request: Request, uid: int, course_uuid: Optional[str], db: AsyncSession) -> bool:
-    """``/me?course_uuid=``: may this user see every audience section of that course? Unknown course => False (no leak)."""
+async def course_view_all(request: Request, uid: int, course_uuid: Optional[str], db: AsyncSession) -> Optional[bool]:
+    """``/me?course_uuid=`` when the course EXISTS: may this user see every audience section of it?
+
+    True for a superadmin, an admin/maintainer IN THE COURSE'S ORG, or an ACTIVE author of the course (who is a member of its org
+    and passes the upstream ``update`` check). ``None`` when no course is named or it is unknown: the caller keeps the
+    course-independent rule and nothing is revealed about which uuids exist."""
     if not course_uuid:
-        return False
+        return None
     course = (await db.execute(select(Course).where(Course.course_uuid == course_uuid))).scalars().first()
-    if course is None or await get_user_org(uid, course.org_id, db) is None:
+    if course is None:
+        return None
+    if await is_user_superadmin(uid, db):
+        return True
+    membership = await get_user_org(uid, course.org_id, db)
+    if membership is None:
         return False
+    if membership.role_id in ADMIN_OR_MAINTAINER_ROLE_IDS:
+        return True
     return await is_course_author(request, uid, course, db)
 
 
@@ -139,16 +154,8 @@ def _expected_viewer(row: MkaComplianceExpected) -> dict:
     }
 
 
-async def count_audience(db: AsyncSession, org_id: int, rule: dict) -> dict:
-    """The ``AudienceCount`` body for an already VALIDATED rule. Aggregates only; every query is filtered by ``org_id``."""
-    members = (
-        await db.execute(
-            select(User.id, User.email, MkaUserAttributes)
-            .join(UserOrganization, UserOrganization.user_id == User.id)
-            .outerjoin(MkaUserAttributes, MkaUserAttributes.user_id == User.id)
-            .where(UserOrganization.org_id == org_id)
-        )
-    ).all()
+def _tally(compiled: tuple, members: list) -> dict:
+    """CPU part of the count (pure, runs in a worker thread): fail-closed read + evaluation per member."""
     count = total_officeholders = unrecognized = 0
     by_level = {level: 0 for level in LEVELS}
     seen: set[int] = set()
@@ -161,11 +168,36 @@ async def count_audience(db: AsyncSession, org_id: int, rule: dict) -> dict:
             total_officeholders += 1
         if attrs.get("status") not in COUNTED_STATUSES:
             unrecognized += 1
-        if evaluate_validated(rule, attrs):
+        if evaluate_compiled(compiled, attrs):
             count += 1
             level = attrs.get("level")
             if attrs.get("status") in ("matched", "partial") and level in by_level:
                 by_level[level] += 1
+    return {"count": count, "total_officeholders": total_officeholders, "unrecognized": unrecognized, "by_level": by_level}
+
+
+def _tally_expected(compiled: tuple, rows: list) -> tuple[int, int]:
+    # People, not rows: a person may hold several roster rows (one per role) and counts once; they match if ANY row does.
+    people: dict[str, bool] = {}
+    for r in rows:
+        key = (r.email or "").strip().lower()
+        people[key] = people.get(key, False) or evaluate_compiled(compiled, _expected_viewer(r))
+    return sum(people.values()), len(people)
+
+
+async def count_audience(db: AsyncSession, org_id: int, rule: dict) -> dict:
+    """The ``AudienceCount`` body for an already VALIDATED rule. Aggregates only; every query is filtered by ``org_id``.
+    The per-member evaluation is CPU work: it runs in a worker thread so a big org never stalls the event loop."""
+    compiled = compile_rule(rule)
+    members = (
+        await db.execute(
+            select(User.id, User.email, MkaUserAttributes)
+            .join(UserOrganization, UserOrganization.user_id == User.id)
+            .outerjoin(MkaUserAttributes, MkaUserAttributes.user_id == User.id)
+            .where(UserOrganization.org_id == org_id)
+        )
+    ).all()
+    body = await run_in_threadpool(_tally, compiled, members)
 
     expected = None
     cycle = (
@@ -183,19 +215,18 @@ async def count_audience(db: AsyncSession, org_id: int, rule: dict) -> dict:
                 )
             )
         ).scalars().all()
-        # People, not rows: a person may hold several roster rows (one per role) and counts once; they match if ANY row does.
-        people: dict[str, bool] = {}
-        for r in rows:
-            key = (r.email or "").strip().lower()
-            people[key] = people.get(key, False) or evaluate_validated(rule, _expected_viewer(r))
-        expected = {"matching": sum(people.values()), "total": len(people), "cycle_id": cycle.id}
-    return {
-        "count": count, "total_officeholders": total_officeholders, "unrecognized": unrecognized,
-        "by_level": by_level, "expected": expected,
-    }
+        matching, total = await run_in_threadpool(_tally_expected, compiled, rows)
+        expected = {"matching": matching, "total": total, "cycle_id": cycle.id}
+    return {**body, "expected": expected}
 
 
 def parse_rule_or_422(raw: Any) -> dict:
+    try:
+        size = len(json.dumps(raw, separators=(",", ":"), ensure_ascii=False, allow_nan=False))
+    except (ValueError, TypeError, RecursionError):
+        raise HTTPException(status_code=422, detail="rule is not valid JSON")
+    if size > MAX_RULE_BYTES:
+        raise HTTPException(status_code=422, detail=f"rule is too large (more than {MAX_RULE_BYTES // 1024} KB)")
     ok, result = validate_rule(raw)
     if not ok:
         raise HTTPException(status_code=422, detail=result)

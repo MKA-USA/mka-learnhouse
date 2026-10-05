@@ -118,3 +118,63 @@ def test_evaluate_is_pure_and_repeatable():
     for _ in range(3):
         assert evaluate_rule(rule, VIEWERS["local_tabligh_albany"]) is True
     assert rule == snap
+
+
+# ---- performance: compiled rules scale with members, not with list length -----------------------------------------------------
+
+def _max_rule(entries=500):
+    """The biggest structurally valid rule: 20 groups x 5 list keys x 500 distinct 200-char entries (~ 20 MB: far beyond the route's cap).
+    Every list ends with the value the benchmark viewers carry (except majlis, which never matches), so a naive list scan has to walk
+    every list of every group for every viewer."""
+    pad = "x" * 190
+    tail = {"level": "local", "department": "tabligh", "role": "nazim_dept", "region": "Northeast", "majlis": "never-matches"}
+    return {"v": 1, "mode": "show", "groups": [
+        {k: [f"{pad}{g:02d}{k[:2]}{i:04d}"[-200:] for i in range(entries - 1)] + [tail[k]] for k in ("level", "department", "role", "region", "majlis")}
+        for g in range(20)
+    ]}
+
+
+def test_compiled_rule_evaluates_max_size_rule_over_5000_viewers_quickly():
+    import time
+
+    from src.services.mka.audience_eval import compile_rule, evaluate_compiled
+
+    ok, rule = validate_rule(_max_rule())
+    assert ok, rule
+    viewers = [{"status": "matched", "is_officeholder": True, "level": "local", "department": "tabligh", "role": "nazim_dept",
+                "role_title": "x", "majlis": f"Majlis {i}", "region": "Northeast"} for i in range(5000)]
+    start = time.perf_counter()
+    compiled = compile_rule(rule)
+    hits = sum(evaluate_compiled(compiled, v) for v in viewers)
+    elapsed = time.perf_counter() - start
+    assert hits == 0
+    assert elapsed < 1.0, f"{elapsed:.2f}s"
+
+
+def test_compiled_and_plain_evaluation_agree_on_every_vector():
+    from src.services.mka.audience_eval import compile_rule, evaluate_compiled
+
+    for case in VECTORS["evaluate"]:
+        ok, rule = validate_rule(case["rule"])
+        expected = case["expect"]
+        got = evaluate_compiled(compile_rule(rule), VIEWERS[case["viewer"]]) if ok else False
+        assert got is expected, case["name"]
+
+
+# ---- prototype-ish keys are ordinary unknown keys in Python ------------------------------------------------------------------
+
+@pytest.mark.parametrize("key", ["__proto__", "constructor", "prototype", "toString", "hasOwnProperty"])
+def test_prototype_keys_are_plain_unknown_group_keys(key):
+    local = VIEWERS["local_tabligh_albany"]
+    rule = {"v": 1, "mode": "show", "groups": [{"level": ["local"], key: ["x"]}]}
+    ok, norm = validate_rule(rule)
+    assert ok and key in norm["groups"][0]
+    assert evaluate_rule(rule, local) is False                                    # unknown key: group never matches
+    assert evaluate_rule({**rule, "mode": "hide"}, local) is True
+    assert evaluate_rule({"v": 1, "mode": "show", "groups": [{key: ["x"]}, {"level": ["local"]}]}, local) is True
+    assert evaluate_rule({"v": 1, "mode": "show", "groups": [{"level": ["local"]}], key: {"level": ["national"]}}, local) is True  # top level: ignored
+
+
+def test_safe_integer_version_bounds():
+    for v, expected in ((2**53 - 1, True), (2**53, False), (2**53 + 1, False), (float(2**53), False), (1, True)):
+        assert validate_rule({"v": v, "mode": "show", "groups": [{}]})[0] is expected, v

@@ -137,7 +137,15 @@ async def me(db, uid, course_uuid=None):
         (AUTHOR_GENERAL, "course_tabligh", False),
         (31, "course_tabligh", False),                # learner
         (LEARNER, "course_tabligh", False),
-        (ORG2_ADMIN, "course_tabligh", True),         # unchanged rule: admin of ANY org
+        (ORG2_ADMIN, "course_tabligh", False),        # a course that exists decides: admin of ANOTHER org is not elevated
+        (ORG2_ADMIN, "course_o2_general", True),      # ... but is in their own org's course
+        (ADMIN, "course_o2_general", False),
+        (ADMIN, "course_tabligh", True),
+        (MAINT, "course_tabligh", True),
+        (SUPER, "course_tabligh", True),
+        (SUPER, "course_o2_general", True),
+        (ORG2_ADMIN, None, True),                     # no course_uuid: legacy any-org rule, unchanged
+        (ORG2_ADMIN, "no_such_course", True),         # unknown course: legacy rule, unchanged (and no 404)
         (ADMIN, None, True),
         (MAINT, None, True),
         (SUPER, None, True),
@@ -748,3 +756,106 @@ async def test_count_expected_counts_distinct_people_not_rows(db, world):
     assert tab == {"matching": base["department"] + 1, "total": base["total"] + 1, "cycle_id": world.cycle.id}  # 12 rows, 11 people
     both = (await count(db, ADMIN, {"v": 1, "mode": "show", "groups": [{"department": ["tabligh"]}, {"department": ["maal"]}]})).json()["expected"]
     assert both["matching"] == 5 + 3 + 1 and both["total"] == 11  # l3, l4, ghost2 (maal) + the dual person once
+
+
+# ---------------------------------------------------------------------------------------------------------
+# review fixes
+# ---------------------------------------------------------------------------------------------------------
+
+CROSS = 80  # learner member of org 1 AND org 2, active CREATOR of the org-2 course
+
+
+async def make_cross_org_author(db, member_of_org2=True):
+    from src.db.resource_authors import ResourceAuthor, ResourceAuthorshipEnum, ResourceAuthorshipStatusEnum
+
+    await add_user(db, 1, CROSS, "cross.author@example.invalid")
+    if member_of_org2:
+        from src.db.user_organizations import UserOrganization
+
+        db.add(UserOrganization(user_id=CROSS, org_id=2, role_id=4, creation_date=str(datetime.now()), update_date=str(datetime.now())))
+    db.add(ResourceAuthor(resource_uuid="course_o2_general", user_id=CROSS, authorship=ResourceAuthorshipEnum.CREATOR,
+                          authorship_status=ResourceAuthorshipStatusEnum.ACTIVE, creation_date=str(datetime.now()), update_date=str(datetime.now())))
+    await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_count_author_of_a_course_in_another_org_cannot_count_for_their_member_org(db, world):
+    await make_cross_org_author(db)
+    r = await count(db, CROSS, LOCAL_RULE, org_id=1, course_uuid="course_o2_general")
+    assert r.status_code == 403
+    assert (await count(db, CROSS, LOCAL_RULE, org_id=2, course_uuid="course_o2_general")).status_code == 200  # the legit case
+
+
+@pytest.mark.asyncio
+async def test_me_author_branch_needs_membership_of_the_courses_org(db, world):
+    await make_cross_org_author(db, member_of_org2=False)
+    assert (await me(db, CROSS, "course_o2_general")).json()["can_view_all"] is False
+
+
+@pytest.mark.asyncio
+async def test_me_author_of_a_course_in_their_other_org_is_elevated_there_only(db, world):
+    await make_cross_org_author(db)
+    assert (await me(db, CROSS, "course_o2_general")).json()["can_view_all"] is True
+    assert (await me(db, CROSS, "course_tabligh")).json()["can_view_all"] is False
+    assert (await me(db, CROSS)).json()["can_view_all"] is False
+
+
+async def post_raw(db, uid, raw: bytes):
+    async with client_for(db, uid) as c:
+        return await c.post(f"{BASE}/audience/count", content=raw, headers={"content-type": "application/json"})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "raw",
+    [
+        b'{"org_id": NaN, "rule": {"v": 1, "mode": "show", "groups": [{}]}}',
+        b'{"org_id": Infinity, "rule": {"v": 1, "mode": "show", "groups": [{}]}}',
+        b'{"org_id": -Infinity, "rule": {"v": 1, "mode": "show", "groups": [{}]}}',
+        b'{"org_id": 1, "rule": {"v": NaN, "mode": "show", "groups": [{}]}}',
+        b'{"org_id": 1, "rule": {"v": 1, "mode": "show", "groups": [{"gender": [NaN]}]}}',
+        b'{"org_id": 1, "rule": {"v": 1, "mode": "show", "groups": [{}], "label": Infinity}}',
+        b'{"org_id": 1, "course_uuid": NaN, "rule": {"v": 1, "mode": "show", "groups": [{}]}}',
+    ],
+)
+async def test_count_nan_and_infinity_anywhere_is_a_clean_422(db, world, raw):
+    r = await post_raw(db, ADMIN, raw)
+    assert r.status_code == 422, (r.status_code, r.text[:200])
+    assert "NaN" not in r.text and "Infinity" not in r.text
+    assert r.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_count_rule_larger_than_64kb_is_422_and_just_under_is_fine(db, world):
+    def rule_of(n):
+        return {"v": 1, "mode": "show", "groups": [{"majlis": [f"{i:04d}" + "m" * 156 for i in range(n)]}]}  # 160 chars + JSON overhead per entry
+
+    small = rule_of(380)   # ~ 62 KB
+    big = rule_of(420)     # ~ 68 KB, still structurally valid
+    assert 60_000 < len(json.dumps(small, separators=(",", ":"))) < 65_536 < len(json.dumps(big, separators=(",", ":")))
+    assert (await count(db, ADMIN, small)).status_code == 200
+    r = await count(db, ADMIN, big)
+    assert r.status_code == 422 and "too large" in r.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_count_body_larger_than_128kb_is_refused_before_parsing(db, world):
+    r = await post_raw(db, ADMIN, b'{"org_id": 1, "rule": ' + b'"' + b"x" * 200_000 + b'"}')
+    assert r.status_code == 422 and "too large" in r.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_count_cpu_work_runs_off_the_event_loop(db, world, monkeypatch):
+    import threading
+
+    seen = []
+    real = audience_svc._tally
+
+    def spy(compiled, members):
+        seen.append(threading.current_thread() is threading.main_thread())
+        return real(compiled, members)
+
+    monkeypatch.setattr(audience_svc, "_tally", spy)
+    r = await count(db, ADMIN, LOCAL_RULE)
+    assert r.status_code == 200 and r.json()["count"] == 5
+    assert seen == [False]

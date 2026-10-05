@@ -16,6 +16,7 @@ from __future__ import annotations
 from typing import Any
 
 SUPPORTED_VERSION = 1
+MAX_SAFE_INTEGER = 2**53 - 1  # JS Number.isSafeInteger bound: the TS twin cannot represent more
 MAX_GROUPS = 20
 MAX_LIST = 500
 MAX_STRING = 200
@@ -47,8 +48,8 @@ def validate_rule(raw: Any) -> tuple[bool, Any]:
     if not isinstance(raw, dict):
         return False, "rule must be an object"
     v = raw.get("v")
-    if not _is_int(v) or v < 1:
-        return False, "v must be an integer >= 1"
+    if not _is_int(v) or v < 1 or v > MAX_SAFE_INTEGER:
+        return False, f"v must be an integer between 1 and {MAX_SAFE_INTEGER}"
     mode = raw.get("mode")
     if not isinstance(mode, str) or mode not in MODES:
         return False, "mode must be 'show' or 'hide'"
@@ -111,30 +112,46 @@ def effective_viewer(viewer: Any) -> dict:
     return out
 
 
-def _group_matches(g: dict, v: dict) -> bool:
-    for key in g:
-        if key not in KNOWN_GROUP_KEYS:
-            return False
-    if g.get("officeholder", True):
+def compile_rule(rule: dict) -> tuple:
+    """Pre-process an ALREADY validated rule for repeated evaluation: lists become frozensets (O(1) membership).
+
+    Semantics are identical to evaluating the plain rule: a group with an unknown key is compiled to ``None`` (never matches).
+    """
+    groups: list = []
+    for g in rule["groups"]:
+        if any(key not in KNOWN_GROUP_KEYS for key in g):
+            groups.append(None)
+            continue
+        groups.append((bool(g.get("officeholder", True)), tuple((k, frozenset(g[k])) for k in LIST_KEYS if k in g)))
+    return rule["v"], rule["mode"], tuple(groups)
+
+
+def _compiled_group_matches(group: tuple, v: dict) -> bool:
+    holder_required, lists = group
+    if holder_required:
         if v["is_officeholder"] is not True:
             return False
     elif not v["signed_in"]:
         return False
-    for key in LIST_KEYS:
-        if key in g:
-            val = v[key]
-            if val is None or val not in g[key]:
-                return False
+    for key, allowed in lists:
+        val = v[key]
+        if not isinstance(val, str) or val not in allowed:  # list entries are strings: anything else can never match
+            return False
     return True
 
 
-def evaluate_validated(rule: dict, viewer: Any) -> bool:
-    """Evaluate an ALREADY validated + normalised rule (the count loop validates once, not per member)."""
-    if rule["v"] > SUPPORTED_VERSION:
+def evaluate_compiled(compiled: tuple, viewer: Any) -> bool:
+    version, mode, groups = compiled
+    if version > SUPPORTED_VERSION:
         return False
     v = effective_viewer(viewer)
-    any_match = any(_group_matches(g, v) for g in rule["groups"])
-    return any_match if rule["mode"] == "show" else not any_match
+    any_match = any(g is not None and _compiled_group_matches(g, v) for g in groups)
+    return any_match if mode == "show" else not any_match
+
+
+def evaluate_validated(rule: dict, viewer: Any) -> bool:
+    """Evaluate an ALREADY validated + normalised rule. For many viewers, ``compile_rule`` once and use ``evaluate_compiled``."""
+    return evaluate_compiled(compile_rule(rule), viewer)
 
 
 def evaluate_rule(raw: Any, viewer: Any) -> bool:
