@@ -650,4 +650,6 @@ diff --git a/apps/web/components/Auth/TurnstileWidget.tsx b/apps/web/components/
 ```
 (`delete_profile`, called by upstream `anonymize_user`, now also deletes attribute/audit/roster rows: the change is inside the fork file `services/users/mka_profile.py`, no upstream edit.)
 
-- **Not touched**: `cli.py` (backfill is `python -m src.services.mka.backfill`), `MKA_GOOGLE_ONLY_DOMAINS` / any SSO restriction.
+- **Fork-owned file changed (no upstream edit)**: `apps/api/src/services/auth/mka_google_only.py` (fork, added in 4ca921bd) now records the verified `hd` of every Google login in a request-scoped ContextVar (`take_verified_hd`), set inside the existing `require_workspace_hd` call that upstream `signWithGoogle` already makes. The attribute login hook uses it as proof of Workspace ownership (per address). Behaviour of `require_workspace_hd` (accept/reject) is unchanged.
+- **Not touched**: `cli.py` (backfill is `python -m src.services.mka.backfill`), `MKA_GOOGLE_ONLY_DOMAINS` / any SSO setting.
+- Re-apply test command also includes `src/tests/routers/test_mka_attributes_review_fixes.py`.
