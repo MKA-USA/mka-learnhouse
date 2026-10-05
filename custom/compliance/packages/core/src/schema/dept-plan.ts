@@ -1,4 +1,4 @@
-import { pgTable, serial, integer, text, timestamp, boolean, unique } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, text, timestamp, boolean, jsonb, unique } from "drizzle-orm/pg-core";
 import { cycle } from "./cycle";
 import { department } from "./department";
 
@@ -13,6 +13,12 @@ export const deptPlan = pgTable(
     responsibilitiesMd: text("responsibilities_md").notNull().default(""),
     okrsMd: text("okrs_md").notNull().default(""),
     resourcesMd: text("resources_md").notNull().default(""),
+    /** ProseMirror docs derived from the md/HTML source; the renderer reads these. */
+    responsibilitiesDoc: jsonb("responsibilities_doc").$type<Record<string, unknown> | null>(),
+    okrsDoc: jsonb("okrs_doc").$type<Record<string, unknown> | null>(),
+    resourcesDoc: jsonb("resources_doc").$type<Record<string, unknown> | null>(),
+    /** e.g. 'csv', 'thinkific-2025-26' */
+    source: text("source").notNull().default("csv"),
     /** true when carried over from a previous cycle and not yet refreshed */
     stale: boolean("stale").notNull().default(false),
     updatedBy: text("updated_by"),

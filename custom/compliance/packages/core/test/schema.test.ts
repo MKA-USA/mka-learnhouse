@@ -24,12 +24,12 @@ describe("department seed", () => {
 
 describe("schema idempotency keys", () => {
   const uniques = (t: Parameters<typeof getTableConfig>[0]) => getTableConfig(t).uniqueConstraints.map((u) => u.columns.map((c) => c.name));
-  test("person_role", () => expect(uniques(s.personRole)).toContainEqual(["cycle_id", "role", "department_slug", "level", "region", "majlis"]));
+  test("person_role", () => expect(uniques(s.personRole)).toContainEqual(["cycle_id", "role", "department_slug", "level", "slot", "region", "majlis"]));
   test("dept_plan", () => expect(uniques(s.deptPlan)).toContainEqual(["cycle_id", "department_slug", "level"]));
   test("course_map", () => expect(uniques(s.courseMap)).toContainEqual(["cycle_id", "kind", "department_slug"]));
   test("idmap", () => expect(uniques(s.idmap)).toContainEqual(["source_system", "source_kind", "source_id"]));
   test("enrollment_log", () => expect(uniques(s.enrollmentLog)).toContainEqual(["cycle_id", "lh_course_uuid", "learner_email"]));
-  test("directory_override", () => expect(uniques(s.directoryOverride)).toContainEqual(["cycle_id", "department_slug", "level", "region", "majlis"]));
+  test("directory_override", () => expect(uniques(s.directoryOverride)).toContainEqual(["cycle_id", "department_slug", "level", "role", "region", "majlis"]));
   test("cycle label unique", () => expect(getTableConfig(s.cycle).columns.find((c) => c.name === "label")?.isUnique).toBe(true));
   test("no analytics tables here", () => expect(Object.keys(s)).not.toContain("progressSnapshot"));
 });

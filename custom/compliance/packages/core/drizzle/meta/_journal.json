@@ -15,6 +15,20 @@
       "when": 1791167297365,
       "tag": "0001_material_wiccan",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791167368465,
+      "tag": "0002_high_luckman",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1791167616945,
+      "tag": "0003_outgoing_lake",
+      "breakpoints": true
     }
   ]
 }

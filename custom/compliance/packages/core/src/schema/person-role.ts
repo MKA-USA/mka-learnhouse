@@ -15,6 +15,8 @@ export const personRole = pgTable(
     departmentSlug: text("department_slug").notNull().default(""),
     /** nazim_dept | mohtamim | motamid | qaid | naib_qaid | regional_qaid | nazim_atfal | murabbi_atfal | sadr | national_staff */
     role: text("role").notNull().default("nazim_dept"),
+    /** disambiguator for roles that repeat at one scope (national staff: legal, events, ...). */
+    slot: text("slot").notNull().default(""),
     level: text("level").notNull(),
     region: text("region").notNull().default(""),
     majlis: text("majlis").notNull().default(""),
@@ -27,7 +29,7 @@ export const personRole = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    unique("person_role_key").on(t.cycleId, t.role, t.departmentSlug, t.level, t.region, t.majlis),
+    unique("person_role_key").on(t.cycleId, t.role, t.departmentSlug, t.level, t.slot, t.region, t.majlis),
     index("person_role_email_idx").on(t.cycleId, t.learnerEmail),
   ],
 );

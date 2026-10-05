@@ -7,10 +7,10 @@ import type { RosterRow } from "./generate";
 export async function upsertRoster(db: PostgresJsDatabase<any>, cycleId: number, rows: RosterRow[]): Promise<number> {
   for (let i = 0; i < rows.length; i += 500) {
     await db.insert(personRole).values(rows.slice(i, i + 500).map((r) => ({
-      cycleId, departmentSlug: r.departmentSlug, role: r.role, level: r.level, region: r.region, majlis: r.majlis,
+      cycleId, departmentSlug: r.departmentSlug, role: r.role, slot: r.slot ?? "", level: r.level, region: r.region, majlis: r.majlis,
       roleTitle: r.roleTitle, learnerEmail: r.learnerEmail, personName: r.personName ?? null, source: r.source,
     }))).onConflictDoUpdate({
-      target: [personRole.cycleId, personRole.role, personRole.departmentSlug, personRole.level, personRole.region, personRole.majlis],
+      target: [personRole.cycleId, personRole.role, personRole.departmentSlug, personRole.level, personRole.slot, personRole.region, personRole.majlis],
       set: { roleTitle: sql`excluded.role_title`, learnerEmail: sql`excluded.learner_email`,
         personName: sql`coalesce(excluded.person_name, person_role.person_name)`, updatedAt: sql`now()` },
       setWhere: sql`${personRole.source} = 'formula'`,

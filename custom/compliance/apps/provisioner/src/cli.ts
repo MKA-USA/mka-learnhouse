@@ -1,12 +1,20 @@
 #!/usr/bin/env bun
-// Provisioner CLI skeleton (milestone 0). Subcommands arrive with the importer/generator work order.
-import { DEPARTMENTS } from "@mka/compliance-core";
+import { parseArgs } from "./args";
+import { cmdGapReport, cmdImport, cmdRoster, cmdSeedThinkific } from "./commands-data";
 
-const cmd = process.argv[2];
-switch (cmd) {
-  case "departments":
-    for (const d of DEPARTMENTS) console.log(`${d.slug}\t${d.name}\t${d.translation}\t${d.mailboxPrefix}`);
-    break;
-  default:
-    console.log("usage: provisioner <departments>\n(planned: import, validate, render, provision, enroll; probe via `bun run probe`)");
-}
+const a = parseArgs(process.argv.slice(2));
+const cmd = a.pos[0];
+const USAGE = `provisioner <command>
+  roster [--cycle 2026-27]                      generate roster from the email formula (idempotent)
+  import <dept-plans|overrides|names> <csv> [--cycle]
+  seed-thinkific [--dir <data>]                 seed stale 2025-26 plans from the Thinkific export
+  gap-report [--cycle] [--data <dir>] [--carry-over 2025-26]`;
+try {
+  switch (cmd) {
+    case "roster": await cmdRoster(a); break;
+    case "import": await cmdImport(a); break;
+    case "seed-thinkific": await cmdSeedThinkific(a); break;
+    case "gap-report": await cmdGapReport(a); break;
+    default: console.log(USAGE);
+  }
+} catch (e) { console.error((e as Error).message); process.exit(1); }
