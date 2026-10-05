@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from typing import Any, Iterable, Optional
 
 from sqlalchemy import and_, delete, func, or_, update
@@ -378,7 +379,7 @@ async def refresh_attributes(
     row = await get_row(db, user.id)
     proven = bool(domain) and (
         (proof_hd or "").strip().lower() == domain
-        or (row is not None and (row.verified_hd or "") == domain)
+        or (row is not None and (row.verified_hd or "") == domain and row.email_seen == email)  # proof is per ADDRESS
         or (user.signup_method == "google" and is_google_only_email(email))
     )
     if not proven and user.signup_method != "google" and (proof_hd is None):
@@ -429,58 +430,45 @@ async def refresh_attributes(
     return row, derived_changed or eff_changed or proof_changed
 
 
-async def _safe_rollback(db_session: AsyncSession, user: User) -> None:
-    """Roll back, then reload ``user``: a rollback expires the caller's instance and the
-    session minting that follows would otherwise raise MissingGreenlet (login 500)."""
-    try:
-        await db_session.rollback()
-    except Exception:  # noqa: BLE001
-        logger.exception("MKA hook: rollback failed (ignored)")
-    try:
-        await db_session.refresh(user)
-    except Exception:  # noqa: BLE001
-        logger.exception("MKA hook: user refresh failed (ignored)")
-
-
-async def _mark_stale(db_session: AsyncSession, user: User) -> None:
-    """Best effort, separate from the failed work. Never raises."""
-    try:
-        uid = user.id
-        await db_session.execute(
-            update(MkaUserAttributes).where(MkaUserAttributes.user_id == uid).values(stale=True)  # type: ignore[arg-type]
-        )
-        await db_session.commit()
-    except Exception:  # noqa: BLE001
-        logger.exception("MKA attribute stale-mark failed (ignored)")
-        await _safe_rollback(db_session, user)
+def _new_session(db_session: AsyncSession) -> AsyncSession:
+    """A SEPARATE session on the same engine: the hook never commits, rolls back or reloads
+    the caller's session, so no failure here can touch the login path."""
+    return AsyncSession(bind=db_session.bind, expire_on_commit=False)
 
 
 async def mka_refresh_on_login(db_session: AsyncSession, user: User, amr: Optional[str]) -> None:
-    """Login hook (spec A2/A5). Google sign-ins only; FAIL-OPEN: nothing here may
-    ever block or break a login. The work runs in a SAVEPOINT; if the final commit fails
-    the session is rolled back AND ``user`` reloaded so the caller keeps a usable user.
-    The Workspace ``hd`` proof of this very login is read from the fork's request-scoped
-    record (set by ``require_workspace_hd`` in the Google path)."""
+    """Login hook (spec A2/A5). Google sign-ins only; FULLY FAIL-OPEN: never raises, and never
+    touches the caller's session (own session; ``user`` is read through a plain snapshot taken
+    before any I/O). On failure the existing row is marked stale (reads fail closed).
+    The Workspace ``hd`` proof of this very login is read from the request-scoped record set
+    by ``require_workspace_hd`` in the Google path."""
     if amr != AUTH_METHOD_GOOGLE:
         return
     try:
-        proof = take_verified_hd(user.email)
-        # SAVEPOINT: a failure rolls back only our work (no session.rollback() here).
-        async with db_session.begin_nested():
-            await refresh_attributes(db_session, user, action="derive", proof_hd=proof)
-    except IntegrityError:
-        # Concurrent first login inserted the row: theirs is fresh; do not mark it stale.
-        logger.info("MKA attribute refresh lost an insert race on login (ignored)")
-        return
-    except Exception:  # noqa: BLE001 - fail-open for LOGIN by design
-        logger.exception("MKA attribute refresh failed on login (ignored)")
-        await _mark_stale(db_session, user)  # ...but reads fail closed until a refresh succeeds
+        snap = SimpleNamespace(id=user.id, email=user.email, signup_method=user.signup_method)
+        proof = take_verified_hd(snap.email)
+    except Exception:  # noqa: BLE001
+        logger.exception("MKA hook: could not read the user (ignored)")
         return
     try:
-        await db_session.commit()
+        async with _new_session(db_session) as s:
+            try:
+                await refresh_attributes(s, snap, action="derive", proof_hd=proof)  # type: ignore[arg-type]
+                await s.commit()
+                return
+            except IntegrityError:
+                await s.rollback()
+                logger.info("MKA attribute refresh lost an insert race on login (ignored)")
+                return
+            except Exception:  # noqa: BLE001 - fail-open for LOGIN by design
+                logger.exception("MKA attribute refresh failed on login (ignored)")
+                await s.rollback()
+                await s.execute(
+                    update(MkaUserAttributes).where(MkaUserAttributes.user_id == snap.id).values(stale=True)  # type: ignore[arg-type]
+                )
+                await s.commit()  # best effort: reads fail closed until a refresh succeeds
     except Exception:  # noqa: BLE001
-        logger.exception("MKA attribute commit failed on login (ignored)")
-        await _safe_rollback(db_session, user)
+        logger.exception("MKA attribute stale-mark failed (ignored)")
 
 
 async def recompute_users(
@@ -752,10 +740,17 @@ LIST_FILTERS = {
 MAX_PAGE_SIZE = 200
 
 
-def _admin_view(user: User, row: MkaUserAttributes, redact: bool = False) -> dict:
+def _admin_view(user: User, row: MkaUserAttributes, redact: bool = False, token_view: bool = False) -> dict:
     """``redact`` hides override content/reasons/actors: used for API tokens and for users
     shared with other orgs (another org's admin notes are not this org's business)."""
     _read = read_effective_from_row(row, user)
+    if token_view:
+        # API tokens (companion service) get ONLY the fail-closed effective value: no raw cache,
+        # derived value or override metadata.
+        return {
+            "user_id": user.id, "user_uuid": user.user_uuid, "email": user.email,
+            "effective": _read[0], "stale": _read[1], "rules_version": row.rules_version,
+        }
     return {
         "user_id": user.id,
         "user_uuid": user.user_uuid,
@@ -790,6 +785,7 @@ async def list_attributes(
     page: int = 1,
     page_size: int = 50,
     redact: bool = False,
+    token_view: bool = False,
 ) -> dict:
     """Org-scoped, filtered, paginated list (effective + derived + override).
 
@@ -874,7 +870,7 @@ async def list_attributes(
             )).scalars().all()
         )
     return {
-        "items": [_admin_view(u, a, redact or u.id in shared) for u, a in rows],
+        "items": [_admin_view(u, a, redact or u.id in shared, token_view) for u, a in rows],
         "total": total,
         "page": page,
         "page_size": page_size,

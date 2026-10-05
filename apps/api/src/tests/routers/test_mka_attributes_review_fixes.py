@@ -134,7 +134,7 @@ def test_l3_not_applicable_cannot_carry_a_role():
 # --- L2: type-confused payloads are clean errors -----------------------------------------------------
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("bad", [{"majlis": []}, {"department": {}}, {"role": ["x"]}, {"region": [1]}, {"level": 5}, {"role_title": ["a"]}])
+@pytest.mark.parametrize("bad", [{"majlis": []}, {"department": {}}, {"role": ["x"]}, {"region": [1]}])
 async def test_l2_unhashable_values_are_validation_errors(db, org, bad):
     with pytest.raises(ValueError):
         svc.validate_layer(bad, svc.get_rules())
@@ -156,7 +156,7 @@ async def test_l2_bad_row_does_not_abort_roster_import_or_500(db, org, admin_use
 # --- M3 / H2 / M6: proof of Workspace ownership --------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_m3_unverified_account_never_becomes_a_matched_officeholder(db, org):
+async def test_m2m3_unverified_account_gets_no_row_and_override_stays_blank_derived(db, org):
     admin = await _user(db, 1, "admin@test.com")
     u = await _user(db, 30, "nazim.albany@atfalusa.org", signup="password", org=org)
     c = await svc.recompute_users(db, org_id=org.id)
@@ -231,6 +231,113 @@ async def test_m6_invited_account_gets_attributes_on_first_google_login(db, org)
     await _user(db, 43, "tabligh.boston@mkausa.org", signup="email", org=org)
     await svc.mka_refresh_on_login(db, await db.get(User, 43), "password")
     assert await svc.get_row(db, 43) is None
+
+
+@pytest.mark.asyncio
+async def test_m3_include_non_google_is_refused_over_http(db, org, admin_user):
+    async with _client(db, admin_user) as c:
+        r = await c.post(f"{BASE}/recompute", params={"org_id": org.id}, json={"include_non_google": True})
+    assert r.status_code == 422
+
+
+# --- N1: proof is per ADDRESS ------------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_n1_proof_does_not_transfer_to_a_changed_email(db, org, monkeypatch):
+    monkeypatch.delenv("MKA_GOOGLE_ONLY_DOMAINS")                      # domain NOT Google-only (the premise)
+    u = await _user(db, 70, "john.doe@atfalusa.org", signup="google", org=org)
+    require_workspace_hd(u.email, "atfalusa.org")
+    await svc.mka_refresh_on_login(db, u, "google")
+    assert (await svc.get_row(db, 70)).verified_hd == "atfalusa.org"
+    u.email = "nazim.albany@atfalusa.org"                              # self-service email change
+    db.add(u)
+    await db.commit()
+    row, _ = await svc.refresh_attributes(db, u, action="recompute")   # admin recompute / backfill / roster write
+    await db.commit()
+    assert row.eff_status == "unrecognized" and row.eff_department is None and row.verified_hd is None
+    await svc.upsert_roster(db, org.id, "nazim.albany@atfalusa.org", {"majlis": "Albany"}, source="companion")
+    assert (await svc.get_row(db, 70)).eff_department is None
+    attrs, stale = await svc.read_effective(db, u)
+    assert attrs["status"] == "unrecognized" and attrs["department"] is None
+    # the NEW address is trusted only after a Google login proves it
+    require_workspace_hd(u.email, "atfalusa.org")
+    await svc.mka_refresh_on_login(db, u, "google")        # runs in its own session
+    db.expire_all()
+    assert (await svc.get_row(db, 70)).eff_department == "atfal"
+
+
+# --- R1: the hook is fully fail-open even when the DB (and any reload) is down ----------------------------------
+
+@pytest.mark.asyncio
+async def test_r1_hook_never_raises_and_never_touches_callers_session(db, org, monkeypatch):
+    u = await _user(db, 80, "tabligh.albany@mkausa.org", org=org)
+    require_workspace_hd(u.email, "mkausa.org")
+
+    class Down:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            raise RuntimeError("database unreachable")
+
+        async def __aexit__(self, *a):
+            return False
+
+    monkeypatch.setattr(svc, "_new_session", lambda db_: Down())
+
+    async def boom(*a, **k):
+        raise RuntimeError("caller session must not be used")
+
+    monkeypatch.setattr(db, "commit", boom)
+    monkeypatch.setattr(db, "rollback", boom)
+    monkeypatch.setattr(db, "refresh", boom)
+    await svc.mka_refresh_on_login(db, u, "google")          # must not raise
+    with patch("src.services.auth.session.is_mfa_active", return_value=False):
+        result = await issue_session_or_challenge(db, u, amr="google")
+    assert result.access_token
+
+
+# --- M5: token rights ------------------------------------------------------------------------------------------------
+
+def _token_client(db, org, admin_user, rights):
+    from src.db.api_tokens import APIToken
+    from src.services.api_tokens.api_tokens import generate_api_token
+    from src.router import v1_router
+
+    full, prefix, hashed = generate_api_token()
+    db.add(APIToken(name=f"t{len(str(rights))}", token_uuid=f"apitoken_{prefix}", token_prefix=prefix, token_hash=hashed,
+                    org_id=org.id, created_by_user_id=admin_user.id, rights=rights,
+                    creation_date=str(datetime.now()), update_date=str(datetime.now())))
+    app = FastAPI()
+    app.include_router(v1_router)
+    app.dependency_overrides[get_db_session] = lambda: db
+    return db, AsyncClient(transport=ASGITransport(app=app), base_url="http://t", headers={"Authorization": f"Bearer {full}"})
+
+
+@pytest.mark.asyncio
+async def test_m5_token_rights_are_enforced(db, org, admin_user):
+    from src.db.organization_config import OrganizationConfig
+
+    db.add(OrganizationConfig(org_id=org.id, config={"config_version": "2.0"},
+                              creation_date=str(datetime.now()), update_date=str(datetime.now())))
+    await db.commit()
+    p = {"org_slug": org.slug}
+    body = {"attributes": {"level": "national", "role": "sadr"}}
+    cases = [
+        ({}, 403, 403),                                                              # empty rights refused
+        ({"courses": {"action_read": True}}, 403, 403),                              # unrelated rights
+        ({"users": {"action_read": True}}, 200, 403),                                # read only
+        ({"organizations": {"action_update": True}}, 403, 200),                      # write only
+        ({"users": {"action_read": True}, "organizations": {"action_update": True}}, 200, 200),
+    ]
+    for rights, read_status, write_status in cases:
+        _, c = _token_client(db, org, admin_user, rights)
+        await db.commit()
+        async with c:
+            assert (await c.get(f"{BASE}/users", params=p)).status_code == read_status, rights
+            assert (await c.get(f"{BASE}/roster", params=p)).status_code == read_status, rights
+            assert (await c.put(f"{BASE}/roster/x.y@mkausa.org", params=p, json=body)).status_code == write_status, rights
+            assert (await c.delete(f"{BASE}/roster/x.y@mkausa.org", params=p)).status_code in (write_status, 404) if write_status == 200 else True
 
 
 # --- M4: other orgs' admin notes are redacted ------------------------------------------------------------

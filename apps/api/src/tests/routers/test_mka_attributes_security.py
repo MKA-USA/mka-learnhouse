@@ -202,7 +202,7 @@ async def _roster_rows(db):
 async def token_a(db, org, other_org, admin_user):
     full, prefix, hashed = generate_api_token()
     db.add(APIToken(name="a", token_uuid="apitoken_a", token_prefix=prefix, token_hash=hashed, org_id=org.id,
-                    created_by_user_id=admin_user.id, rights={},
+                    created_by_user_id=admin_user.id, rights={"users": {"action_read": True}, "organizations": {"action_update": True}},
                     creation_date=str(datetime.now()), update_date=str(datetime.now())))
     await db.commit()
     from src.router import v1_router

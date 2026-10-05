@@ -64,7 +64,7 @@ def _app(db):
 async def token_client(db, org, admin_user, seeded):
     full, prefix, hashed = generate_api_token()
     db.add(APIToken(name="companion", token_uuid="apitoken_x", token_prefix=prefix, token_hash=hashed,
-                    org_id=org.id, created_by_user_id=admin_user.id, rights={},
+                    org_id=org.id, created_by_user_id=admin_user.id, rights={"users": {"action_read": True}, "organizations": {"action_update": True}},
                     creation_date=str(datetime.now()), update_date=str(datetime.now())))
     await db.commit()
     app = _app(db)  # no auth override: real get_current_user + real token validation
@@ -89,7 +89,7 @@ async def test_token_can_list_with_filters(token_client, org):
     assert r.status_code == 200, r.text
     assert r.json()["total"] == 8
     item = r.json()["items"][0]
-    assert {"user_id", "email", "effective", "derived", "override"} <= set(item)
+    assert set(item) == {"user_id", "user_uuid", "email", "effective", "stale", "rules_version"}   # tokens: effective only
 
     async def q(**p):
         resp = await token_client.get(f"{BASE}/users", params={"org_slug": org.slug, **p})
@@ -154,9 +154,8 @@ async def test_token_roster_upsert_import_delete_then_list(token_client, org, db
         return (await token_client.get(f"{BASE}/users", params={**p, "q": "john.smith"})).json()["items"][0]
 
     got = await one()
-    assert got["effective"]["role"] == "naib_sadr" and got["derived"]["status"] == "unrecognized"
-    assert got["stored_effective"]["source"] == "roster"
-    assert got["redacted"] is True and got["override_reason"] is None     # tokens never see admin notes
+    assert got["effective"]["role"] == "naib_sadr"
+    assert not ({"derived", "stored_effective", "override", "override_reason", "override_by"} & set(got))
     audit = await svc.list_audit(db, 14)
     assert audit[0]["action"] == "roster_apply" and audit[0]["actor_user_id"] is None
 

@@ -4,6 +4,9 @@ Revision ID: mka_20261004_user_attributes
 Revises: mka_20261004_user_profile
 Create Date: 2026-10-04
 
+NOTE: this revision has never been deployed anywhere, so columns added during development
+(`stale`, `verified_hd`, roster `org_id`) were edited in place rather than via a follow-up revision.
+
 Idempotent on purpose (same reason as mka_20261004_user_profile): the API
 bootstraps missing tables and the indexes in the models' ``__table_args__`` with
 ``SQLModel.metadata.create_all`` at startup, so ``alembic upgrade head`` may find
