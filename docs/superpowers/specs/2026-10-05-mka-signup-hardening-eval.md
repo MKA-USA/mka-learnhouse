@@ -27,11 +27,11 @@ upstream's.
   rate-limit bucket.
 - Fix: outside SaaS the signup route calls the API on loopback
   (`LEARNHOUSE_INTERNAL_API_URL`, else `http://127.0.0.1:${LEARNHOUSE_PORT:-9000}/api/v1/`)
-  and forwards the incoming `X-Forwarded-For` / `X-Real-IP` verbatim. If the
-  loopback call fails while ESTABLISHING the connection (ECONNREFUSED,
-  ENOTFOUND, EAI_AGAIN, EHOSTUNREACH, ENETUNREACH, EADDRNOTAVAIL, undici connect
-  timeout) it falls back ONCE to the public URL. HTTP responses of any status,
-  resets and timeouts are never retried (the API may have received the body).
+  and forwards the incoming `X-Forwarded-For` / `X-Real-IP` verbatim. There is
+  NO fallback to the public URL (it would silently reintroduce the shared
+  edge-IP bucket; a refused loopback means the API is down): a failed loopback
+  call gets the route's existing 502 "Could not reach the signup service", and
+  a request is never sent twice.
 - Host header: Node fetch ignores a `Host` override (tested), so on loopback
   the API sees `Host: 127.0.0.1:9000`. The create-user path does not use Host
   for routing or auth (no TrustedHost middleware; CSRF checks Origin/Referer,
@@ -66,12 +66,14 @@ A Turnstile token is single-use (a second siteverify returns
 
 Exempt, validated identities only (from upstream `get_current_user`; garbage
 bearer JWTs/cookies yield AnonymousUser, garbage `lh_` tokens 401):
-- API-token callers (`APITokenUser`, `SuperadminAPITokenUser`);
-- superadmins (DB lookup);
-- an ADMIN (role 1) of the target org on `/users/{org_id}` and
-  `/users/{org_id}/invite/{code}` (org taken from the path only).
+- superadmin API tokens (`SuperadminAPITokenUser`) and superadmin sessions (DB
+  lookup), on every route;
+- on `/users/{org_id}` and `/users/{org_id}/invite/{code}` only (org taken
+  from the path, never a query parameter): an org-scoped API token whose
+  `org_id` equals the path org, and a session of an ADMIN (role 1) of that org.
 
-`POST /users/` (org-less account) exempts superadmins only: an org-less account
+`POST /users/` (org-less account) exempts superadmins only (an org-scoped
+token has no org in the path to be checked against): an org-less account
 belongs to no org, so being admin of some org confers no authority over it, and
 on a multi-org instance "admin of any org" would be a self-service exemption.
 Everyone else (anonymous, members, maintainers, admins of another org) gets
@@ -86,7 +88,7 @@ reset endpoints. Not small; left documented. Backend limiters exist (login
 
 ## G3 design: configurable signup limiter
 
-- Fork wrapper over upstream `check_rate_limit` (Redis key `rate_limit:signup:{ip}`).
+- Fork wrapper over upstream `check_rate_limit` (Redis key `rate_limit:signup:<bucket>`; bucket = IPv4 address or IPv6 /64, e.g. `rate_limit:signup:2a00:1450:4001:81a::/64`).
 - `MKA_SIGNUP_RATE_LIMIT_PER_HOUR`, default `60`; `0` disables; invalid -> default.
 - Runs AFTER Turnstile: only requests that passed Turnstile (or when Turnstile
   is not enforced) consume the bucket, so tokenless garbage cannot lock members
@@ -110,16 +112,22 @@ reset endpoints. Not small; left documented. Backend limiters exist (login
   rotating it would mint a fresh bucket per request. The loopback Next -> API
   hop forwards the same header verbatim, so it does not change this.
 - Fork fix (guard only; upstream `get_client_ip` and the login limiter are
-  unchanged): `mka_client_ip` takes the RIGHT-MOST globally routable XFF entry
-  when the direct peer is loopback/private. Entries on the right are appended
-  by the proxy chain, so a client cannot choose them. Private entries (proxy
-  hops) are skipped; with no global entry, or an empty/unknown IP, the limiter
-  is skipped and never creates a key. A public direct peer is used as-is.
-- Residual: if a CDN (e.g. Cloudflare proxy) sits in front of Traefik, the
-  right-most global entry is the CDN edge, not the member, so buckets become
-  per-edge (coarser, never spoofable). Because only Turnstile-passing requests
-  count, filling a bucket costs solved challenges. If that is the topology,
-  raise `MKA_SIGNUP_RATE_LIMIT_PER_HOUR` or set `0`.
+  unchanged): `mka_client_ip`, when the direct peer is a local proxy, joins ALL
+  `X-Forwarded-For` header lines and walks them from the RIGHT, skipping only
+  proxy hops (loopback/private/link-local = our own infrastructure). The FIRST
+  entry that is not a proxy hop IS the client; if it is unparseable or not a
+  globally routable unicast address (e.g. CGNAT `100.64.0.0/10`, multicast),
+  the result is `unknown` and the walk never continues left into
+  client-controlled entries. Oversized headers (> 4096 chars) give `unknown`.
+  A public direct peer is used as-is. `unknown` skips the limiter: no key is
+  ever created for an empty/unknown/non-global IP.
+- Canonicalization before keying: `%zone` ids stripped, IPv4-mapped IPv6
+  unwrapped (`::ffff:1.2.3.4` and `1.2.3.4` share a bucket), IPv6 keyed on its
+  /64 so one client cannot mint a bucket per address in its prefix.
+- The MKA domains are NOT behind Cloudflare's proxy (DNS resolves to the VPS),
+  so the right-most non-hop entry is the member's own address as seen by
+  Traefik. If the domain is ever proxied by Cloudflare, the guard would need
+  `CF-Connecting-IP` handling (otherwise every bucket becomes a Cloudflare edge).
 - Turnstile `remoteip` uses the same IP.
 
 ## G2: Google SSO account creation
