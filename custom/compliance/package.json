@@ -10,6 +10,6 @@
     "db:generate": "bun run --cwd packages/core db:generate",
     "db:migrate": "bun run --cwd packages/core db:migrate",
     "db:seed": "bun run --cwd packages/core db:seed",
-    "db:up": "docker compose up -d db"
+    "db:up": "docker compose --env-file .env up -d db"
   }
 }

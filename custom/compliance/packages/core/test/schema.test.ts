@@ -9,9 +9,13 @@ describe("department seed", () => {
     expect(new Set(DEPARTMENTS.map((d) => d.slug)).size).toBe(21);
     expect(DEPARTMENTS.every((d) => d.translation && d.name && d.mailboxPrefix)).toBe(true);
   });
-  test("Aitmad maps to motamid mailbox; Nau Mubaeen reuses rishtanata", () => {
-    expect(DEPARTMENTS.find((d) => d.slug === "aitmad")?.mailboxPrefix).toBe("motamid");
-    expect(DEPARTMENTS.find((d) => d.slug === "nau-mubaeen")?.mailboxPrefix).toBe("rishtanata");
+  test("real mailbox prefixes (Aitmad=motamid, Nau Mubaeen=nau-mubaeen, Rishta Nata=rishtanata, New Immigrants=immigrants)", () => {
+    const m = (slug: string) => DEPARTMENTS.find((d) => d.slug === slug)?.mailboxPrefix;
+    expect(m("aitmad")).toBe("motamid");
+    expect(m("nau-mubaeen")).toBe("nau-mubaeen");
+    expect(m("rishta-nata")).toBe("rishtanata");
+    expect(m("new-immigrants")).toBe("immigrants");
+    expect(new Set(DEPARTMENTS.map((d) => d.mailboxPrefix)).size).toBe(21);
   });
   test("slugs are url-safe", () => {
     for (const d of DEPARTMENTS) expect(d.slug).toMatch(/^[a-z0-9]+(-[a-z0-9]+)*$/);

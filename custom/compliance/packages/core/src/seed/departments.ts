@@ -4,34 +4,30 @@ export interface DepartmentSeed {
 
 const d = (name: string, translation: string, mailboxPrefix?: string): DepartmentSeed => {
   const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-  return { slug, name, translation, mailboxPrefix: mailboxPrefix ?? slug.replace(/-/g, "") };
+  return { slug, name, translation, mailboxPrefix: mailboxPrefix ?? slug };
 };
 
-/**
- * Canonical 21 departments. mailboxPrefix is PROVISIONAL except Aitmad (motamid)
- * and Nau Mubaeen (rishtanata reuse, per umbrella spec section 4); the fork's
- * identity_rules file is the source of truth and must be reconciled.
- */
+/** Canonical 21 departments with the REAL mailbox prefixes (coordinator order 2). Local Atfal roles live on @atfalusa.org as nazim.{majlis}/murabbi.{majlis}. */
 export const DEPARTMENTS: DepartmentSeed[] = [
   d("Aitmad", "General Secretary", "motamid"),
-  d("Amoomi", "Amoomi"),
-  d("Amoor-e-Tuluba", "Student Affairs"),
-  d("Atfal", "Boys 7-15"),
-  d("Ishaat", "Publications"),
-  d("Khidmat-e-Khalq", "Service to Humanity"),
-  d("Maal", "Finance"),
-  d("Mohasib", "Audit"),
-  d("Nau Mubaeen", "New Converts", "rishtanata"),
-  d("Rishta Nata", "Marital Affairs"),
-  d("Sanat-o-Tijarat", "Industry and Trade"),
-  d("Sehat-e-Jismani", "Physical Health"),
-  d("Tabligh", "Preaching"),
-  d("Tahrik-e-Jadid", "Tahrik-e-Jadid"),
-  d("Tajneed", "Census"),
-  d("Taleem", "Education"),
-  d("Tarbiyyat", "Moral Training"),
-  d("Waqar-e-Amal", "Dignity of Labor"),
-  d("Waqf-e-Nau", "Waqf-e-Nau"),
-  d("Wasiyyat", "Wasiyyat"),
-  d("New Immigrants", "New Immigrants"),
+  d("Amoomi", "Amoomi", "amoomi"),
+  d("Amoor-e-Tuluba", "Student Affairs", "amoor-e-tuluba"),
+  d("Atfal", "Boys 7-15", "atfal"),
+  d("Ishaat", "Publications", "ishaat"),
+  d("Khidmat-e-Khalq", "Service to Humanity", "khidmat-e-khalq"),
+  d("Maal", "Finance", "maal"),
+  d("Mohasib", "Audit", "mohasib"),
+  d("Nau Mubaeen", "New Converts", "nau-mubaeen"),
+  d("Rishta Nata", "Marital Affairs", "rishtanata"),
+  d("Sanat-o-Tijarat", "Industry and Trade", "sanat-o-tijarat"),
+  d("Sehat-e-Jismani", "Physical Health", "sehat-e-jismani"),
+  d("Tabligh", "Preaching", "tabligh"),
+  d("Tahrik-e-Jadid", "Tahrik-e-Jadid", "tahrik-e-jadid"),
+  d("Tajneed", "Census", "tajneed"),
+  d("Taleem", "Education", "taleem"),
+  d("Tarbiyyat", "Moral Training", "tarbiyyat"),
+  d("Waqar-e-Amal", "Dignity of Labor", "waqar-e-amal"),
+  d("Waqf-e-Nau", "Waqf-e-Nau", "waqf-e-nau"),
+  d("Wasiyyat", "Wasiyyat", "wasiyyat"),
+  d("New Immigrants", "New Immigrants", "immigrants"),
 ];

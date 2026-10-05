@@ -15,8 +15,8 @@ LearnHouse never conflicts with it. It talks to LearnHouse only through the HTTP
 ```bash
 cd custom/compliance
 bun install
-cp .env.example .env              # optional; set LH_ORG_SLUG
-bun run db:up                     # docker postgres on :5433
+cp .env.example .env              # set COMPLIANCE_DB_PASSWORD (openssl rand -hex 16) and LH_ORG_SLUG=default
+bun run db:up                     # docker postgres bound to 127.0.0.1:5433 (password from .env)
 bun run db:migrate                # applies packages/core/drizzle/*.sql
 bun run db:seed                   # idempotent upsert of 21 departments
 bun test packages apps            # unit tests (no DB or network needed)
