@@ -54,6 +54,8 @@ from src.db.trail_runs import TrailRun
 from src.db.trail_steps import TrailStep
 from src.db.user_organizations import UserOrganization
 from src.db.users import User
+from src.db.mka_user_attributes import MkaUserAttributes
+from src.services.mka import attributes as attrs
 from src.services.mka import compliance_scoring as cs
 
 MAX_PAGE_SIZE = 200
@@ -108,9 +110,27 @@ def _round1(x: float) -> float:
 # loading (set-based)
 # ---------------------------------------------------------------------------------------------------------
 
-# M2: an account only counts as the officeholder when its email is proven (Google signup or verified email).
-# Anything else is treated as not signed in, so an unverified account cannot be credited with (or attest for) them.
-_VERIFIED = or_(User.email_verified.is_(True), User.signup_method == "google")  # type: ignore[attr-defined]
+# M2/M2b: an account only counts as the officeholder when its identity is PROVEN FOR THAT EMAIL, using the attributes
+# trust model: a row exists, is not stale, ``email_seen`` equals the account's CURRENT email (so changing the profile
+# email to a role address breaks the match) and the Workspace proof (``verified_hd``) covers that address's domain.
+# SQL narrows the candidates; ``_proven`` re-checks each with the attributes module's own ``is_stale``.
+# TODO(W1a): swap ``_proven`` for the attributes ``verified_email`` helper once it is exported.
+def _candidate_filter():
+    return (
+        MkaUserAttributes.user_id == User.id,
+        MkaUserAttributes.stale.is_(False),  # type: ignore[attr-defined]
+        MkaUserAttributes.email_seen == func.lower(User.email),
+        MkaUserAttributes.verified_hd.is_not(None),  # type: ignore[union-attr]
+    )
+
+
+def _proven(row: MkaUserAttributes, user: User) -> bool:
+    email = attrs.normalize_email(user.email)
+    return (
+        row.email_seen == email
+        and (row.verified_hd or "") == email.rsplit("@", 1)[-1]
+        and not attrs.is_stale(row, user)
+    )
 
 
 def _roster_users(org_id: int, cycle_id: int):
@@ -121,7 +141,7 @@ def _roster_users(org_id: int, cycle_id: int):
     return (
         select(User.id)
         .join(UserOrganization, (UserOrganization.user_id == User.id) & (UserOrganization.org_id == org_id))
-        .where(func.lower(User.email).in_(roster_emails), _VERIFIED)
+        .where(func.lower(User.email).in_(roster_emails), *_candidate_filter())
     )
 
 
@@ -144,15 +164,16 @@ async def load_user_map(db: AsyncSession, org_id: int, cycle_id: int) -> dict[st
     )
     rows = (
         await db.execute(
-            select(func.lower(User.email), User.id)
+            select(User, MkaUserAttributes)
             .join(UserOrganization, (UserOrganization.user_id == User.id) & (UserOrganization.org_id == org_id))
-            .where(func.lower(User.email).in_(roster_emails), _VERIFIED)
+            .where(func.lower(User.email).in_(roster_emails), *_candidate_filter())
             .order_by(User.id)
         )
     ).all()
     out: dict[str, int] = {}
-    for email, uid in rows:
-        out.setdefault(email, uid)  # deterministic if two accounts ever share an email
+    for user, row in rows:
+        if _proven(row, user):
+            out.setdefault(attrs.normalize_email(user.email), user.id)  # deterministic if two accounts ever share an email
     return out
 
 
@@ -581,8 +602,6 @@ def dept_in(slug: Optional[str]) -> str:
 def dept_name(slug: str) -> str:
     if not slug:
         return EXECUTIVE_NAME
-    from src.services.mka import attributes as attrs  # local: keeps the scoring path import-light
-
     return attrs.get_rules().department_names.get(slug) or slug.replace("_", " ").title()
 
 

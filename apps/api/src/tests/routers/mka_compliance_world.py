@@ -187,6 +187,8 @@ async def build_world(db, org, other_org, admin_user, regular_user):
     }
     for uid, (email, role) in people.items():
         await add_user(db, org.id, uid, email, role)
+    for uid in (31, 32, 33, 34, 35):  # learners carry proof for their roster email
+        await add_attributes(db, uid, people[uid][0])
     await add_attributes(db, 22, "nat.aitmad@example.invalid", level="national", department="aitmad", role="mohtamim")
     await add_attributes(db, 25, "local.sadr@example.invalid", level="local", role="sadr", majlis="Albany", region="Northeast")
     await add_attributes(db, 26, "stale.nat@example.invalid", stale=True, level="national", department="aitmad")
@@ -195,6 +197,8 @@ async def build_world(db, org, other_org, admin_user, regular_user):
     await add_user(db, other_org.id, 40, "admin2@example.invalid", 1)
     await add_user(db, other_org.id, 41, "o2.l1@example.invalid", 4)
     await add_user(db, other_org.id, 42, "crossorg@example.invalid", 4)  # on org 1's roster, member of org 2 only
+    await add_attributes(db, 41, "o2.l1@example.invalid")
+    await add_attributes(db, 42, "crossorg@example.invalid")
 
     # org 1 courses ----------------------------------------------------------------------------------------
     await add_course(db, org.id, 101, "course_general", "General 2026-27", 3, 1, base=1000)          # acts 1001-1004

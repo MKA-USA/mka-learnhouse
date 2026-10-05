@@ -11,7 +11,7 @@ from src.db.api_tokens import APIToken
 from src.db.mka_compliance import MkaComplianceCycle
 from src.services.api_tokens.api_tokens import generate_api_token
 from src.services.mka import compliance as svc
-from src.tests.routers.mka_compliance_world import add_user, expected, progress
+from src.tests.routers.mka_compliance_world import add_attributes, add_user, expected, progress
 from src.tests.routers.test_mka_compliance_router import (  # noqa: F401  (fixtures + helpers)
     BASE, MID, _app, client_for, freeze_today, q, world, cycle_payload, row,
 )
@@ -85,20 +85,34 @@ async def test_person_with_two_roles_counts_once(db, org, world):
 # ---- M2 ---------------------------------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_unverified_account_with_a_roster_email_is_not_credited(db, org, world):
-    await add_user(db, org.id, 60, "ghost1@example.invalid", 4, signup="email")
+async def test_unproven_account_with_a_roster_email_is_not_credited(db, org, world):
+    await add_user(db, org.id, 60, "ghost1@example.invalid", 4, signup="email")  # no attributes row / no proof
     await progress(db, org.id, 60, 101, [1001, 1002, 1003], "2026-11-03")
     async with client_for(db, 1) as c:
         items = (await c.get(f"{BASE}/courses/course_general/learners", params=q(org, q="ghost1"))).json()["items"]
-    assert items[0]["signed_in"] is False and items[0]["lessons_done"] == 0
-    from src.db.users import User
-    u = await db.get(User, 60)
-    u.email_verified = True
-    db.add(u)
-    await db.commit()
+        assert items[0]["signed_in"] is False and items[0]["lessons_done"] == 0
+    await add_attributes(db, 60, "ghost1@example.invalid", level="local")  # proof for that address
     async with client_for(db, 1) as c:
         items = (await c.get(f"{BASE}/courses/course_general/learners", params=q(org, q="ghost1"))).json()["items"]
     assert items[0]["signed_in"] is True and items[0]["lessons_done"] == 3
+
+
+@pytest.mark.asyncio
+async def test_proven_user_who_changes_email_to_a_role_address_is_not_matched(db, org, world):
+    """a@d proven; profile email changed to the role address (ghost1@) -> must NOT be that officeholder."""
+    from src.db.users import User
+    await add_user(db, org.id, 61, "a@example.invalid", 4)
+    await add_attributes(db, 61, "a@example.invalid", level="local")
+    await progress(db, org.id, 61, 101, [1001, 1002, 1003], "2026-11-03")
+    u = await db.get(User, 61)
+    u.email = "ghost1@example.invalid"      # same domain, unused role address
+    db.add(u)
+    await db.commit()
+    async with client_for(db, 1) as c:
+        item = (await c.get(f"{BASE}/courses/course_general/learners", params=q(org, q="ghost1"))).json()["items"][0]
+        ov = (await c.get(f"{BASE}/overview", params=q(org))).json()
+    assert item["signed_in"] is False and item["stage"] == "not_signed_in" and item["lessons_done"] == 0
+    assert ov["totals"]["not_signed_in"] == 5  # unchanged: ghost1 is still never signed in
 
 
 # ---- M3 ---------------------------------------------------------------------------------------------------
