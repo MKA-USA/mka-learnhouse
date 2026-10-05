@@ -28,7 +28,7 @@ from src.db.mka_user_attributes import MkaRosterOverride
 from src.db.organizations import Organization
 from src.db.user_organizations import UserOrganization
 from src.db.users import APITokenUser, SuperadminAPITokenUser, User
-from src.routers.mka_profile import _authorize_target, _uid
+from src.routers.mka_profile import _uid
 from src.security.auth import get_authenticated_user
 from src.security.org_auth import enforce_org_mfa, get_user_org
 from src.security.rbac.constants import ADMIN_OR_MAINTAINER_ROLE_IDS, is_admin
@@ -160,8 +160,8 @@ async def api_get_me(
     """
     uid = _uid(current_user)
     response.headers["Cache-Control"] = "private, no-store"
-    row = await svc.get_row(db_session, uid)
-    attrs = svc.effective_public(row.effective) if row else dict(svc.UNKNOWN_PUBLIC)
+    me = await db_session.get(User, uid)
+    attrs, stale = svc.read_effective_from_row(await svc.get_row(db_session, uid), me)  # fails closed
     can_view_all = await is_user_superadmin(uid, db_session)
     if not can_view_all:
         can_view_all = (
@@ -174,6 +174,7 @@ async def api_get_me(
         ).first() is not None
     return {
         "attributes": attrs,
+        "stale": stale,
         "can_view_all": can_view_all,
         "rules_version": svc.get_rules().version,
     }
@@ -281,11 +282,9 @@ async def _override_admin(
     if isinstance(current_user, (APITokenUser, SuperadminAPITokenUser)):
         raise HTTPException(status_code=403, detail="A user session is required")
     admin = await _resolve_admin(current_user, org_id, org_slug, db_session)
-    # Attributes are one global row per user: same multi-org rule as the profile editor.
-    await _authorize_target(admin.actor_user_id, user_id, admin.org_id, db_session)  # type: ignore[arg-type]
-    user = await db_session.get(User, user_id)
-    if user is None:
-        raise HTTPException(status_code=404, detail="User not found")
+    # Attributes are one global row per user: the service refuses (409) any write whose target
+    # belongs to an org other than the admin's (assert_exclusive_to_org).
+    user = await _target_user(admin, user_id, db_session)
     return admin, user
 
 
@@ -301,9 +300,11 @@ async def api_put_override(
     """Set the admin override (partial attributes) with a REQUIRED reason; audited."""
     admin, user = await _override_admin(current_user, user_id, org_id, org_slug, db_session)
     try:
-        await svc.set_override(db_session, user, body.override, body.reason, admin.actor_user_id)  # type: ignore[arg-type]
+        await svc.set_override(db_session, user, body.override, body.reason, admin.actor_user_id, admin.org_id)  # type: ignore[arg-type]
     except ValueError as exc:
         raise _bad_request(exc)
+    except svc.CrossOrgConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     return await svc.get_admin_view(db_session, user)  # type: ignore[return-value]
 
 
@@ -317,7 +318,10 @@ async def api_delete_override(
     db_session: AsyncSession = Depends(get_db_session),
 ) -> dict:
     admin, user = await _override_admin(current_user, user_id, org_id, org_slug, db_session)
-    await svc.clear_override(db_session, user, admin.actor_user_id, reason)  # type: ignore[arg-type]
+    try:
+        await svc.clear_override(db_session, user, admin.actor_user_id, reason, admin.org_id)  # type: ignore[arg-type]
+    except svc.CrossOrgConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     view = await svc.get_admin_view(db_session, user)
     if view is None:
         raise HTTPException(status_code=404, detail="No attributes derived for this user yet")
@@ -390,6 +394,8 @@ async def api_put_roster(
         )
     except ValueError as exc:
         raise _bad_request(exc)
+    except svc.CrossOrgConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     return _roster_view(row)
 
 
@@ -402,7 +408,11 @@ async def api_delete_roster(
     db_session: AsyncSession = Depends(get_db_session),
 ) -> dict:
     admin = await _resolve_admin(current_user, org_id, org_slug, db_session)
-    if not await svc.delete_roster(db_session, admin.org_id, email, admin.actor_user_id):
+    try:
+        deleted = await svc.delete_roster(db_session, admin.org_id, email, admin.actor_user_id)
+    except svc.CrossOrgConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    if not deleted:
         raise HTTPException(status_code=404, detail="No roster override for that email")
     return {"deleted": True}
 

@@ -272,8 +272,13 @@ async def test_multi_org_user_uses_lowest_org_id_and_records_it(db, org, other_o
     oa, ob = org.id, other_org.id
     db.add(UserOrganization(user_id=501, org_id=ob, role_id=4, creation_date="x", update_date="x"))
     await db.commit()
-    await svc.upsert_roster(db, ob, "john.smith@mkausa.org", {"level": "regional", "region": "Gulf", "role": "regional_qaid"}, source="admin")
-    await svc.upsert_roster(db, oa, "john.smith@mkausa.org", {"level": "national", "role": "sadr"}, source="admin")
+    now = datetime.now()
+    # inserted directly: the 409 guard (below) refuses to write rosters for multi-org users
+    db.add(MkaRosterOverride(org_id=ob, email="john.smith@mkausa.org", source="admin", updated_at=now,
+                             attributes={"level": "regional", "region": "Gulf", "role": "regional_qaid"}))
+    db.add(MkaRosterOverride(org_id=oa, email="john.smith@mkausa.org", source="admin", updated_at=now,
+                             attributes={"level": "national", "role": "sadr"}))
+    await db.commit()
     row, _ = await svc.refresh_attributes(db, a_user, action="recompute")
     assert row.effective["role"] == "sadr" and row.effective["roster_org_id"] == min(oa, ob)
 
@@ -308,3 +313,121 @@ async def test_per_user_routes_404_for_user_only_in_other_org(db, org, other_org
                             json={"override": {"level": "local"}, "reason": "x"})).status_code == 404
         assert (await c.get(f"{BASE}/users/502", params={"org_id": org.id})).status_code == 404
         assert (await c.get(f"{BASE}/roster", params={"org_id": other_org.id})).status_code == 403
+
+
+# --- fail-closed reads ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_fresh_row_reads_normally_and_email_drift_reads_unrecognized(db, org):
+    u = await _user(db, 601, "tabligh.albany@mkausa.org", org=org)
+    await svc.refresh_attributes(db, u)
+    await db.commit()
+    attrs, stale = await svc.read_effective(db, u)
+    assert stale is False and attrs["department"] == "tabligh" and attrs["majlis"] == "Albany"
+    u.email = "someone@gmail.com"                       # email changed, row not refreshed
+    attrs, stale = await svc.read_effective(db, u)
+    assert stale is True and attrs["status"] == "unrecognized" and attrs["is_officeholder"] is False
+    assert attrs["level"] is None and attrs["role"] is None
+
+
+@pytest.mark.asyncio
+async def test_non_google_row_is_stale_unless_overridden(db, org):
+    admin = await _user(db, 1, "admin@test.com")
+    u = await _user(db, 602, "tabligh.albany@mkausa.org", org=org)
+    await svc.refresh_attributes(db, u)
+    await db.commit()
+    u.signup_method = "password"
+    assert (await svc.read_effective(db, u))[1] is True
+    await svc.set_override(db, u, {"level": "local", "department": "tabligh"}, "ok", admin.id)
+    attrs, stale = await svc.read_effective(db, u)
+    assert stale is False and attrs["level"] == "local"
+
+
+@pytest.mark.asyncio
+async def test_old_rules_version_is_stale(db, org):
+    u = await _user(db, 603, "tabligh.albany@mkausa.org", org=org)
+    row, _ = await svc.refresh_attributes(db, u)
+    row.rules_version = "2025.9"
+    db.add(row)
+    await db.commit()
+    assert (await svc.read_effective(db, u))[1] is True
+    row.rules_version = "2026.1"
+    db.add(row)
+    await db.commit()
+    assert (await svc.read_effective(db, u))[1] is False
+
+
+@pytest.mark.asyncio
+async def test_login_hook_failure_marks_existing_row_stale_and_recovery_clears(db, org):
+    u = await _user(db, 604, "tabligh.albany@mkausa.org", org=org)
+    await svc.mka_refresh_on_login(db, u, "google")
+    assert (await svc.read_effective(db, u))[1] is False
+    with patch.object(svc, "parse_identity", side_effect=RuntimeError("boom")):
+        await svc.mka_refresh_on_login(db, u, "google")          # login still fine
+    attrs, stale = await svc.read_effective(db, u)
+    assert stale is True and attrs["status"] == "unrecognized"
+    await svc.mka_refresh_on_login(db, u, "google")
+    assert (await svc.read_effective(db, u))[1] is False
+
+
+@pytest.mark.asyncio
+async def test_me_and_admin_list_fail_closed(db, org, admin_user, regular_user):
+    reg = await db.get(User, regular_user.id)
+    reg.email = "tabligh.albany@mkausa.org"
+    reg.signup_method = "google"
+    db.add(reg)
+    await db.commit()
+    await svc.refresh_attributes(db, reg)
+    await db.commit()
+    reg.email = "other@gmail.com"                       # drift
+    db.add(reg)
+    await db.commit()
+    async with _client(db, regular_user) as c:
+        me = (await c.get(f"{BASE}/me")).json()
+    assert me["stale"] is True and me["attributes"]["status"] == "unrecognized"
+    async with _client(db, admin_user) as c:
+        lst = (await c.get(f"{BASE}/users", params={"org_id": org.id})).json()["items"]
+    item = next(i for i in lst if i["user_id"] == regular_user.id)
+    assert item["stale"] is True and item["effective"]["status"] == "unrecognized"
+    assert item["stored_effective"]["department"] == "tabligh"
+
+
+# --- multi-org write guard ----------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_multi_org_user_cannot_be_overridden_or_rostered_by_one_org(db, org, other_org, admin_user):
+    a_user, _ = await _two_orgs(db, org, other_org)
+    oa, ob = org.id, other_org.id
+    db.add(UserOrganization(user_id=501, org_id=ob, role_id=4, creation_date="x", update_date="x"))
+    await db.commit()
+    await svc.recompute_users(db)
+    with pytest.raises(svc.CrossOrgConflict):
+        await svc.set_override(db, a_user, {"level": "national", "role": "sadr"}, "x", admin_user.id, oa)
+    with pytest.raises(svc.CrossOrgConflict):
+        await svc.clear_override(db, a_user, admin_user.id, None, oa)
+    with pytest.raises(svc.CrossOrgConflict):
+        await svc.upsert_roster(db, oa, "john.smith@mkausa.org", {"level": "national"}, source="admin")
+    assert await _roster_rows(db) == {}
+    res = await svc.import_roster(db, oa, [{"email": "john.smith@mkausa.org", "attributes": {"level": "national"}}],
+                                  source="admin")
+    assert res["failed"] == 1 and await _roster_rows(db) == {}
+    assert (await svc.get_row(db, 501)).eff_role is None
+    # HTTP: 409
+    async with _client(db, admin_user) as c:
+        r = await c.put(f"{BASE}/users/501/override", params={"org_id": oa},
+                        json={"override": {"level": "national"}, "reason": "x"})
+        assert r.status_code == 409 and "other organizations" in r.json()["detail"]
+        assert (await c.delete(f"{BASE}/users/501/override", params={"org_id": oa})).status_code == 409
+        r = await c.put(f"{BASE}/roster/john.smith@mkausa.org", params={"org_id": oa},
+                        json={"attributes": {"level": "national"}})
+        assert r.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_single_org_user_and_unmatched_roster_still_work(db, org, other_org, admin_user):
+    a_user, _ = await _two_orgs(db, org, other_org)
+    oa = org.id
+    await svc.recompute_users(db)
+    await svc.set_override(db, a_user, {"level": "national", "role": "sadr"}, "ok", admin_user.id, oa)
+    # roster for an email with no matching user in the org is fine even if that email is a multi-org user elsewhere
+    await svc.upsert_roster(db, oa, "nobody@mkausa.org", {"level": "national"}, source="admin")

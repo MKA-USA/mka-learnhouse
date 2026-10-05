@@ -23,6 +23,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    false,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, SQLModel
@@ -61,6 +62,8 @@ class MkaUserAttributes(SQLModel, table=True):
     override_at: Optional[datetime] = Field(
         default=None, sa_column=Column(DateTime(timezone=True), nullable=True)
     )
+    # True when the last login refresh failed: reads fail closed until a refresh succeeds.
+    stale: bool = Field(default=False, sa_column=Column(Boolean, nullable=False, server_default=false(), default=False))
     # Denormalised effective attributes (see module docstring).
     effective: dict = Field(default_factory=dict, sa_column=Column(_JSON, nullable=False))
     eff_status: Optional[str] = Field(default=None, sa_column=Column(String, nullable=True))

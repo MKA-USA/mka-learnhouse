@@ -152,7 +152,7 @@ async def test_token_roster_upsert_import_delete_then_list(token_client, org, db
     assert r.status_code == 200 and r.json()["source"] == "companion" and r.json()["updated_by"] is None
     got = (await token_client.get(f"{BASE}/users/14", params=p)).json()
     assert got["effective"]["role"] == "naib_sadr" and got["derived"]["status"] == "unrecognized"
-    assert got["effective"]["source"] == "roster"
+    assert got["stored_effective"]["source"] == "roster"
     audit = (await token_client.get(f"{BASE}/users/14/audit", params=p)).json()["items"]
     assert audit[0]["action"] == "roster_apply" and audit[0]["actor_user_id"] is None
 

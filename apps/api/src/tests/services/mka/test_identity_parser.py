@@ -131,7 +131,7 @@ HAND_ROWS = [
     ("tabligh.newyorkmetro-region@mkausa.org", "partial", True, None, "tabligh", "nazim_dept", None, None),
     ("qaid.newyorkmetro-region@mkausa.org", "partial", True, None, None, "qaid", None, None),
     ("naibqaid.northeast@mkausa.org", "partial", True, None, None, "naib_qaid", None, None),
-    ("tabligh.northeast@mkausa.org", "partial", True, None, "tabligh", "nazim_dept", None, None),
+    ("tabligh.northeast@mkausa.org", M, True, "regional", "tabligh", "regional_nazim_dept", None, "Northeast"),
     ("tabligh.syracuse@mkausa.org", "partial", True, None, "tabligh", "nazim_dept", None, None),
     ("nazim.atlantis@atfalusa.org", "partial", True, None, "atfal", "nazim_atfal", None, None),
     ("nazim.northeast@atfalusa.org", "partial", True, None, "atfal", "nazim_atfal", None, None),
@@ -183,13 +183,31 @@ REGION_ROWS = [
     (f"qaid.{s}@mkausa.org", M, True, "regional", None, "regional_qaid", None, n)
     for s, n in REGIONS.items()
 ]
+# Regional department officeholders: {dept}.{region}@mkausa.org for every dept x region.
+# (Derived from Thinkific regional directories; pattern UNCONFIRMED by the user.)
+REGIONAL_DEPT_ROWS = [
+    (f"{p}.{s}@mkausa.org", M, True, "regional", d, "regional_nazim_dept", None, n)
+    for p, d in LOCAL_DEPT_PREFIXES.items() for s, n in REGIONS.items()
+] + [
+    (f"motamid.{s}@mkausa.org", M, True, "regional", "aitmad", "regional_motamid", None, n)
+    for s, n in REGIONS.items()
+] + [
+    ("mohasib.east@mkausa.org", M, True, "regional", "mohasib", "regional_nazim_dept", None, "East"),
+    ("sehat-e-jismani.northwest@mkausa.org", M, True, "regional", "sehat_e_jismani", "regional_nazim_dept", None, "Northwest"),
+    ("tabligh.virginia@mkausa.org", M, True, "regional", "tabligh", "regional_nazim_dept", None, "Virginia"),
+    ("tabligh.northvirginia@mkausa.org", M, True, "local", "tabligh", "nazim_dept", "North Virginia", "Virginia"),
+    ("Tabligh.GreatLakes+x@MKAUSA.ORG", M, True, "regional", "tabligh", "regional_nazim_dept", None, "Great Lakes"),
+    ("rishtanata.gulf@mkausa.org", M, True, "regional", "rishta_nata", "regional_nazim_dept", None, "Gulf"),
+    ("tabligh.newyorkmetro@mkausa.org", M, True, "regional", "tabligh", "regional_nazim_dept", None, "New York Metro"),
+]
+
 # Every Majlis as Atfal Nazim (alias for Syracuse covered above).
 ATFAL_ROWS = [
     (f"nazim.{_slug(m)}@atfalusa.org", M, True, "local", "atfal", "nazim_atfal", m, r)
     for m, r in MAJLIS_TO_REGION.items()
 ]
 
-ALL_ROWS = HAND_ROWS + QAID_ROWS + REGION_ROWS + ATFAL_ROWS
+ALL_ROWS = HAND_ROWS + QAID_ROWS + REGION_ROWS + REGIONAL_DEPT_ROWS + ATFAL_ROWS
 
 
 def test_matrix_size():
@@ -227,6 +245,12 @@ def test_muqami_needs_review():
 def test_unconfirmed_slug_needs_review():
     a = parse_identity("tabligh.newyorkmetro-region@mkausa.org", RULES)
     assert a.status == "partial" and "needs_review" in a.flags and a.majlis is None
+
+
+def test_regional_department_title_and_counts():
+    assert len(REGIONAL_DEPT_ROWS) >= 40
+    a = parse_identity("mohasib.east@mkausa.org", RULES)
+    assert a.role_title == "Regional Nazim Mohasib" and a.level == "regional" and a.majlis is None
 
 
 def test_titles():
@@ -269,9 +293,12 @@ def test_synthetic_collision_is_ambiguous_never_guessed():
     assert a.level is None and a.majlis is None and a.region is None and a.role is None
     assert a.is_officeholder is True
     assert "ambiguous_slug" in a.flags
-    # a non-regional prefix is unambiguous: the Majlis wins
+    # department prefixes now have regional roles too: also ambiguous, never guessed
     b = parse_identity("tabligh.gulf@mkausa.org", rules)
-    assert (b.status, b.level, b.majlis) == (M, "local", "Gulf")
+    assert b.status == "ambiguous" and b.level is None and b.region is None and b.majlis is None
+    # a prefix without a regional role is unambiguous: the Majlis wins
+    c = parse_identity("nazim.gulf@atfalusa.org", rules)
+    assert (c.status, c.level, c.majlis) == (M, "local", "Gulf")
 
 
 def test_default_rules_have_no_collisions():

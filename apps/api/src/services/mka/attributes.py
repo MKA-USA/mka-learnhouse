@@ -150,6 +150,69 @@ UNKNOWN_PUBLIC: dict = {
 }
 
 
+class CrossOrgConflict(Exception):
+    """A write would change what a user appears as in another organization."""
+
+
+async def assert_exclusive_to_org(db: AsyncSession, user_id: int, org_id: int) -> None:
+    """The attribute store is deployment-global BY DESIGN (MKA is single-org): one row per
+    user, whichever org's admin writes. This guard keeps multi-org installs safe: a write
+    (override set/clear, roster apply matching a user) is allowed only if all of the
+    target's org memberships are within {org_id}; otherwise it is refused (HTTP 409)."""
+    orgs = set(
+        (await db.execute(select(UserOrganization.org_id).where(UserOrganization.user_id == user_id)))
+        .scalars().all()
+    )
+    if orgs - {org_id}:
+        raise CrossOrgConflict(
+            "This user belongs to other organizations; identity attributes are shared across "
+            "them, so they can only be changed by a platform administrator."
+        )
+
+
+def _version_tuple(v: Optional[str]) -> tuple:
+    out = []
+    for part in (v or "").split("."):
+        out.append(int(part) if part.isdigit() else -1)
+    return tuple(out)
+
+
+STALE_PUBLIC: dict = {
+    "status": "unrecognized", "is_officeholder": False, "level": None, "department": None,
+    "role": None, "role_title": None, "majlis": None, "region": None,
+}
+
+
+def is_stale(row: MkaUserAttributes, user: User, rules: Optional[IdentityRules] = None) -> bool:
+    """Fail-closed freshness check for a stored row (see ``read_effective``)."""
+    rules = rules or get_rules()
+    if row.stale:
+        return True
+    if row.email_seen != normalize_email(user.email):
+        return True
+    if user.signup_method != "google" and row.override is None:
+        return True
+    if _version_tuple(row.rules_version) < _version_tuple(rules.version):
+        return True
+    return False
+
+
+def read_effective_from_row(row: Optional[MkaUserAttributes], user: User) -> tuple[dict, bool]:
+    """(public attributes, stale). Missing row -> unknown (unrecognized, null holder);
+    stale row -> unrecognized, is_officeholder False. Never returns a cached elevated value
+    that no longer matches the account."""
+    if row is None:
+        return dict(UNKNOWN_PUBLIC), False
+    if is_stale(row, user):
+        return dict(STALE_PUBLIC), True
+    return effective_public(row.effective), False
+
+
+async def read_effective(db: AsyncSession, user: User) -> tuple[dict, bool]:
+    """THE server-side read for consumers (/me, admin list, audience counts...): fails closed."""
+    return read_effective_from_row(await get_row(db, user.id), user)
+
+
 # ---------------------------------------------------------------------------
 # persistence helpers
 # ---------------------------------------------------------------------------
@@ -265,6 +328,7 @@ async def refresh_attributes(
             user_id=user.id, email_seen=email, derived=derived, rules_version=rules.version,
             derived_at=_now(),
         )
+        row.stale = False
         _apply_effective_columns(row, eff)
         db.add(row)
         _add_audit(db, user.id, action, None, _snapshot(row), actor_user_id=actor_user_id)
@@ -275,6 +339,9 @@ async def refresh_attributes(
     eff_changed = row.effective != eff
     version_changed = row.rules_version != rules.version
     email_changed = row.email_seen != email
+    if row.stale:
+        row.stale = False
+        db.add(row)
     if not (derived_changed or eff_changed or version_changed or email_changed):
         return row, False
 
@@ -294,6 +361,22 @@ async def refresh_attributes(
     return row, derived_changed or eff_changed
 
 
+async def _mark_stale(db_session: AsyncSession, user: User) -> None:
+    """Best effort, separate from the failed work. Never raises."""
+    try:
+        uid = user.id
+        await db_session.execute(
+            update(MkaUserAttributes).where(MkaUserAttributes.user_id == uid).values(stale=True)  # type: ignore[arg-type]
+        )
+        await db_session.commit()
+    except Exception:  # noqa: BLE001
+        logger.exception("MKA attribute stale-mark failed (ignored)")
+        try:
+            await db_session.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+
+
 async def mka_refresh_on_login(db_session: AsyncSession, user: User, amr: Optional[str]) -> None:
     """Login hook (spec A2/A5). Google sign-ins only; FAIL-OPEN: nothing here may
     ever block or break a login, so every error is logged and swallowed. The work
@@ -306,8 +389,9 @@ async def mka_refresh_on_login(db_session: AsyncSession, user: User, amr: Option
         # object and break the session minting that follows (MissingGreenlet).
         async with db_session.begin_nested():
             await refresh_attributes(db_session, user, action="derive")
-    except Exception:  # noqa: BLE001 - fail-open by design
+    except Exception:  # noqa: BLE001 - fail-open for LOGIN by design
         logger.exception("MKA attribute refresh failed on login (ignored)")
+        await _mark_stale(db_session, user)  # ...but reads fail closed until a refresh succeeds
         return
     try:
         await db_session.commit()
@@ -378,13 +462,16 @@ async def recompute_users(
 # ---------------------------------------------------------------------------
 
 async def set_override(
-    db: AsyncSession, user: User, override: dict, reason: str, actor_user_id: int
+    db: AsyncSession, user: User, override: dict, reason: str, actor_user_id: int,
+    org_id: Optional[int] = None,
 ) -> MkaUserAttributes:
     rules = get_rules()
     layer = validate_layer(override, rules)
     reason = (reason or "").strip()
     if not reason:
         raise ValueError("A reason is required")
+    if org_id is not None:
+        await assert_exclusive_to_org(db, user.id, org_id)
     row, _ = await refresh_attributes(db, user, action="derive", actor_user_id=actor_user_id, rules=rules)
     if row is None:
         # Unverified (non-Google) account: the one deliberate exception. The row is
@@ -414,8 +501,11 @@ async def set_override(
 
 
 async def clear_override(
-    db: AsyncSession, user: User, actor_user_id: int, reason: Optional[str] = None
+    db: AsyncSession, user: User, actor_user_id: int, reason: Optional[str] = None,
+    org_id: Optional[int] = None,
 ) -> Optional[MkaUserAttributes]:
+    if org_id is not None:
+        await assert_exclusive_to_org(db, user.id, org_id)
     row = await get_row(db, user.id)
     if row is None or row.override is None:
         return row
@@ -438,6 +528,18 @@ async def clear_override(
 # ---------------------------------------------------------------------------
 # admin: roster overrides (per email, may precede the user)
 # ---------------------------------------------------------------------------
+
+async def _guard_roster_target(db: AsyncSession, org_id: int, email: str) -> None:
+    user = (
+        await db.execute(
+            select(User)
+            .join(UserOrganization, UserOrganization.user_id == User.id)  # type: ignore[arg-type]
+            .where(func.lower(User.email) == email, UserOrganization.org_id == org_id)
+        )
+    ).scalars().first()
+    if user is not None:
+        await assert_exclusive_to_org(db, user.id, org_id)
+
 
 async def _reapply_roster_to_user(
     db: AsyncSession, org_id: int, email: str, actor_user_id: Optional[int], rules: IdentityRules
@@ -474,6 +576,7 @@ async def upsert_roster(
     if not email or "@" not in email or any(c.isspace() for c in email):
         raise ValueError("Invalid email")
     layer = validate_layer(attributes, rules)
+    await _guard_roster_target(db, org_id, email)
     row = await get_roster_row(db, org_id, email)
     if row is None:
         row = MkaRosterOverride(org_id=org_id, email=email, attributes=layer, source=source, note=note,
@@ -500,6 +603,7 @@ async def delete_roster(
     row = await get_roster_row(db, org_id, email)
     if row is None:
         return False
+    await _guard_roster_target(db, org_id, email)
     await db.delete(row)
     await db.flush()
     await _reapply_roster_to_user(db, org_id, email, actor_user_id, rules)
@@ -528,7 +632,7 @@ async def import_roster(
             )
             results.append({"index": i, "email": normalize_email(r.get("email")), "ok": True})
             ok += 1
-        except ValueError as exc:
+        except (ValueError, CrossOrgConflict) as exc:
             results.append({"index": i, "email": normalize_email(r.get("email")), "ok": False, "error": str(exc)})
     if dry_run:
         await db.rollback()
@@ -553,6 +657,7 @@ MAX_PAGE_SIZE = 200
 
 
 def _admin_view(user: User, row: MkaUserAttributes) -> dict:
+    _read = read_effective_from_row(row, user)
     return {
         "user_id": user.id,
         "user_uuid": user.user_uuid,
@@ -560,7 +665,11 @@ def _admin_view(user: User, row: MkaUserAttributes) -> dict:
         "username": user.username,
         "first_name": user.first_name,
         "last_name": user.last_name,
-        "effective": row.effective,
+        # FAIL CLOSED: consumers scope access from `effective`; a stale/drifted row reads as
+        # unrecognized. The raw cached value stays visible for admins as `stored_effective`.
+        "effective": _read[0],
+        "stale": _read[1],
+        "stored_effective": row.effective,
         "derived": row.derived,
         "override": row.override,
         "override_reason": row.override_reason,
