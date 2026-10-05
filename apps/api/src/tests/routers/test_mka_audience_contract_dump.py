@@ -65,7 +65,12 @@ async def test_dump_happy_paths(db, world):  # noqa: F811  (pytest fixture impor
         r = await c.get(f"{BASE}/me/counterparts")
         assert r.status_code == 200 and len(r.json()["counterparts"]) == 3
         _emit("counterparts_atfal", r, "me/counterparts")
-    async with client_for(db, 53) as c:  # regional Qaid: no department
+    async with client_for(db, 53) as c:  # regional Qaid: recognized, no department contacts apply
+        r = await c.get(f"{BASE}/me/counterparts")
+        assert r.status_code == 200 and r.json()["reason"] == "not_applicable"
+        _emit("counterparts_not_applicable", r, "me/counterparts")
+    await add_viewer(db, 72, "partial.nodept@example.invalid", status="partial", role="nazim_dept", role_title="Nazim")
+    async with client_for(db, 72) as c:  # partial: department not known yet
         r = await c.get(f"{BASE}/me/counterparts")
         assert r.status_code == 200 and r.json()["reason"] == "no_department"
         _emit("counterparts_no_department", r, "me/counterparts")

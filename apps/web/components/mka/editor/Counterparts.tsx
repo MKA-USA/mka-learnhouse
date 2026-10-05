@@ -52,6 +52,9 @@ function Inner({ editor, extension }: any) {
   if (me.state === 'loading' || q.isLoading) return null
   const data = q.data
   if (!data) return null
+  if (data.reason === 'not_applicable') {
+    return <div className={CARD}>No department contacts apply to your role.</div>
+  }
   if (data.reason) {
     return <div className={CARD}>Counterparts appear once your role is recognized.</div>
   }
