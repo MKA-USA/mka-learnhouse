@@ -69,8 +69,14 @@ refuses real sends when the flag is off; only dry runs bypass the flag).
 - Anonymised (`anonymized.example.com`, `anonymized.invalid`) and demo addresses are never mailed.
 
 ## Data retention and GDPR
-- Export (`profile_status(include_attributes=True)`) and anonymise (`delete_profile`) cover automation events,
-  send-log rows and the person's expected-roster rows (the roster rows are deleted on anonymise).
+- Export (`profile_status(include_attributes=True)`) and anonymise (`delete_profile`) cover automation events and
+  send-log rows by `user_id` ONLY, plus expected-roster rows for the user's PROVEN address (fresh attributes row with
+  Workspace proof of that exact address, `attributes.is_address_proven`). No proof = nothing email-keyed is exported
+  or touched (a user can change their email to a mailbox they do not own).
+- Roster rows on anonymise: a personal address is DELETED; an org ROLE mailbox (identity parser matches a role) is an
+  office, so the row is KEPT and only `person_name` / `appointed_on` are nulled (the next holder inherits the seat).
+- Send-log rows keyed only by email (reminders to a never-signed-in role mailbox) describe the office and are left
+  alone; the retention purge removes them.
 - Retention: `automation_gdpr.purge_older_than(db, months=18)` deletes older send-log rows and events. TODO: wire a
   scheduled/CLI invocation (not scheduled yet).
 

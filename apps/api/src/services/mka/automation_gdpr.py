@@ -3,36 +3,39 @@
 Called from the fork's own ``services/users/mka_profile.py`` hooks (``profile_status(include_attributes=True)`` for
 the export, ``delete_profile`` for the anonymise), so no further upstream edit is needed.
 
-What is covered, for a user ``U`` with email set ``E`` (see :func:`known_emails`):
+IDENTITY RULE: an email address is only ever used as a key if it is PROVEN to belong to the user
+(``attributes.is_address_proven``: fresh attributes row, Workspace ``verified_hd`` of that exact address, and the
+address was the account's email). Never raw ``User.email`` history, never ``intended_email``: an unproven address
+could be someone else's mailbox (a user can change their email to an address they do not own), and exporting or
+erasing on it would expose or destroy another person's records. No proof -> nothing email-keyed is touched.
 
-* ``mka_automation_event``    rows with ``user_id == U`` (or ``user_uuid`` of U);
-* ``mka_automation_send_log`` rows with ``user_id == U``, plus rows keyed only by email whose ``intended_email``
-                              (export) / ``intended_email`` or ``to_email`` (scrub) is in E;
-* ``mka_compliance_expected`` the expected-roster rows for E (email, names). EXISTING GAP FIXED HERE: the
-                              anonymise path never touched them. They are DELETED (the personal data is the email +
-                              name; the roster can be re-imported from its source of truth, which will no longer
-                              contain a person who asked to be erased).
+* ``mka_automation_event`` / ``mka_automation_send_log``: rows with ``user_id == U`` ONLY. Email-only rows (never
+  signed-in role mailboxes) describe an office, not a person; the 18-month retention purge handles them.
+* ``mka_compliance_expected``: rows for the user's PROVEN address, in orgs the user belongs to. For an org ROLE
+  mailbox (the identity parser matches a role) the office row is KEPT (the next holder inherits it) and only the
+  personal fields (``person_name``, ``appointed_on``) are nulled; for a personal address the row is DELETED.
+  (Existing gap fixed: the anonymise path never touched these rows.)
 
-Email-keyed rows are only touched in orgs the user belongs to (same rule as ``attributes.delete_attributes``).
-
-``known_emails`` MUST run before the upstream anonymise has flushed the placeholder address and BEFORE
-``delete_attributes`` removes ``email_seen``: it reads the pending ``User.email`` history from the session's
-identity map. Nothing here commits (the anonymise is one transaction); :func:`purge_older_than` is a standalone job
-and does commit.
+``known_emails`` MUST run before the upstream anonymise flushes the placeholder address and BEFORE
+``delete_attributes`` removes ``email_seen`` (it reads the pending ``User.email`` history from the identity map).
+Nothing here commits except :func:`purge_older_than` / :func:`purge_test_rows` (standalone jobs).
 """
 
 from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from typing import Optional
 
-from sqlalchemy import delete, or_
+from sqlalchemy import delete, or_, update
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm.util import identity_key
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from src.services.mka import attributes as attr_svc
+from src.services.mka.identity_parser import parse_identity
 from src.db.mka_automation import MkaAutomationEvent, MkaAutomationSendLog, utcnow
 from src.db.mka_compliance import MkaComplianceExpected
 from src.db.mka_user_attributes import MkaUserAttributes
@@ -59,23 +62,33 @@ async def _user_row(db: AsyncSession, user_id: int) -> Optional[User]:
     return found if found is not None else await db.get(User, user_id)
 
 
+def _account_email_before_anonymise(user: User) -> Optional[str]:
+    history = sa_inspect(user).attrs.email.history
+    if history.deleted:  # the upstream anonymise has set a placeholder but not flushed yet
+        return history.deleted[0]
+    return user.email
+
+
 async def known_emails(db: AsyncSession, user_id: int) -> set[str]:
-    """Every address we may hold for the user: current/pre-anonymise ``User.email``, ``email_seen`` of the
-    identity-attributes row, and the ``intended_email`` of the user's own send-log rows. Placeholders excluded."""
-    emails: set[str] = set()
+    """The addresses PROVEN to belong to the user (0 or 1): the attributes row's ``email_seen`` when
+    ``is_address_proven`` holds for the account's email as it was before any pending anonymise."""
     user = await _user_row(db, user_id)
-    if user is not None:
-        history = sa_inspect(user).attrs.email.history
-        for value in (*history.added, *history.unchanged, *history.deleted):
-            if cleaned := _clean(value):
-                emails.add(cleaned)
-    seen = (await db.execute(select(MkaUserAttributes.email_seen).where(MkaUserAttributes.user_id == user_id))).scalars().all()
-    emails.update(c for c in map(_clean, seen) if c)
-    logged = (
-        await db.execute(select(MkaAutomationSendLog.intended_email).where(MkaAutomationSendLog.user_id == user_id))
-    ).scalars().all()
-    emails.update(c for c in map(_clean, logged) if c)
-    return emails
+    if user is None:
+        return set()
+    original = _account_email_before_anonymise(user)  # read BEFORE any query below autoflushes the placeholder
+    row = (await db.execute(select(MkaUserAttributes).where(MkaUserAttributes.user_id == user_id))).scalars().first()
+    if row is None or not _clean(original):
+        return set()
+    if not attr_svc.is_address_proven(row, SimpleNamespace(email=original)):  # type: ignore[arg-type]
+        return set()
+    cleaned = _clean(row.email_seen)
+    return {cleaned} if cleaned else set()
+
+
+def is_role_mailbox(email: str) -> bool:
+    """True when the identity parser reads the address as an office (a role), i.e. it outlives its holder."""
+    parsed = parse_identity(email, attr_svc.get_rules())
+    return parsed.status in ("matched", "partial", "ambiguous") and bool(parsed.role)
 
 
 def _member_orgs(user_id: int):
@@ -102,13 +115,9 @@ async def export_user_records(db: AsyncSession, user_id: int) -> dict:
         event_filter = or_(event_filter, MkaAutomationEvent.user_uuid == user_uuid)
     events = (await db.execute(select(MkaAutomationEvent).where(event_filter).order_by(MkaAutomationEvent.id))).scalars().all()
 
-    log_filter = MkaAutomationSendLog.user_id == user_id
-    if emails:
-        log_filter = or_(
-            log_filter,
-            (MkaAutomationSendLog.org_id.in_(orgs)) & (MkaAutomationSendLog.intended_email.in_(emails)),  # type: ignore[attr-defined]
-        )
-    sends = (await db.execute(select(MkaAutomationSendLog).where(log_filter).order_by(MkaAutomationSendLog.id))).scalars().all()
+    sends = (
+        await db.execute(select(MkaAutomationSendLog).where(MkaAutomationSendLog.user_id == user_id).order_by(MkaAutomationSendLog.id))
+    ).scalars().all()
 
     roster = []
     if emails:
@@ -157,24 +166,18 @@ async def scrub_user_records(db: AsyncSession, user_id: int) -> dict:
         event_filter = or_(event_filter, MkaAutomationEvent.user_uuid == user_uuid)
     counts["events"] = (await db.execute(delete(MkaAutomationEvent).where(event_filter))).rowcount or 0
 
-    log_filter = MkaAutomationSendLog.user_id == user_id
-    if emails:
-        log_filter = or_(
-            log_filter,
-            (MkaAutomationSendLog.org_id.in_(orgs))  # type: ignore[attr-defined]
-            & or_(MkaAutomationSendLog.intended_email.in_(emails), MkaAutomationSendLog.to_email.in_(emails)),  # type: ignore[attr-defined]
-        )
-    counts["send_log"] = (await db.execute(delete(MkaAutomationSendLog).where(log_filter))).rowcount or 0
+    counts["send_log"] = (
+        await db.execute(delete(MkaAutomationSendLog).where(MkaAutomationSendLog.user_id == user_id))
+    ).rowcount or 0
 
-    if emails:
-        counts["compliance_roster"] = (
-            await db.execute(
-                delete(MkaComplianceExpected).where(
-                    MkaComplianceExpected.org_id.in_(orgs),  # type: ignore[attr-defined]
-                    MkaComplianceExpected.email.in_(emails),  # type: ignore[attr-defined]
-                )
-            )
-        ).rowcount or 0
+    for email in emails:  # 0 or 1 PROVEN address
+        in_scope = (MkaComplianceExpected.org_id.in_(orgs), MkaComplianceExpected.email == email)  # type: ignore[attr-defined]
+        if is_role_mailbox(email):  # the office stays for the next holder; only the person goes
+            counts["compliance_roster"] += (
+                await db.execute(update(MkaComplianceExpected).where(*in_scope).values(person_name=None, appointed_on=None))
+            ).rowcount or 0
+        else:
+            counts["compliance_roster"] += (await db.execute(delete(MkaComplianceExpected).where(*in_scope))).rowcount or 0
     logger.info("automation GDPR scrub user=%s %s", user_id, counts)
     return counts
 
