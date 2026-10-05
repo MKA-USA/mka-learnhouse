@@ -1,0 +1,25 @@
+SUBJECT: Weekly compliance update: Northeast region
+
+--- TEXT ---
+Hello Regional Qaid, Northeast,
+
+Here is this week's compliance update for Northeast region (2026-27).
+
+Signed off: 30 of 48
+In progress: 6
+Not started: 4
+Not signed in yet: 8
+Overdue: 0
+
+Still to follow up (by role):
+- Nazim Tabligh, Albany
+- Nazim Maal, Boston
+
+See the full list: https://ilm.example.invalid/courses/general
+
+Questions? Write to help@example.invalid.
+
+This is an automatic notice from MKA USA.
+
+--- HTML ---
+<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.5;color:#222;max-width:560px"><p style="margin:0 0 12px">Hello Regional Qaid, Northeast,</p><p style="margin:0 0 12px">Here is this week&#x27;s compliance update for Northeast region (2026-27).</p><p style="margin:0 0 12px">Signed off: 30 of 48<br>In progress: 6<br>Not started: 4<br>Not signed in yet: 8<br>Overdue: 0</p><p style="margin:0 0 4px">Still to follow up (by role):</p><ul style="margin:0 0 12px;padding-left:20px"><li>Nazim Tabligh, Albany</li><li>Nazim Maal, Boston</li></ul><p style="margin:0 0 12px"><a href="https://ilm.example.invalid/courses/general">See the full list</a></p><p style="margin:0 0 12px">Questions? Write to <a href="mailto:help@example.invalid">help@example.invalid</a>.</p><p style="margin:16px 0 0;color:#666;font-size:12px">This is an automatic notice from MKA USA.</p></div>
