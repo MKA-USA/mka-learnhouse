@@ -59,3 +59,8 @@ export async function reconcileEnrollments(api: LhApi, targets: LearnerTarget[],
   }
   return res;
 }
+
+/** Roster rows in scope: `only` = department slugs (their learners); undefined = ALL roles (qaid/naib/staff/regional included). */
+export function selectLearners<T extends { departmentSlug: string }>(roster: T[], only?: string[]): T[] {
+  return roster.filter((r) => (only ? !!r.departmentSlug && only.includes(r.departmentSlug) : true));
+}

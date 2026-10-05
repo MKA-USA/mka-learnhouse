@@ -5,12 +5,14 @@ import type { Issue } from "./types";
 export interface PlanStatus { departmentSlug: string; level: string; stale: boolean; source: string }
 export interface GapReportInput { cycleLabel: string; roster: RosterRow[]; plans: PlanStatus[]; issues: Issue[]; notes?: string[] }
 export interface GapCounts {
-  rosterRows: number; missingNames: number; duplicateMailboxes: number; departmentsWithoutPlan: number; departmentsStalePlanOnly: number;
+  rosterRows: number; rosterByLevel: Record<string, number>; unconfirmedMailboxes: number; missingNames: number; duplicateMailboxes: number; departmentsWithoutPlan: number; departmentsStalePlanOnly: number;
   byCode: Record<string, number>;
 }
 
 export function buildGapReport(input: GapReportInput): { markdown: string; counts: GapCounts } {
   const { roster, plans, issues } = input;
+  const byLevel: Record<string, number> = {}; for (const r of roster) byLevel[r.level] = (byLevel[r.level] ?? 0) + 1;
+  const unconfirmed = roster.filter((r) => r.source === "formula-unconfirmed").length;
   const missing = roster.filter((r) => !r.personName);
   const emailCount = new Map<string, number>();
   for (const r of roster) emailCount.set(r.learnerEmail, (emailCount.get(r.learnerEmail) ?? 0) + 1);
@@ -31,6 +33,8 @@ export function buildGapReport(input: GapReportInput): { markdown: string; count
   L.push(`# Data-gap report: cycle ${input.cycleLabel}`, "", `Generated ${new Date().toISOString()}. Role mailboxes only; no personal names are listed.`, "");
   L.push("## Headline", "",
     `- Roster roles generated: **${roster.length}** (every Majlis has every role).`,
+    `- By level: ${Object.entries(byLevel).map(([k, v]) => `${k} ${v}`).join(", ")}.`,
+    `- **UNCONFIRMED mailbox pattern:** ${unconfirmed} regional department mailboxes (\`{dept}.{region}@mkausa.org\`, derived from the Thinkific directories; the user has not confirmed them).`,
     `- Roles with **no person name**: **${missing.length}** of ${roster.length}.`,
     `- Departments with **no plan**: **${noPlan.length}** of ${DEPARTMENTS.length}; with only **stale** plans: **${staleOnly.length}**.`,
     `- Duplicate mailboxes in roster: **${dupes.length}**.`,
@@ -55,6 +59,6 @@ export function buildGapReport(input: GapReportInput): { markdown: string; count
     L.push("");
   }
   return { markdown: L.join("\n"), counts: {
-    rosterRows: roster.length, missingNames: missing.length, duplicateMailboxes: dupes.length,
+    rosterRows: roster.length, rosterByLevel: byLevel, unconfirmedMailboxes: unconfirmed, missingNames: missing.length, duplicateMailboxes: dupes.length,
     departmentsWithoutPlan: noPlan.length, departmentsStalePlanOnly: staleOnly.length, byCode } };
 }

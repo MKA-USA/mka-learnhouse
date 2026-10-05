@@ -30,10 +30,10 @@ describe("objectives + quiz", () => {
 });
 
 describe("directory", () => {
-  test("generated from roster: 52 local rows, 10 regions, names where known", () => {
+  test("generated from roster: 52 local rows, regional dept officer + Qaid per region, names where known", () => {
     const d = renderDirectory({ cycle: "2026-27", dept: dept("tabligh"), roster });
     const tables = d.content.filter((n) => n.type === "table");
-    expect(tables.map((t) => t.content!.length - 1)).toEqual([1, 10, 52]);
+    expect(tables.map((t) => t.content!.length - 1)).toEqual([1, 20, 52]);
     expect(plainText(d)).toContain("tabligh.boston@mkausa.org");
     expect(plainText(d)).toContain("Test Person");
   });

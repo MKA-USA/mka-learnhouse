@@ -41,3 +41,20 @@ bun run lh reconcile --pilot --apply --confirm-staging
 `apply` needs `--pilot`, `--only a,b` or `--all`; it never publishes (API wrappers reject `published: true`) and is idempotent
 through `course_map` (change detection per activity). Outputs: `out/idmap.json`, `out/apply-report.md`, `out/reconcile-report.md`, `out/data-gap-report.md`.
 Formats for yearly CSV data: `docs/data-formats.md`.
+
+## Publishing (explicit, never automatic)
+`plan`, `apply` and `reconcile` never publish: courses, activities and assignments stay drafts, and the API wrappers reject `published: true`.
+A human publishes with the separate command (staging only, **dry run by default**, prints exactly what it will flip):
+```
+bun run lh publish --course "MKA 2026-27 · Tabligh"                     # dry run (name or uuid)
+bun run lh publish --all                                                # dry run, every provisioned course
+bun run lh publish --course <name|uuid> --execute --confirm-staging     # sets published=true on activities, assignments, then the course
+```
+Courses stay `public: false` (visible to enrolled learners only).
+
+## Cycle -> courses mapping
+`bun run start export-courses` (also run by `apply`) writes `out/cycle-courses.json`: cycle, deadline, and per course the activity uuids plus the
+assignment/task uuids of the final sign-off and the contact self-check, for the in-LearnHouse analytics view.
+
+## Unconfirmed
+Regional department mailboxes `{dept}.{region}@mkausa.org` (200 roster rows, source `formula-unconfirmed`) come from the Thinkific directories and are not yet confirmed by the user. Atfal has none (no evidence).

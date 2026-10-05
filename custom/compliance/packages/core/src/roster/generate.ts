@@ -2,6 +2,8 @@ import majlisData from "../data/majlis-regions.json";
 import { DEPARTMENTS } from "../seed/departments";
 
 export const ROSTER_SOURCE = "formula";
+/** Regional department mailboxes `{dept}.{region}@mkausa.org`: pattern derived from the Thinkific data, NOT yet confirmed by the user. */
+export const UNCONFIRMED_SOURCE = "formula-unconfirmed";
 export const MKA_DOMAIN = "mkausa.org";
 export const ATFAL_DOMAIN = "atfalusa.org";
 
@@ -46,8 +48,8 @@ export function localRoleDefs() {
 export function generateRoster(opts: GenerateOptions = {}): RosterRow[] {
   const rows: RosterRow[] = [];
   const nameOf = (email: string) => opts.names?.get(email.toLowerCase()) ?? null;
-  const push = (r: Omit<RosterRow, "personName" | "source">) =>
-    rows.push({ ...r, learnerEmail: r.learnerEmail.toLowerCase(), personName: nameOf(r.learnerEmail), source: ROSTER_SOURCE });
+  const push = (r: Omit<RosterRow, "personName" | "source">, source = ROSTER_SOURCE) =>
+    rows.push({ ...r, learnerEmail: r.learnerEmail.toLowerCase(), personName: nameOf(r.learnerEmail), source });
 
   // national
   for (const d of DEPARTMENTS) {
@@ -61,6 +63,16 @@ export function generateRoster(opts: GenerateOptions = {}): RosterRow[] {
   // regional qaids
   for (const region of REGION_NAMES) {
     push({ departmentSlug: "", role: "regional_qaid", level: "region", region, majlis: "", roleTitle: "Regional Qaid", learnerEmail: `qaid.${slugify(region)}@${MKA_DOMAIN}` });
+  }
+
+  // regional department officeholders (UNCONFIRMED pattern)
+  for (const region of REGION_NAMES) {
+    for (const d of DEPARTMENTS) {
+      if (d.slug === "atfal") continue; // no evidence (no Thinkific course, not in fork rules): Atfal is local-only on atfalusa.org
+      const aitmad = d.slug === "aitmad";
+      push({ departmentSlug: d.slug, role: aitmad ? "regional_motamid" : "regional_nazim", level: "region", region, majlis: "",
+        roleTitle: aitmad ? "Regional Motamid" : `Regional Nazim ${d.name}`, learnerEmail: `${d.mailboxPrefix}.${slugify(region)}@${MKA_DOMAIN}` }, UNCONFIRMED_SOURCE);
+    }
   }
 
   // local

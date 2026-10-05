@@ -9,7 +9,8 @@ describe("roster generator", () => {
     expect(Object.keys(MAJLIS_TO_REGION).length).toBe(52);
     expect(REGION_NAMES.length).toBe(10);
     expect(rows.filter((r) => r.level === "majlis").length).toBe(52 * 24);
-    expect(rows.filter((r) => r.level === "region").length).toBe(10);
+    expect(rows.filter((r) => r.role === "regional_qaid").length).toBe(10);
+    expect(rows.filter((r) => r.level === "region").length).toBe(10 + 10 * 20);
     expect(rows.filter((r) => r.level === "national").length).toBe(21 + 1 + 5);
   });
   test("every Majlis has every role", () => {
@@ -27,6 +28,16 @@ describe("roster generator", () => {
     expect(e((r) => r.role === "regional_qaid" && r.region === "New York Metro")).toBe("qaid.newyorkmetro@mkausa.org");
     expect(e((r) => r.role === "mohtamim" && r.departmentSlug === "rishta-nata")).toBe("rishtanata@mkausa.org");
     expect(e((r) => r.role === "motamid" && r.level === "national")).toBe("motamid@mkausa.org");
+  });
+  test("regional department officers: 10 regions x 20 departments (not Atfal), flagged unconfirmed", () => {
+    const reg = rows.filter((r) => r.role === "regional_nazim" || r.role === "regional_motamid");
+    expect(reg.length).toBe(200);
+    expect(reg.every((r) => r.source === "formula-unconfirmed")).toBe(true);
+    const e = (d: string, rg: string) => reg.find((r) => r.departmentSlug === d && r.region === rg)?.learnerEmail;
+    expect(e("mohasib", "East")).toBe("mohasib.east@mkausa.org");
+    expect(e("aitmad", "Great Lakes")).toBe("motamid.greatlakes@mkausa.org");
+    expect(e("new-immigrants", "New York Metro")).toBe("immigrants.newyorkmetro@mkausa.org");
+    expect(rows.filter((r) => r.level === "majlis" || r.role === "regional_qaid").every((r) => r.source === "formula")).toBe(true);
   });
   test("emails are unique", () => {
     expect(new Set(rows.map((r) => r.learnerEmail)).size).toBe(rows.length);

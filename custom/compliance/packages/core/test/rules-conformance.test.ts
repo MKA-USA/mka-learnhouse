@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { DEPARTMENTS } from "../src/seed/departments";
+import { generateRoster } from "../src/roster";
 
 // Fork rules file (written in the attrs worktree). Override with RULES_PATH; SKIPS if absent.
 const rulesPath = process.env.RULES_PATH ??
@@ -23,5 +24,12 @@ describe.skipIf(!present)("department table conforms to fork identity rules", ()
       const mine = DEPARTMENTS.find((x) => x.slug === norm(d.name))!;
       expect({ dept: d.key, prefix: mine.mailboxPrefix }).toEqual({ dept: d.key, prefix: byDept.get(d.key) as string });
     }
+  });
+  test("regional department officers: same departments as the rules' `regional` entries (Atfal excluded in both)", () => {
+    const lp = rules.domains["mkausa.org"].local_prefixes as Record<string, { department: string | null; regional?: string }>;
+    const withRegional = Object.values(lp).filter((v) => v.regional && v.department && v.regional !== "regional_qaid").map((v) => v.department!.replace(/_/g, "-")).sort();
+    if (!withRegional.length) return; // rules not yet extended
+    const mine = [...new Set(generateRoster().filter((r) => r.role === "regional_nazim" || r.role === "regional_motamid").map((r) => r.departmentSlug))].sort();
+    expect(mine).toEqual(withRegional);
   });
 });
