@@ -12,6 +12,7 @@ from src.routers import usergroups
 from src.routers import dev, trail, users, auth, orgs, roles, search
 from src.routers import mfa as mfa_router_module
 from src.routers import mka_profile as mka_profile_router_module  # MKA fork
+from src.routers import mka_attributes as mka_attributes_router_module  # MKA fork
 from src.routers import monitoring
 from src.routers import nudges as nudges_router_module
 from src.routers import stream
@@ -77,6 +78,12 @@ v1_router.include_router(  # MKA fork
     prefix="/mka/profile",
     tags=["mka-profile"],
     dependencies=[Depends(get_non_api_token_user)],
+)
+v1_router.include_router(  # MKA fork: session (/me) + org API token (admin routes), gated per handler
+    mka_attributes_router_module.router,
+    prefix="/mka/attributes",
+    tags=["mka-attributes"],
+    dependencies=[Depends(require_authenticated_user_or_api_token)],
 )
 v1_router.include_router(
     usergroups.router,

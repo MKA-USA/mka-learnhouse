@@ -618,3 +618,36 @@ diff --git a/apps/web/components/Auth/TurnstileWidget.tsx b/apps/web/components/
 ---
 
 **Reminder**: Before modifying an upstream file, verify that no extension point, plugin, or wrapper approach exists. Document the change here immediately after making it.
+
+
+### MKA identity attributes (`mka_user_attributes`, Feature A, milestones M1+M2)
+
+- **Date**: 2026-10-04
+- **Reason**: Server-derived identity attributes (level / department / role / Majlis / Region) from the Google-verified email, with admin + roster overrides and an audit trail. All logic is fork-only (`services/mka/`, `routers/mka_attributes.py`, `db/mka_user_attributes.py`, migration `mka_20261004_user_attributes`, tests under `src/tests/**/mka*`). Upstream files get ONLY the three hooks below. Spec: `docs/superpowers/specs/2026-10-04-mka-conditional-visibility-design.md` (A1/A2/GDPR).
+- **Re-apply after pulling upstream**: `grep -rn "MKA fork" apps/api/src` and run `uv run pytest src/tests/services/mka src/tests/routers/test_mka_attributes_router.py src/tests/routers/test_mka_attributes_security.py`.
+
+1. `apps/api/src/router.py` (hook A1: mount the router; same pattern as the `mka_profile` block). The router admits a session OR an org API token and gates every handler itself (admin routes reuse upstream's `_require_api_token` + `_resolve_org_slug`, as `/admin/{org_slug}/...` does).
+```diff
++from src.routers import mka_attributes as mka_attributes_router_module  # MKA fork
+@@ after the mka_profile include_router block
++v1_router.include_router(  # MKA fork: session (/me) + org API token (admin routes), gated per handler
++    mka_attributes_router_module.router,
++    prefix="/mka/attributes",
++    tags=["mka-attributes"],
++    dependencies=[Depends(require_authenticated_user_or_api_token)],
++)
+```
+2. `apps/api/src/services/auth/session.py` (hook A2: derive on login; fail-open, Google-only, SAVEPOINT; the function itself swallows every error)
+```diff
++from src.services.mka.attributes import mka_refresh_on_login  # MKA fork
+@@ issue_session_or_challenge, right after the block_non_google_auth lines
++    await mka_refresh_on_login(db_session, user, amr)  # MKA fork: fail-open, Google-only
+```
+3. `apps/api/src/services/admin/admin.py` (GDPR export: one-token change to the EXISTING `# MKA fork` line; `profile_status` returns attributes only when `include_attributes=True`, so learner-facing routes never see them)
+```diff
+-        "mka_profile": await profile_status(db_session, user_id),  # MKA fork
++        "mka_profile": await profile_status(db_session, user_id, include_attributes=True),  # MKA fork
+```
+(`delete_profile`, called by upstream `anonymize_user`, now also deletes attribute/audit/roster rows: the change is inside the fork file `services/users/mka_profile.py`, no upstream edit.)
+
+- **Not touched**: `cli.py` (backfill is `python -m src.services.mka.backfill`), `MKA_GOOGLE_ONLY_DOMAINS` / any SSO restriction.
