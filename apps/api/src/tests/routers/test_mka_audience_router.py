@@ -841,7 +841,43 @@ async def test_count_rule_larger_than_64kb_is_422_and_just_under_is_fine(db, wor
 @pytest.mark.asyncio
 async def test_count_body_larger_than_128kb_is_refused_before_parsing(db, world):
     r = await post_raw(db, ADMIN, b'{"org_id": 1, "rule": ' + b'"' + b"x" * 200_000 + b'"}')
-    assert r.status_code == 422 and "too large" in r.json()["detail"]
+    assert r.status_code == 422 and r.json()["detail"] == "request body is too large"
+
+
+@pytest.mark.asyncio
+async def test_count_body_cap_is_independent_of_the_rule_cap(db, world):
+    # a tiny, valid rule: only the 128 KB BODY cap can refuse this (the 64 KB rule cap sees a 30-byte rule)
+    padding = b" " * 200_000
+    raw = b'{"org_id": 1, "rule": {"v": 1, "mode": "show", "groups": [{}]},' + padding + b'"course_uuid": null}'
+    assert len(raw) > 128 * 1024
+    r = await post_raw(db, ADMIN, raw)
+    assert r.status_code == 422 and r.json()["detail"] == "request body is too large"
+    ok_raw = b'{"org_id": 1, "rule": {"v": 1, "mode": "show", "groups": [{}]},' + b" " * 1000 + b'"course_uuid": null}'
+    assert (await post_raw(db, ADMIN, ok_raw)).status_code == 200  # same payload with modest padding is fine
+
+
+class _FakeRequest:
+    def __init__(self, raw: bytes):
+        self._raw = raw
+
+    async def body(self):
+        return self._raw
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("constant", ["NaN", "Infinity", "-Infinity"])
+async def test_count_body_parser_rejects_json_constants_even_in_an_otherwise_valid_body(constant):
+    from fastapi import HTTPException
+
+    from src.routers.mka_attributes import _count_body
+
+    # NaN sits inside an UNKNOWN group key value: the model and the rule validator would both accept it, only the parser refuses
+    raw = ('{"org_id": 1, "rule": {"v": 1, "mode": "show", "groups": [{"gender": [%s]}]}}' % constant).encode()
+    with pytest.raises(HTTPException) as exc:
+        await _count_body(_FakeRequest(raw))
+    assert exc.value.status_code == 422 and exc.value.detail == "request body must be valid JSON"
+    ok = await _count_body(_FakeRequest(b'{"org_id": 1, "rule": {"v": 1, "mode": "show", "groups": [{"gender": [1.5]}]}}'))
+    assert ok.org_id == 1  # same shape without the constant is accepted
 
 
 @pytest.mark.asyncio

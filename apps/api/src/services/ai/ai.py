@@ -22,6 +22,7 @@ from src.services.ai.base import (
     save_message_to_history,
 )
 from src.services.ai.llm import model_for_tier
+from src.services.mka.audience_strip import mka_content_for_ai  # MKA fork
 
 from src.services.ai.schemas.ai import (
     ActivityAIChatSessionResponse,
@@ -153,6 +154,7 @@ async def ai_start_activity_chat_session(
 
     # Get Activity Content Blocks
     content = activity.content
+    content = await mka_content_for_ai(content, current_user, db_session, request, course=course)  # MKA fork
 
     # Serialize Activity Content Blocks to a text comprehensible by the AI
     structured = structure_activity_content_by_type(content)
@@ -300,6 +302,7 @@ async def ai_send_activity_chat_message(
 
     # Get Activity Content Blocks
     content = activity.content
+    content = await mka_content_for_ai(content, current_user, db_session, request, course=course)  # MKA fork
 
     # Serialize Activity Content Blocks to a text comprehensible by the AI
     structured = structure_activity_content_by_type(content)
@@ -443,6 +446,7 @@ async def _get_activity_and_course_info(
 
     # Get Activity Content Blocks
     content = activity.content
+    content = await mka_content_for_ai(content, current_user, db_session, request, course=course)  # MKA fork
 
     # Serialize Activity Content Blocks to a text comprehensible by the AI
     structured = structure_activity_content_by_type(content)
