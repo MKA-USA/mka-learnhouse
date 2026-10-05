@@ -1,0 +1,19 @@
+{
+  "body": {
+    "attributes": {
+      "department": null,
+      "is_officeholder": null,
+      "level": null,
+      "majlis": null,
+      "region": null,
+      "role": null,
+      "role_title": null,
+      "status": "unrecognized"
+    },
+    "can_view_all": true,
+    "rules_version": "2026.1",
+    "stale": false
+  },
+  "path": "me?course_uuid=course_tabligh",
+  "status": 200
+}

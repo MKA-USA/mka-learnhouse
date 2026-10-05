@@ -1,0 +1,23 @@
+{
+  "body": {
+    "counterparts": [
+      {
+        "department": "tabligh",
+        "email": "tabligh@mkausa.org",
+        "level": "national",
+        "name": null,
+        "role_title": "Mohtamim Tabligh"
+      },
+      {
+        "department": null,
+        "email": "qaid.northeast@mkausa.org",
+        "level": "regional",
+        "name": null,
+        "role_title": "Regional Qaid"
+      }
+    ],
+    "reason": null
+  },
+  "path": "me/counterparts",
+  "status": 200
+}

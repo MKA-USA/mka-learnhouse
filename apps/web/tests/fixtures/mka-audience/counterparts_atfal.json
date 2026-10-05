@@ -1,0 +1,30 @@
+{
+  "body": {
+    "counterparts": [
+      {
+        "department": "atfal",
+        "email": "atfal@mkausa.org",
+        "level": "national",
+        "name": null,
+        "role_title": "Mohtamim Atfal"
+      },
+      {
+        "department": null,
+        "email": "qaid.northeast@mkausa.org",
+        "level": "regional",
+        "name": null,
+        "role_title": "Regional Qaid"
+      },
+      {
+        "department": "atfal",
+        "email": "nazim.syracuse@atfalusa.org",
+        "level": "local",
+        "name": null,
+        "role_title": "Nazim Atfal"
+      }
+    ],
+    "reason": null
+  },
+  "path": "me/counterparts",
+  "status": 200
+}
