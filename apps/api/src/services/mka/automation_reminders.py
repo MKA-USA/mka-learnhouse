@@ -448,6 +448,13 @@ async def run_org(
     if want_reminder and not reminder_day:
         out["reminder"] = {"ran": False, "reason": "not_a_reminder_day"}
         want_reminder = False
+    elif want_reminder and window_start is not None and window_start > cycle.deadline_on + timedelta(
+        weeks=cfg.reminder_overdue_weeks()
+    ):
+        # Round 2 L2: overdue reminders stop N weeks after the deadline; from then on the person only shows up in the
+        # Monday digest to the Mohtamim / regional Qaid (counts and list), which keeps going.
+        out["reminder"] = {"ran": False, "reason": "overdue_period_over"}
+        want_reminder = False
     if want_digest and not digest_day:
         out["digest"] = {"ran": False, "reason": "not_a_monday"}
         want_digest = False

@@ -228,3 +228,26 @@ async def test_real_mode_cooldown_holds_back_a_second_reminder_across_the_week_b
     monkeypatch.setenv("MKA_REMINDER_COOLDOWN_DAYS", "1")
     later = (await go(db, utc(2026, 11, 16, 16), org, dry_run=False))["reminder"]  # 25 h after the first, new ISO week
     assert later["sent"] == CANDIDATES
+
+
+# --- overdue reminders stop (round 2 L2) ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("day, ran", [
+    ((2026, 12, 8), True), ((2026, 12, 15), True), ((2026, 12, 22), True), ((2026, 12, 29), True),  # +7 .. +28 days
+    ((2027, 1, 5), False), ((2027, 1, 12), False),  # +35, +42: past the 4 overdue weeks
+])
+async def test_overdue_reminders_stop_four_weeks_after_the_deadline(db, org, world, transport, on, day, ran):  # noqa: F811
+    rep = await go(db, utc(*day), org, dry_run=False)
+    assert rep["reminder"]["ran"] is ran
+    if not ran:
+        assert rep["reminder"]["reason"] == "overdue_period_over"
+
+
+async def test_the_overdue_period_is_configurable_and_the_monday_digest_goes_on(db, org, world, transport, on, monkeypatch):  # noqa: F811
+    monkeypatch.setenv("MKA_REMINDER_OVERDUE_WEEKS", "6")
+    assert (await go(db, utc(2027, 1, 5), org, dry_run=False))["reminder"]["ran"] is True  # +5 weeks, allowed now
+    monkeypatch.setenv("MKA_REMINDER_OVERDUE_WEEKS", "1")
+    late = await go(db, utc(2027, 1, 4), org, dry_run=False, kind="all")  # a Monday, well past the overdue period
+    assert late["reminder"] == {"ran": False, "reason": "not_a_reminder_day"}
+    assert late["digest"]["ran"] is True and late["digest"]["sent"] >= 1  # supervisors still hear about it
