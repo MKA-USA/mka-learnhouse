@@ -14,6 +14,7 @@ from src.routers import mfa as mfa_router_module
 from src.routers import mka_profile as mka_profile_router_module  # MKA fork
 from src.routers import mka_attributes as mka_attributes_router_module  # MKA fork
 from src.routers import mka_compliance as mka_compliance_router_module  # MKA fork
+from src.routers import mka_automation as mka_automation_router_module  # MKA fork
 from src.routers import monitoring
 from src.routers import nudges as nudges_router_module
 from src.routers import stream
@@ -91,6 +92,11 @@ v1_router.include_router(  # MKA fork: compliance analytics; session (scope-gate
     prefix="/mka/compliance",
     tags=["mka-compliance"],
     dependencies=[Depends(require_authenticated_user_or_api_token)],
+)
+v1_router.include_router(  # MKA fork: automation; NO router-level auth dependency on purpose: webhook (HMAC), cron (secret) and admin endpoints each authenticate themselves
+    mka_automation_router_module.router,
+    prefix="/mka/automation",
+    tags=["mka-automation"],
 )
 v1_router.include_router(
     usergroups.router,

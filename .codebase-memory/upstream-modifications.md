@@ -672,6 +672,26 @@ diff --git a/apps/web/components/Auth/TurnstileWidget.tsx b/apps/web/components/
 +    dependencies=[Depends(require_authenticated_user_or_api_token)],
 +)
 
+```
+
+### MKA compliance automation API (hook H5)
+
+- **Date**: 2026-10-05
+- **Reason**: mounts the fork-only `/mka/automation` router (status now; webhook receiver and cron endpoints in later seams). All logic is fork-only (`routers/mka_automation.py`, `services/mka/automation*.py`, `db/mka_automation.py`, migration `mka_20261005_automation`, tests, runbook). Spec: `docs/superpowers/specs/2026-10-05-mka-compliance-automation-design.md`. No extension point exists for adding a router.
+- **No router-level auth dependency, on purpose**: the webhook authenticates by HMAC signature and the cron endpoints by `X-MKA-Cron-Secret`; each handler authenticates itself (`/status`: org admin session or Read-only-or-better org token). Guarded by `test_the_router_is_mounted_without_a_router_level_auth_dependency`.
+- **Re-apply after pulling upstream**: `grep -n "mka_automation" apps/api/src/router.py`; run `cd apps/api && uv run --with greenlet python -m pytest src/tests/services/mka src/tests/routers -q -k mka`.
+
+`apps/api/src/router.py` (import + mount, after the mka_compliance block):
+```diff
++from src.routers import mka_automation as mka_automation_router_module  # MKA fork
+@@ after the mka_compliance include_router block
++v1_router.include_router(  # MKA fork: automation; NO router-level auth dependency on purpose: webhook (HMAC), cron (secret) and admin endpoints each authenticate themselves
++    mka_automation_router_module.router,
++    prefix="/mka/automation",
++    tags=["mka-automation"],
++)
+```
+
 ## MKA native compliance analytics: web hooks H1-H3 (apps/web)
 
 - **Date**: 2026-10-04
