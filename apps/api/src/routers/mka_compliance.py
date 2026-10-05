@@ -62,10 +62,8 @@ def _filename(course_uuid: str) -> str:
 
 async def _admin(current_user, org_id, org_slug, db):
     """Org admin session or org token that may update the org (H1)."""
-    admin = await _resolve_admin(current_user, org_id, org_slug, db, allow_token=True)
-    if isinstance(current_user, APITokenUser):
-        scope_svc.token_may(current_user, *scope_svc.TOKEN_WRITE)
-    return admin
+    # token_right=TOKEN_WRITE: the shared resolver checks organizations.action_update (not the read default)
+    return await _resolve_admin(current_user, org_id, org_slug, db, allow_token=True, token_right=scope_svc.TOKEN_WRITE)
 
 
 async def _viewer_context(
