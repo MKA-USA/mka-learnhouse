@@ -30,7 +30,7 @@ async def token_with(db, org, rights, uuid):
 # ---- H1 ---------------------------------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("rights", [{}, {"courses": {"action_read": True}}, {"users": {"action_read": False}}])
+@pytest.mark.parametrize("rights", [{}, {"courses": {"action_read": True}}, {"courses": {"action_read": False}, "assignments": {"action_read": True}}])
 async def test_token_without_the_needed_rights_gets_403_everywhere(db, org, world, rights):  # noqa: F811  (pytest fixture imported from another test module)
     async with await token_with(db, org, rights, "apitoken_none") as c:
         p = {"org_slug": org.slug}
@@ -47,12 +47,12 @@ async def test_token_without_the_needed_rights_gets_403_everywhere(db, org, worl
 async def test_read_only_token_cannot_import_or_delete_and_write_only_token_cannot_read(db, org, world):  # noqa: F811  (pytest fixture imported from another test module)
     p = {"org_slug": org.slug}
     cid = world.cycle.id
-    async with await token_with(db, org, {"users": {"action_read": True}}, "apitoken_ro") as c:
+    async with await token_with(db, org, {"courses": {"action_read": True}, "assignments": {"action_read": True}}, "apitoken_ro") as c:
         assert (await c.get(f"{BASE}/overview", params=p)).status_code == 200
         assert (await c.post(f"{BASE}/cycles", params=p, json=cycle_payload())).status_code == 403
         assert (await c.post(f"{BASE}/expected/import", params=p, json={"cycle_id": cid, "rows": []})).status_code == 403
         assert (await c.delete(f"{BASE}/cycles/{cid}/expected", params=p)).status_code == 403
-    async with await token_with(db, org, {"organizations": {"action_update": True}}, "apitoken_wo") as c:
+    async with await token_with(db, org, {"courses": {"action_update": True}}, "apitoken_wo") as c:
         assert (await c.get(f"{BASE}/overview", params=p)).status_code == 403
         assert (await c.post(f"{BASE}/expected/import", params=p, json={"cycle_id": cid, "rows": []})).status_code == 200
 

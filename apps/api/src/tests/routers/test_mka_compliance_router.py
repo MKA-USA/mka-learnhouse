@@ -63,7 +63,7 @@ async def token_client(db, org, world):
     full, prefix, hashed = generate_api_token()
     db.add(APIToken(name="prov", token_uuid="apitoken_c", token_prefix=prefix, token_hash=hashed,
                     org_id=org.id, created_by_user_id=1,
-                    rights={"users": {"action_read": True}, "organizations": {"action_update": True}},
+                    rights={"courses": {"action_read": True, "action_update": True}, "assignments": {"action_read": True}},
                     creation_date=str(datetime.now()), update_date=str(datetime.now())))
     await db.commit()
     app = _app(db)  # real auth path, no overrides

@@ -64,7 +64,7 @@ def _app(db):
 async def token_client(db, org, admin_user, seeded):
     full, prefix, hashed = generate_api_token()
     db.add(APIToken(name="companion", token_uuid="apitoken_x", token_prefix=prefix, token_hash=hashed,
-                    org_id=org.id, created_by_user_id=admin_user.id, rights={"users": {"action_read": True}, "organizations": {"action_update": True}},
+                    org_id=org.id, created_by_user_id=admin_user.id, rights={"courses": {"action_read": True, "action_update": True}, "assignments": {"action_read": True}},
                     creation_date=str(datetime.now()), update_date=str(datetime.now())))
     await db.commit()
     app = _app(db)  # no auth override: real get_current_user + real token validation

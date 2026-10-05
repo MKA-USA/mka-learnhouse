@@ -31,7 +31,7 @@ async def test_m1_token_written_roster_row_cannot_grant_all_to_an_unproven_accou
     await db.commit()
     async with client_for(db, 60) as c:
         assert (await c.get(f"{BASE}/scope", params=q(org))).json()["scope"] == "none"
-    async with await token_with(db, org, {"organizations": {"action_update": True}}, "apitoken_m1") as t:
+    async with await token_with(db, org, {"courses": {"action_update": True}}, "apitoken_m1") as t:
         r = await t.put(f"{ATTR}/roster/attacker.person@gmail.com", params={"org_slug": org.slug},
                         json={"attributes": NATIONAL, "note": "x"})
         assert r.status_code == 200, r.text

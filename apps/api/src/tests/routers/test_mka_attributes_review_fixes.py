@@ -297,6 +297,9 @@ async def test_r1_hook_never_raises_and_never_touches_callers_session(db, org, m
     assert result.access_token
 
 
+FULL_ACCESS = {"courses": {"action_read": True, "action_update": True}, "assignments": {"action_read": True}}
+
+
 # --- M5: token rights ------------------------------------------------------------------------------------------------
 
 def _token_client(db, org, admin_user, rights):
@@ -325,10 +328,10 @@ async def test_m5_token_rights_are_enforced(db, org, admin_user):
     body = {"attributes": {"level": "national", "role": "sadr"}}
     cases = [
         ({}, 403, 403),                                                              # empty rights refused
-        ({"courses": {"action_read": True}}, 403, 403),                              # unrelated rights
-        ({"users": {"action_read": True}}, 200, 403),                                # read only
-        ({"organizations": {"action_update": True}}, 403, 200),                      # write only
-        ({"users": {"action_read": True}, "organizations": {"action_update": True}}, 200, 200),
+        ({"search": {"action_read": True}}, 403, 403),                               # unrelated rights
+        ({"courses": {"action_read": True}, "assignments": {"action_read": True}}, 200, 403),   # read only
+        ({"courses": {"action_update": True}}, 403, 200),                            # write only
+        (FULL_ACCESS, 200, 200),
     ]
     for rights, read_status, write_status in cases:
         _, c = _token_client(db, org, admin_user, rights)

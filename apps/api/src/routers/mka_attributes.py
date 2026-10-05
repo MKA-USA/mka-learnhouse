@@ -104,7 +104,7 @@ async def _resolve_admin(
         if not org_slug:
             raise HTTPException(status_code=422, detail="org_slug is required for API-token access")
         token_user = _require_api_token(current_user)
-        token_may(token_user, *token_right)     # empty rights refused; reads need users.action_read, writes organizations.action_update
+        token_may(token_user, *token_right)     # empty rights refused; reads need courses+assignments read, writes courses.action_update
         org = await _resolve_org_slug(org_slug, token_user, db_session)
         return _Admin(org.id, None, "companion")
     if isinstance(current_user, SuperadminAPITokenUser):
