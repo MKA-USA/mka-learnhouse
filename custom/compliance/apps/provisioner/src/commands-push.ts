@@ -101,7 +101,7 @@ export async function cmdAssignAuthors(a: Args) {
     skipped.forEach((s) => console.log("  skipped " + s));
     if (!todo.length) return;
     if (!process.env.LH_API_TOKEN) { console.log("(no LH_API_TOKEN: lookups skipped; run via `bun run lh assign-authors`)"); return; }
-    const res = await assignAuthors(new LhApi(client()), todo, apply);
+    const res = await assignAuthors(new LhApi(client(1500)), todo, apply);
     const tally = res.reduce<Record<string, number>>((m, r) => ((m[r.status] = (m[r.status] ?? 0) + 1), m), {});
     console.log(`result: ${JSON.stringify(tally)}`);
     writeOut("assign-authors-report.json", JSON.stringify({ cycle, apply, results: res, skipped }, null, 1));

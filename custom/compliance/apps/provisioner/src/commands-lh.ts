@@ -18,10 +18,11 @@ function selection(a: Args) {
   return null;
 }
 
-function clientFromEnv() {
+/** by-email lookups are limited to 60/min per token (routers/admin.py): reconcile paces at 1.5s. */
+function clientFromEnv(delayMs = 1200, maxRetries = 2) {
   process.env.LH_API_BASE ||= STAGING_API_BASE;
   assertStaging(process.env.LH_API_BASE);
-  return LhClient.fromEnv({ ...process.env, LH_ORG_SLUG: process.env.LH_ORG_SLUG || "default" }, { delayMs: 1200, maxRetries: 2 });
+  return LhClient.fromEnv({ ...process.env, LH_ORG_SLUG: process.env.LH_ORG_SLUG || "default" }, { delayMs, maxRetries });
 }
 
 export function formatPlan(p: CoursePlan): string {
@@ -88,7 +89,7 @@ export async function cmdReconcile(a: Args) {
   if (apply && !a.has("confirm-staging")) throw new SafetyError("reconcile --apply requires --confirm-staging");
   const sel = selection(a);
   if (!sel) throw new SafetyError("reconcile requires --pilot, --only <slugs> or --all");
-  const client = clientFromEnv(); const api = new LhApi(client);
+  const client = clientFromEnv(1500, 4); const api = new LhApi(client);
   const cycle = a.str("cycle", DEFAULT_CYCLE)!; const config = configFrom(a); assertNotExcluded(sel.only, config); const { db, sql } = connect();
   try {
     const cid = await getCycleId(db, cycle); if (cid === null) throw new Error(`cycle ${cycle} not found`);
