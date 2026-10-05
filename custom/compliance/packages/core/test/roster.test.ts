@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { activeDepartments, resolveConfig, withoutExcluded } from "../src/config";
-import { generateRoster, MAJLIS_TO_REGION, REGION_NAMES, slugify } from "../src/roster";
+import { coursesFor, generateRoster, MAJLIS_TO_REGION, REGION_NAMES, slugify } from "../src/roster";
 
 const rows = generateRoster();
 describe("roster generator", () => {
@@ -12,7 +12,7 @@ describe("roster generator", () => {
     expect(rows.filter((r) => r.level === "majlis").length).toBe(52 * 22);
     expect(rows.filter((r) => r.role === "regional_qaid").length).toBe(10);
     expect(rows.filter((r) => r.level === "region").length).toBe(10 + 10 * 20);
-    expect(rows.filter((r) => r.level === "national").length).toBe(20 + 1 + 5);
+    expect(rows.filter((r) => r.level === "national").length).toBe(20 + 1 + 1 + 5); // 20 department heads (Atfal excluded) + Sadr + Mohtamim Muqami + 5 staff
   });
   test("every Majlis has every role", () => {
     for (const m of Object.keys(MAJLIS_TO_REGION)) {
@@ -41,6 +41,17 @@ describe("roster generator", () => {
     expect(e("new-immigrants", "New York Metro")).toBe("immigrants.newyorkmetro@mkausa.org");
     expect(rows.filter((r) => r.level === "majlis" || r.role === "regional_qaid").every((r) => r.source === "formula")).toBe(true);
   });
+  test("Muqami: one national mailbox, no regional-department set, no department course", () => {
+    expect(REGION_NAMES).not.toContain("Muqami");
+    const nat = rows.filter((r) => r.learnerEmail === "muqami@mkausa.org");
+    expect(nat.length).toBe(1);
+    expect(nat[0]).toMatchObject({ level: "national", role: "mohtamim", roleTitle: "Mohtamim Muqami", departmentSlug: "" });
+    expect(coursesFor(nat[0]!)).toEqual({ general: true, department: null });
+    // region "Muqami" has no regional rows at all; its only rows are the 22 chapter (Majlis) roles (24 minus the 2 Atfal roles, excluded by default)
+    expect(rows.filter((r) => r.region === "Muqami" && r.level !== "majlis").length).toBe(0);
+    expect(rows.filter((r) => r.majlis === "Muqami").length).toBe(22);
+    expect(rows.filter((r) => r.learnerEmail.includes(".muqami@")).length).toBe(22);
+  });
   test("Atfal is excluded everywhere by default and comes back with one switch", () => {
     expect(rows.filter((r) => r.departmentSlug === "atfal" || r.learnerEmail.endsWith("@atfalusa.org")).length).toBe(0);
     const on = generateRoster({ excludedDepartments: [] });
@@ -63,7 +74,7 @@ describe("roster generator", () => {
   test("slugify", () => { expect(slugify("Saint Louis")).toBe("saintlouis"); expect(slugify("Syracuse-Binghamton")).toBe("syracuse-binghamton"); });
 });
 
-const regionRules = fileURLToPath(new URL("../../../../../apps/api/src/services/mka/identity_rules/2026.1.json", import.meta.url));
+const regionRules = fileURLToPath(new URL("../../../../../apps/api/src/services/mka/identity_rules/2026.2.json", import.meta.url));
 describe.skipIf(!existsSync(regionRules))("region slugs conform to rules", () => {
   test("region slugs match", () => {
     const rules = JSON.parse(readFileSync(regionRules, "utf8"));

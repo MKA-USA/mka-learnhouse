@@ -28,7 +28,7 @@ from typing import Any, Optional
 logger = logging.getLogger(__name__)
 
 RULES_DIR = Path(__file__).resolve().parent / "identity_rules"
-DEFAULT_RULES_VERSION = "2026.1"
+DEFAULT_RULES_VERSION = "2026.2"
 
 STATUSES = ("matched", "partial", "ambiguous", "unrecognized", "not_applicable")
 LEVELS = ("national", "regional", "local")
@@ -83,6 +83,7 @@ class IdentityRules:
         self.regions: dict[str, str] = dict(raw.get("regions", {}))
         self.slug_aliases: dict[str, str] = dict(raw.get("slug_aliases", {}))
         self.unconfirmed_slugs: set[str] = set(raw.get("unconfirmed_slugs", []))
+        self.same_entity_slugs: set[str] = set(raw.get("same_entity_slugs", []))
         self.role_titles: dict[str, str] = dict(raw.get("role_titles", {}))
         self.department_names: dict[str, str] = {
             d["key"]: d["name"] for d in raw.get("departments", [])
@@ -103,7 +104,17 @@ class IdentityRules:
     # -- introspection ---------------------------------------------------------
     def collisions(self) -> list[str]:
         """Slugs that name both a Region and a Majlis (ambiguous under `qaid.`)."""
-        return sorted(set(self.regions) & set(self.majlis_by_slug))
+        return sorted(
+            slug for slug in set(self.regions) & set(self.majlis_by_slug)
+            if not self.same_entity(slug)
+        )
+
+    def same_entity(self, slug: str) -> bool:
+        """A slug the rules declare as ONE entity that is both a Region and a Majlis (Muqami is
+        its own Region and its own chapter): not a collision, it resolves to the Majlis (local).
+        Opt-in via ``same_entity_slugs``; any other overlap stays ambiguous."""
+        majlis = self.majlis_by_slug.get(slug)
+        return slug in self.same_entity_slugs and bool(majlis) and self.majlis_to_region.get(majlis) == self.regions.get(slug)
 
     # -- helpers -----------------------------------------------------------------
     def resolve_majlis(self, domain: str, slug: str) -> Optional[str]:
@@ -208,7 +219,8 @@ def _parse(email: Any, rules: IdentityRules) -> MkaAttributes:
         if status != "matched":
             # Known mailbox, unresolved meaning: keep what the rule says, nothing more.
             return _make(rules, nat, status=status, level=nat.get("level"), role=nat.get("role"))
-        return _make(rules, nat, status="matched", level="national", role=nat.get("role"))
+        return _make(rules, nat, status="matched", level="national", role=nat.get("role"),
+                     majlis=nat.get("majlis"), region=nat.get("region"))
 
     parts = local.split(".")
     if len(parts) != 2:
@@ -227,7 +239,7 @@ def _parse(email: Any, rules: IdentityRules) -> MkaAttributes:
     region_name = rules.regions.get(slug)
     regional_role = entry.get("regional")
 
-    if regional_role and region_name and majlis:
+    if regional_role and region_name and majlis and not rules.same_entity(slug):
         # `qaid.{slug}` where the slug is both a Region and a Majlis: refuse to guess.
         return MkaAttributes(
             status="ambiguous", is_officeholder=True, level=None, department=None, role=None,
