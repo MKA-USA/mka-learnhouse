@@ -94,7 +94,8 @@ async def strip(db, uid, content=CONTENT, request=None, course=True, people=None
 async def test_local_tabligh_sees_matching_and_untargeted_sections_only(db, people, mock_request):
     got = await strip(db, 10, request=mock_request)
     assert texts(got) == sorted(["PUBLIC", "SECRET-LOCAL-TABLIGH", "HIDDEN-FROM-NATIONAL", "PUBLIC-END"])
-    assert [n["type"] for n in got["content"]] == ["paragraph", "mkaAudience", "mkaAudience", "paragraph"]
+    assert [n["type"] for n in got["content"]] == ["paragraph"] * 4  # matching sections are unwrapped: their paragraphs are top-level
+    assert [texts(n)[0] for n in got["content"]] == ["PUBLIC", "SECRET-LOCAL-TABLIGH", "HIDDEN-FROM-NATIONAL", "PUBLIC-END"]
 
 
 async def test_national_viewer_loses_local_and_hide_sections(db, people, mock_request):
@@ -116,7 +117,8 @@ async def test_anonymous_and_token_principals_are_the_nobody_viewer(db, people, 
 @pytest.mark.parametrize("uid", [1, 12, 14])  # org admin, active author of this course, superadmin
 async def test_viewers_who_can_view_all_get_everything(db, people, mock_request, uid):
     got = await strip(db, uid, request=mock_request)
-    assert got == CONTENT and got is not CONTENT
+    assert [n["type"] for n in got["content"]] == ["paragraph"] * 5  # everything, unwrapped, in document order
+    assert [texts(n)[0] for n in got["content"]] == ["PUBLIC", "SECRET-LOCAL-TABLIGH", "HIDDEN-FROM-NATIONAL", "SECRET-NATIONAL", "PUBLIC-END"]
 
 
 async def test_admin_without_a_course_is_not_elevated_and_other_course_author_is_not_either(db, people, mock_request):
@@ -139,6 +141,8 @@ async def test_audience_sections_in_every_block_position_are_stripped(db, people
     )
     got = await strip(db, 10, content=content, request=mock_request)
     assert texts(got) == sorted(["ok-quote", "ok-list", "ok-local"])
+    assert "mkaAudience" not in json.dumps(got)  # unwrapped inside quotes / lists too
+    assert got["content"][0]["content"] == [para("ok-quote")] and got["content"][3] == para("ok-local")
 
 
 async def test_malformed_audience_nodes_fail_closed(db, people, mock_request):
@@ -156,6 +160,13 @@ async def test_malformed_audience_nodes_fail_closed(db, people, mock_request):
     got = await strip(db, 10, content=content, request=mock_request)
     leftover = texts(got)
     assert "kept" in leftover and not any(t.startswith("S-") for t in leftover)
+
+
+async def test_unwrap_is_recursive_and_keeps_order(db, people, mock_request):
+    content = doc(para("a"), aud(LOCAL, para("b"), aud(LOCAL, para("c"), aud(NATIONAL, para("S"))), para("d")), para("e"))
+    got = await strip(db, 10, content=content, request=mock_request)
+    assert [texts(n)[0] for n in got["content"]] == ["a", "b", "c", "d", "e"]
+    assert all(n["type"] == "paragraph" for n in got["content"])
 
 
 async def test_audience_node_outside_a_list_is_emptied(db, people, mock_request):
@@ -223,6 +234,12 @@ async def activity_with_audience(db, activity):
     return activity
 
 
+def as_user_with_membership(uid):
+    from src.db.users import PublicUser
+
+    return PublicUser(id=uid, username=f"u{uid}", first_name="F", last_name="L", email=f"u{uid}@x.invalid", user_uuid=f"user_{uid}")
+
+
 def _patches(seen, asked):
     real = ai_service.structure_activity_content_by_type
 
@@ -274,8 +291,26 @@ async def test_learner_prompt_content_excludes_hidden_sections_on_all_chat_paths
     assert all("SECRET" not in (t or "") for t in asked)
 
 
-async def test_admin_prompt_content_keeps_every_section(db, org, course, activity_with_audience, org_config, mock_request, admin_user, people):
+async def test_learner_prompt_contains_the_text_of_sections_that_match_them(db, org, course, activity_with_audience, org_config, mock_request, people):
+    """The model sees what the learner sees: a matching section is unwrapped, so the serializer (top-level blocks only) reads it."""
     seen, asked = [], []
     with _Ctx(_patches(seen, asked)):
-        await ai_service._get_activity_and_course_info("activity_test", db, mock_request, admin_user)
+        await ai_service.ai_start_activity_chat_session(
+            mock_request, StartActivityAIChatSession(activity_uuid="activity_test", message="hi"), as_user_with_membership(10), db)
+    top = [n["type"] for n in seen[0]["content"]]
+    assert top == ["paragraph"] * 4                                # no wrapper left
+    flat = json.dumps(seen[0])
+    assert "SECRET-LOCAL-TABLIGH" in flat and "HIDDEN-FROM-NATIONAL" in flat and "SECRET-NATIONAL" not in flat
+    prompt = asked[0] if isinstance(asked[0], str) else json.dumps(asked[0])
+    assert "SECRET-LOCAL-TABLIGH" in prompt and "HIDDEN-FROM-NATIONAL" in prompt and "PUBLIC" in prompt
+    assert "SECRET-NATIONAL" not in prompt
+
+
+async def test_admin_prompt_content_keeps_every_section_unwrapped(db, org, course, activity_with_audience, org_config, mock_request, admin_user, people):
+    seen, asked = [], []
+    with _Ctx(_patches(seen, asked)):
+        _a, _c, _o, _m, text = await ai_service._get_activity_and_course_info("activity_test", db, mock_request, admin_user)
     assert texts(seen[0]) == texts(CONTENT)
+    assert [n["type"] for n in seen[0]["content"]] == ["paragraph"] * 5
+    for needle in ("SECRET-LOCAL-TABLIGH", "HIDDEN-FROM-NATIONAL", "SECRET-NATIONAL"):
+        assert needle in text

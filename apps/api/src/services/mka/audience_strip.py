@@ -1,8 +1,9 @@
 """MKA fork: keep audience-restricted lesson text out of what is sent to an AI model for a learner.
 
 ``mka_content_for_ai`` returns a copy of a ProseMirror document in which every ``mkaAudience`` node the viewer's EFFECTIVE attributes
-do not match (fail-closed reader + the Python rule evaluator) is removed together with everything inside it. Viewers who may see
-every section of the course (superadmin, admin/maintainer of the course's org, active author) get the content unchanged.
+do not match (fail-closed reader + the Python rule evaluator) is removed together with everything inside it, and every matching one is
+UNWRAPPED (replaced by its children) so the model sees exactly what the learner sees. Viewers who may see every section of the course
+(superadmin, admin/maintainer of the course's org, active author) get all sections, unwrapped.
 
 Fail closed, never raise: ANY error while resolving the viewer or walking the document strips every audience section; if even that
 fails, an empty document is returned. The input is never mutated and the unfiltered document is never returned once an audience
@@ -51,15 +52,26 @@ def _contains_audience(content: Any) -> bool:
 
 
 def _walk(node: Any, visible: Callable[[dict], bool], depth: int = 0) -> Any:
-    """Deep copy of ``node`` minus every audience node for which ``visible`` is False."""
+    """Deep copy of ``node`` in which every audience node is either removed (``visible`` is False) or UNWRAPPED: replaced in its
+    parent's content by its own (recursively processed) children, so downstream serializers that only read top-level blocks see
+    exactly what the viewer sees."""
     if depth > MAX_DEPTH:
         raise _TooDeep()
     if isinstance(node, list):
-        return [_walk(child, visible, depth + 1) for child in node if not (_is_audience(child) and not visible(child))]
+        out: list = []
+        for child in node:
+            if _is_audience(child):
+                if visible(child):
+                    children = child.get("content")
+                    if isinstance(children, list):
+                        out.extend(_walk(children, visible, depth + 1))
+                continue
+            out.append(_walk(child, visible, depth + 1))
+        return out
     if isinstance(node, dict):
         if _is_audience(node) and not visible(node):  # malformed placement (not a list item): keep no content at all
             return {"type": AUDIENCE_TYPE, "content": []}
-        return {key: _walk(value, visible, depth + 1) for key, value in node.items()}
+        return {key: _walk(value, visible, depth + 1) for key, value in node.items()}  # a visible root audience node has no parent to unwrap into
     return node  # scalars are immutable
 
 
