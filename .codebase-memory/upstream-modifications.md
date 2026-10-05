@@ -754,3 +754,13 @@ diff --git a/apps/web/components/Auth/TurnstileWidget.tsx b/apps/web/components/
      content = activity.content
 +    content = await mka_content_for_ai(content, current_user, db_session, request, course=course)  # MKA fork
 ```
+
+### Fork-ADDED root config: `apps/web/bunfig.toml` (test preload)
+
+- **Date**: 2026-10-05
+- **Reason**: Radix decides at module load whether `globalThis.document` exists, so DOM-based fork tests failed depending on which test file loaded first. `bunfig.toml` preloads `apps/web/tests/setup/dom.mjs` (happy-dom globals) for every `bun test` run. No upstream file is edited.
+- **Content** (re-apply if upstream ever adds its own `apps/web/bunfig.toml`: merge the `[test] preload` line into it instead of overwriting):
+```toml
+[test]
+preload = ["./tests/setup/dom.mjs"]
+```
