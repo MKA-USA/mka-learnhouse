@@ -13,13 +13,15 @@ token's org. Every response is ``Cache-Control: private, no-store``.
 
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, Query, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.core.events.database import get_db_session
 from src.routers.mka_attributes import _resolve_admin
 from src.security.auth import get_authenticated_user
+from src.db.users import APITokenUser, SuperadminAPITokenUser
+from src.services.mka import automation_reminders as reminders
 from src.services.mka import compliance as svc
 from src.services.mka import compliance_import as imp
 from src.services.mka import compliance_scope as scope_svc
@@ -294,3 +296,36 @@ async def api_course_trend(
         request, response, current_user, org_id, org_slug, cycle_id, course_uuid, db_session
     )
     return svc.build_trend(ds, link, course, svc.today())
+
+
+# ---------------------------------------------------------------------------------------------------------
+# manual "Remind" button (seam C)
+# ---------------------------------------------------------------------------------------------------------
+
+@router.post("/courses/{course_uuid}/remind")
+async def api_remind_course(
+    course_uuid: str,
+    request: Request,
+    response: Response,
+    org_id: Optional[int] = Query(None),
+    org_slug: Optional[str] = Query(None),
+    cycle_id: Optional[int] = Query(None),
+    dry_run: bool = Query(True, description="Preview the counts only (default); false sends"),
+    current_user=Depends(get_authenticated_user),
+    db_session: AsyncSession = Depends(get_db_session),
+) -> dict:
+    """Remind the people still outstanding on this course. Session users only (API tokens: 403); the course must be
+    in the viewer's compliance scope (404 otherwise); at most one real remind per course per 24 h (429)."""
+    _private(response)
+    if isinstance(current_user, (APITokenUser, SuperadminAPITokenUser)):
+        raise HTTPException(status_code=403, detail="A user session is required")
+    scope, cycle = await _viewer_context(request, response, current_user, org_id, org_slug, cycle_id, db_session)
+    link, course = await scope_svc.resolve_course(db_session, scope, cycle, course_uuid)  # 403 none / 404 not yours
+    org = await db_session.get(reminders.Organization, scope.org_id)
+    try:
+        return await reminders.remind_course(
+            db_session, org=org, cycle=cycle, link=link, course=course, viewer_id=current_user.id, dry_run=dry_run,
+        )
+    except reminders.ManualRemindBlocked as blocked:
+        headers = {"Retry-After": str(blocked.retry_after)} if blocked.retry_after else None
+        raise HTTPException(status_code=blocked.status_code, detail=blocked.detail, headers=headers)

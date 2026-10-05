@@ -21,6 +21,7 @@ import type {
   LearnerFilters,
   LearnersResponse,
   OverviewResponse,
+  RemindResponse,
   ScopeResponse,
 } from './compliance.types'
 
@@ -33,7 +34,7 @@ export * from './compliance.types'
 export const MKA_COMPLIANCE_MOCK =
   process.env.NEXT_PUBLIC_MKA_COMPLIANCE_MOCK === '1' && process.env.NODE_ENV !== 'production'
 
-/** Reminders are pending a product decision: the "Remind" placeholder renders only when this flag is on. */
+/** The course "Remind" button (dry-run preview + confirm dialog) renders only when this flag is on. */
 export const MKA_COMPLIANCE_REMIND = process.env.NEXT_PUBLIC_MKA_COMPLIANCE_REMIND === '1'
 
 /** ISO date used for deadline countdowns (fixed in mock mode so screenshots are stable). */
@@ -112,6 +113,26 @@ export async function fetchLearners(
   if (MKA_COMPLIANCE_MOCK) return (await import('./compliance.mock')).mockLearners(courseUuid, filters, cycleId)
   const params = new URLSearchParams(learnerQuery(filters, cycleId, null))
   return getJSON<LearnersResponse>(`courses/${seg(courseUuid)}/learners`, Object.fromEntries(params), auth)
+}
+
+/**
+ * "Remind" (seam C). `dryRun` defaults to TRUE on the server too: a real send needs an explicit `dryRun === false`.
+ * Throws ComplianceApiError with the HTTP status (403 / 404 / 409 / 429) so the dialog can word each case.
+ */
+export async function remindCourse(
+  auth: ComplianceAuth,
+  courseUuid: string,
+  cycleId: number | null,
+  dryRun: boolean,
+): Promise<RemindResponse> {
+  if (MKA_COMPLIANCE_MOCK) return (await import('./compliance.mock')).mockRemind(courseUuid, dryRun)
+  const qs = buildQuery({ org_id: auth.orgId, cycle_id: cycleId, dry_run: dryRun ? 'true' : 'false' })
+  const res = await fetch(
+    `${getAPIUrl()}mka/compliance/courses/${seg(courseUuid)}/remind?${qs}`,
+    RequestBodyWithAuthHeader('POST', null, { revalidate: 0 }, auth.token),
+  )
+  if (!res.ok) throw new ComplianceApiError(res.status, `Remind request failed (${res.status})`)
+  return (await res.json()) as RemindResponse
 }
 
 /**

@@ -1,0 +1,7 @@
+{
+  "body": {
+    "detail": "Compliance access required"
+  },
+  "path": "courses/course_tabligh/remind",
+  "status": 403
+}

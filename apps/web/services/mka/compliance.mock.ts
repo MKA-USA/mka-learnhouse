@@ -29,6 +29,7 @@ import type {
   MajlisRow,
   OverviewResponse,
   RegionRow,
+  RemindResponse,
   ScopeCourse,
   ScopeResponse,
 } from './compliance.types'
@@ -447,4 +448,26 @@ export async function mockChaseCsv(uuid: string, f: LearnerFilters): Promise<{ c
     [p.name ?? '', p.roleTitle, p.department, p.majlis ?? '', p.region ?? '', p.email, st.status].map(csvCell).join(','),
   )
   return { csv: [head.join(','), ...lines].join('\r\n'), truncated: false }
+}
+
+// ---- remind (seam C) ------------------------------------------------------------------------
+const _reminded = new Set<string>()
+
+/** Mirrors the API: preview is free, a real send takes the course's 24 h slot (second one: 429). */
+export async function mockRemind(uuid: string, dryRun: boolean): Promise<RemindResponse> {
+  await wait()
+  const course = findCourse(uuid) // 404 outside the viewer's scope
+  if (mockViewerScope() === 'none') throw new MockApiError(403, 'Forbidden')
+  if (_reminded.has(course.course_uuid)) throw new MockApiError(429, 'Already reminded')
+  const rows = courseRows(course).map(({ st }) => st.status)
+  const attested = rows.filter((s) => s === 'attested').length
+  const outstanding = rows.length - attested
+  const recent = Math.min(outstanding, Math.floor(outstanding / 5))
+  const wouldSend = outstanding - recent
+  if (!dryRun) _reminded.add(course.course_uuid)
+  return {
+    dry_run: dryRun, enabled: true, test_mode: true, candidates: outstanding,
+    would_send: dryRun ? wouldSend : 0, sent: dryRun ? 0 : wouldSend, skipped_recent: recent,
+    skipped_attested: attested, skipped_excluded: 0, suppressed: 0, failed: 0, disabled: 0, stopped: null,
+  }
 }

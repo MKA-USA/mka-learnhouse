@@ -65,3 +65,8 @@ async def api_status(
 from src.routers.mka_automation_receipts import router as _receipts_router  # noqa: E402
 
 router.include_router(_receipts_router)
+
+# --- seam C: reminders ---
+from src.routers.mka_automation_reminders import router as _reminders_router  # noqa: E402
+
+router.include_router(_reminders_router)

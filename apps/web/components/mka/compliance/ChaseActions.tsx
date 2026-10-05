@@ -1,9 +1,8 @@
 'use client'
 import React, { useState } from 'react'
-import { BellRing, Download, Loader2 } from 'lucide-react'
+import { Download, Loader2 } from 'lucide-react'
 import { Button } from '@components/ui/button'
 import {
-  MKA_COMPLIANCE_REMIND,
   complianceToday,
   downloadChaseListCsv,
   useComplianceAuth,
@@ -62,19 +61,5 @@ export function DownloadChaseList({
         {failed ? "Couldn't download the list. Try again." : busy ? 'Preparing download' : (notice ?? '')}
       </span>
     </div>
-  )
-}
-
-/**
- * Reminders are pending a product decision. Renders nothing unless
- * NEXT_PUBLIC_MKA_COMPLIANCE_REMIND=1, and even then is an inert placeholder.
- */
-export function RemindPlaceholder() {
-  if (!MKA_COMPLIANCE_REMIND) return null
-  return (
-    <Button type="button" variant="outline" disabled title="Reminders are coming soon" className="bg-white">
-      <BellRing aria-hidden="true" />
-      Remind (coming soon)
-    </Button>
   )
 }

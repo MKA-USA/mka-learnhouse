@@ -1,0 +1,105 @@
+name: MKA Automation Cron
+
+# Daily trigger for the compliance automation (spec 2026-10-05, seam C). There is no scheduler inside LearnHouse in our
+# mode, so GitHub calls two protected endpoints on the dev deployment:
+#   1. POST /api/v1/mka/automation/reminders/run   (the endpoint decides whether today is a reminder day / Monday)
+#   2. POST /api/v1/mka/automation/receipts/sweep   (seam B; a 404 is logged and skipped until that endpoint ships)
+#
+# Safety: every run is a DRY RUN unless the operator turns it off.
+#   * workflow_dispatch: input `dry_run` defaults to true.
+#   * schedule: dry-run unless the repository VARIABLE MKA_AUTOMATION_CRON_DRY_RUN is exactly `false`.
+# The server independently needs MKA_AUTOMATION_ENABLED + the feature flags, and redirects all mail to
+# MKA_AUTOMATION_TEST_RECIPIENT while that is set. See docs/runbooks/automation/reminders.md.
+#
+# `schedule` only fires from the default branch (`dev`).
+on:
+  schedule:
+    - cron: "0 14 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Preview only (nothing is sent or logged). Untick to send for real."
+        type: boolean
+        default: true
+      kind:
+        description: "What to run"
+        type: choice
+        options: [all, reminder, digest]
+        default: all
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mka-automation-cron
+  cancel-in-progress: false
+
+env:
+  BASE_URL: https://ilm-dev.mkausa.org/api/v1/mka/automation
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    environment: development
+    timeout-minutes: 10
+    steps:
+      - name: Resolve parameters
+        id: params
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_DRY_RUN: ${{ github.event.inputs.dry_run }}
+          INPUT_KIND: ${{ github.event.inputs.kind }}
+          VAR_DRY_RUN: ${{ vars.MKA_AUTOMATION_CRON_DRY_RUN }}
+        run: |
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            if [ "$INPUT_DRY_RUN" = "false" ]; then dry=false; else dry=true; fi
+            case "$INPUT_KIND" in reminder|digest|all) kind="$INPUT_KIND" ;; *) kind=all ;; esac
+          else
+            if [ "$VAR_DRY_RUN" = "false" ]; then dry=false; else dry=true; fi
+            kind=all
+          fi
+          echo "dry_run=$dry" >> "$GITHUB_OUTPUT"
+          echo "kind=$kind" >> "$GITHUB_OUTPUT"
+          echo "Calling the automation endpoints with dry_run=$dry kind=$kind"
+
+      - name: Run reminders and digests
+        env:
+          MKA_AUTOMATION_CRON_SECRET: ${{ secrets.MKA_AUTOMATION_CRON_SECRET }}
+          DRY_RUN: ${{ steps.params.outputs.dry_run }}
+          KIND: ${{ steps.params.outputs.kind }}
+        run: |
+          set -eu
+          if [ -z "$MKA_AUTOMATION_CRON_SECRET" ]; then
+            echo "::error::Repository secret MKA_AUTOMATION_CRON_SECRET is not set for the development environment"
+            exit 1
+          fi
+          echo "::add-mask::$MKA_AUTOMATION_CRON_SECRET"
+          # The header goes through curl's config on stdin so the secret never appears in a process list or in the log.
+          printf 'header = "X-MKA-Cron-Secret: %s"\n' "$MKA_AUTOMATION_CRON_SECRET" | curl --config - \
+            --silent --show-error --fail-with-body --max-time 120 -X POST \
+            "$BASE_URL/reminders/run?dry_run=$DRY_RUN&kind=$KIND"
+          echo
+
+      - name: Sweep receipts (seam B)
+        if: ${{ !cancelled() }}
+        env:
+          MKA_AUTOMATION_CRON_SECRET: ${{ secrets.MKA_AUTOMATION_CRON_SECRET }}
+          DRY_RUN: ${{ steps.params.outputs.dry_run }}
+        run: |
+          set -u
+          if [ -z "$MKA_AUTOMATION_CRON_SECRET" ]; then
+            echo "::error::Repository secret MKA_AUTOMATION_CRON_SECRET is not set for the development environment"
+            exit 1
+          fi
+          echo "::add-mask::$MKA_AUTOMATION_CRON_SECRET"
+          status=$(printf 'header = "X-MKA-Cron-Secret: %s"\n' "$MKA_AUTOMATION_CRON_SECRET" | curl --config - \
+            --silent --show-error --fail-with-body --max-time 120 -X POST \
+            --output sweep-response.txt --write-out '%{http_code}' \
+            "$BASE_URL/receipts/sweep?dry_run=$DRY_RUN") || rc=$?
+          if [ "$status" = "404" ]; then
+            echo "::notice::receipts/sweep returned 404: that endpoint is not deployed yet (seam B). Skipping, not a failure."
+            exit 0
+          fi
+          cat sweep-response.txt
+          echo
+          exit "${rc:-0}"
