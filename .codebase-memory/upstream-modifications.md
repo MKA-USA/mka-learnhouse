@@ -710,3 +710,56 @@ diff --git a/apps/web/components/Auth/TurnstileWidget.tsx b/apps/web/components/
 @@ after the analytics render block
 +            {!rightsLoading && params.subpage == 'compliance' && hasPermission('update') ? <MkaCourseComplianceTab courseUUID={courseuuid} /> : null} {/* MKA fork */}
 ```
+
+### Audience block editor hooks (W1/W2/W3, `mkaEditorExtensions`)
+
+- **Date**: 2026-10-05
+- **Reason**: TipTap 3.31.3 runs with `enableContentCheck: false`, so a document containing a node the instance does not register renders the WHOLE lesson blank. Every TipTap instance that loads activity content must therefore register the fork's `mkaAudience` / `mkaViewerField` / `mkaCounterparts` nodes. The extension arrays are inline literals in three upstream files, so each gets one import line and one spread line. All logic is fork-only in `apps/web/components/mka/editor/`, `components/mka/audience/`, `services/mka/attributes*.ts`. The guard test `apps/web/tests/mka-editor-hooks.test.mjs` fails if a new upstream TipTap site appears without the hook. `mkaEditorExtensions` never throws and always returns the nodes.
+- **Not hooked (verified)**: `DiscussionEditor.tsx` / `DiscussionContent.tsx` (discussion content, never activity JSON), `Boards/BoardCanvas.tsx` (stores an `activityBlock` reference; the activity itself renders through `DynamicCanva`, covered by W2).
+- **Hook sites and diffs**:
+
+1. W1 `apps/web/components/Objects/Editor/Editor.tsx` (authoring editor, `extensions` useMemo)
+```diff
+ import AIStreamingMark from './Extensions/AIStreaming/AIStreamingMark'
++import { mkaEditorExtensions } from '@components/mka/editor' // MKA fork
+@@ after `MagicBlock.configure({ editable: true, activity: stableActivity }),`
++      ...mkaEditorExtensions({ editable: true, activity: stableActivity, courseUuid: props.course?.course_uuid }), // MKA fork
+```
+2. W2 `apps/web/components/Objects/Activities/DynamicCanva/DynamicCanva.tsx` (learner/embed/board viewer; its editor is `editable: true` internally but read-only via the EditorContext provider, so `editable: false` is passed)
+```diff
+ import AICanvaToolkit from './AI/AICanvaToolkit'
++import { mkaEditorExtensions } from '@components/mka/editor' // MKA fork
+@@ after the `MagicBlock.configure({ editable: false, activity: props.activity }),` entry
++      ...mkaEditorExtensions({ editable: false, activity: props.activity, courseUuid: props.courseUuid }), // MKA fork
+```
+3. W3 `apps/web/components/Objects/Editor/EditorPreview.tsx` (version history / merge conflict previews)
+```diff
+ import MagicBlock from './Extensions/MagicBlocks/MagicBlock'
++import { mkaEditorExtensions } from '@components/mka/editor' // MKA fork
+@@ after the `MagicBlock.configure({ editable: false, activity: activity }),` entry
++      ...mkaEditorExtensions({ editable: false, activity }), // MKA fork
+```
+
+### Audience block: AI prompt strip hook (`apps/api/src/services/ai/ai.py`)
+
+- **Date**: 2026-10-05 (user-approved upstream hook)
+- **Reason**: the learner "ask AI about this activity" paths serialize `activity.content` into the model context. Audience sections (`mkaAudience` nodes) a learner cannot see must never be part of that context. The fork module `apps/api/src/services/mka/audience_strip.py::mka_content_for_ai` removes every non-matching section and UNWRAPS every matching one (replaced by its children, so the top-level-only serializer reads what the learner sees; fail-closed reader + Python evaluator; can-view-all viewers get all sections unwrapped; any error strips all audience sections). One import line and one call line per site; all logic is fork-only. Three call sites cover the four entry points (`ai_start_activity_chat_session`, `ai_send_activity_chat_message`, and `_get_activity_and_course_info` which both streaming functions use).
+- **Why no extension point**: `ai.py` builds the prompt inline from `activity.content`; there is no content filter hook.
+- **Note**: `structure_activity_content_by_type` only reads TOP-LEVEL heading / callout / paragraph nodes, so without unwrapping the model would see none of the text inside `mkaAudience` wrappers. Matching sections are therefore unwrapped by the hook.
+- **Diff** (same three lines after each `content = activity.content`, plus the import):
+```diff
+ from src.services.ai.llm import model_for_tier
++from src.services.mka.audience_strip import mka_content_for_ai  # MKA fork
+@@ in ai_start_activity_chat_session, ai_send_activity_chat_message, _get_activity_and_course_info
+     content = activity.content
++    content = await mka_content_for_ai(content, current_user, db_session, request, course=course)  # MKA fork
+```
+
+## MKA fork — added root config `apps/web/bunfig.toml` (2026-10-05, audience block)
+
+Not an upstream file (upstream has none). Added so every bun test run preloads `apps/web/tests/setup/dom.mjs` (happy-dom) before any test file loads; Radix captures `globalThis.document` at module load, so without a global preload the audience picker tests were order-dependent. If upstream ever adds its own `apps/web/bunfig.toml`, merge this in:
+
+```toml
+[test]
+preload = ["./tests/setup/dom.mjs"]
+```

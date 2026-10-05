@@ -60,6 +60,7 @@ import TableOfContents from './TableOfContents'
 import { CustomHeading } from './CustomHeadingExtenstion'
 import WebPreview from '@components/Objects/Editor/Extensions/WebPreview/WebPreview'
 import AICanvaToolkit from './AI/AICanvaToolkit'
+import { mkaEditorExtensions } from '@components/mka/editor' // MKA fork
 
 interface Editor {
   content: string
@@ -207,6 +208,7 @@ function Canva(props: Editor) {
         editable: false,
         activity: props.activity,
       }),
+      ...mkaEditorExtensions({ editable: false, activity: props.activity, courseUuid: props.courseUuid }), // MKA fork
       TableRow,
       TableHeader,
       TableCell,

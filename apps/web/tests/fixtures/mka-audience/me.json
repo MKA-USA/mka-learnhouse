@@ -1,0 +1,19 @@
+{
+  "body": {
+    "attributes": {
+      "department": "tabligh",
+      "is_officeholder": true,
+      "level": "local",
+      "majlis": "Albany",
+      "region": "Northeast",
+      "role": "nazim_dept",
+      "role_title": "Nazim Tabligh",
+      "status": "matched"
+    },
+    "can_view_all": false,
+    "rules_version": "2026.3",
+    "stale": false
+  },
+  "path": "me?course_uuid=course_tabligh",
+  "status": 200
+}
