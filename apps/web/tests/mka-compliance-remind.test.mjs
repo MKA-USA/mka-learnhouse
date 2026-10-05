@@ -7,7 +7,7 @@ import { join } from "node:path";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { canSendReminders, currentCycle, remindBlockedReason, remindErrorMessage, remindHeadline, remindSkipped } from "../components/mka/compliance/format.ts";
+import { canSendReminders, currentCycle, remindBlockedReason, remindConflict, remindErrorMessage, remindHeadline, remindSkipped } from "../components/mka/compliance/format.ts";
 import { RemindButton, RemindDialogView } from "../components/mka/compliance/RemindDialog.tsx";
 import { MKA_COMPLIANCE_REMIND, errorStatus } from "../services/mka/compliance.ts";
 
@@ -17,7 +17,7 @@ const fx = (name) => JSON.parse(readFileSync(join(import.meta.dir, "fixtures", "
 const SHAPE = {
   dry_run: "boolean", enabled: "boolean", test_mode: "boolean", candidates: "number", would_send: "number", sent: "number",
   skipped_recent: "number", skipped_attested: "number", skipped_excluded: "number", suppressed: "number", failed: "number",
-  disabled: "number", stopped: "string?", remaining: "number", time_budget_hit: "boolean",
+  disabled: "number", stopped: "string?", remaining: "number", time_budget_hit: "boolean", preview_digest: "string?",
 };
 function problems(body) {
   const out = [];
@@ -186,5 +186,35 @@ describe("Remind only for the current, started cycle (review H1)", () => {
   test("a blocked button is disabled and carries the explanation (hidden flag is checked elsewhere)", () => {
     // RemindButton returns null while the feature flag is off, so only the pure rule is rendered here.
     expect(remindBlockedReason(past, all, "2026-11-16").length).toBeGreaterThan(20);
+  });
+});
+
+describe("the real send is tied to the preview (review M4)", () => {
+  const noop = () => {};
+  const html = (phase) => renderToStaticMarkup(React.createElement(RemindDialogView, { phase, onConfirm: noop, onRetry: noop, onClose: noop }));
+  test("the preview carries the digest the confirm must send back; a real send does not", () => {
+    const p = fx("remind_preview_tabligh").body;
+    const s = fx("remind_sent_tabligh").body;
+    expect(typeof p.preview_digest).toBe("string");
+    expect(p.preview_digest.length).toBeGreaterThanOrEqual(32);
+    expect(s.preview_digest).toBeNull();
+  });
+  test("the API's 409s are told apart by their detail (real fixtures)", () => {
+    const changed = fx("err_409_remind_preview_changed");
+    const stale = fx("err_409_remind_not_current_cycle");
+    expect([changed.status, stale.status]).toEqual([409, 409]);
+    expect(remindConflict(changed.body.detail)).toBe("preview_changed");
+    expect(remindConflict(stale.body.detail)).toBe("not_current");
+    expect(remindConflict("Reminders are not switched on")).toBe("disabled");
+    expect(remindConflict(null)).toBe("disabled");
+    expect(remindErrorMessage(409, { detail: changed.body.detail })).toContain("review it again");
+    expect(remindErrorMessage(409, { detail: stale.body.detail })).toContain("current cycle");
+  });
+  test("when the list changed the dialog says so, offers a fresh review and does not offer to send", () => {
+    const h = html({ kind: "changed" });
+    expect(h).toContain('role="alert"');
+    expect(h).toContain("The list changed since you looked at it");
+    expect(h).toContain(">Review the list again</button>");
+    expect(h).not.toContain("Send ");
   });
 });

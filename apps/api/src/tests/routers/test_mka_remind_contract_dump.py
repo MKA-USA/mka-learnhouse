@@ -6,12 +6,15 @@ the dialog. Regenerate: ``MKA_DUMP_CONTRACT=1 uv run --with greenlet pytest src/
 
 import json
 import os
+from datetime import date
 from pathlib import Path
 
 import pytest
 
+from src.db.mka_compliance import MkaComplianceCycle, MkaComplianceCycleCourse
+
 from src.tests.routers.test_mka_automation_reminders_router import (  # noqa: F401
-    GENERAL, TABLIGH, client_for, env, on, q, transport, world,
+    GENERAL, TABLIGH, client_for, env, on, q, real, transport, world,
 )
 
 FIXTURES = Path(__file__).resolve().parents[3].parent / "web" / "tests" / "fixtures" / "mka-compliance"
@@ -34,8 +37,24 @@ def _emit(name: str, resp, path: str) -> None:
 async def test_dump_remind_responses(db, org, world, transport, on):  # noqa: F811  (fixtures imported from another module)
     async with client_for(db, 1) as c:  # org admin
         _emit("remind_preview_tabligh", await c.post(TABLIGH, params=q(org)), "courses/course_tabligh/remind?dry_run=true")
-        _emit("remind_sent_tabligh", await c.post(TABLIGH, params=q(org, dry_run="false")), "courses/course_tabligh/remind?dry_run=false")
+        _emit("remind_sent_tabligh", await real(c, TABLIGH, org), "courses/course_tabligh/remind?dry_run=false")
         _emit("err_429_remind_again", await c.post(TABLIGH, params=q(org)), "courses/course_tabligh/remind")
+        _emit(  # a real send whose list no longer matches the preview (review M4)
+            "err_409_remind_preview_changed",
+            await c.post(GENERAL, params=q(org, dry_run="false", preview_digest="0" * 40)),
+            "courses/course_general/remind?dry_run=false&preview_digest=<stale>",
+        )
+        past = MkaComplianceCycle(org_id=org.id, label="2025-26", starts_on=date(2025, 11, 1), deadline_on=date(2025, 12, 1))
+        db.add(past)
+        await db.commit()
+        db.add(MkaComplianceCycleCourse(org_id=org.id, cycle_id=past.id, course_id=102, course_uuid="course_tabligh",
+                                        kind="department", department="tabligh", signoff_assignment_id=5002))
+        await db.commit()
+        _emit(  # last year's cycle (review H1)
+            "err_409_remind_not_current_cycle",
+            await c.post(TABLIGH, params=q(org, cycle_id=past.id)),
+            "courses/course_tabligh/remind?cycle_id=<past>",
+        )
     async with client_for(db, 23) as c:  # author of the tabligh course only
         _emit("err_404_remind_other_course", await c.post(GENERAL, params=q(org)), "courses/course_general/remind")
     async with client_for(db, 2) as c:  # plain learner

@@ -182,7 +182,7 @@ export interface LearnerFilters {
 
 /**
  * POST /courses/{course_uuid}/remind?dry_run=  (seam C). `dry_run: true` is a preview: nothing is sent, nothing is
- * recorded. Errors: 403 (no access / API token), 404 (outside the viewer's scope), 409 (reminders switched off),
+ * recorded. Errors: 403 (no access / API token), 404 (outside the viewer's scope), 409 (reminders switched off / not the current cycle / the list changed since the preview), 422 (a real send without the preview digest),
  * 429 (this course was already reminded in the last 24 h; `Retry-After` seconds).
  */
 export interface RemindResponse {
@@ -204,4 +204,6 @@ export interface RemindResponse {
   /** Still to do when the run stopped early (time budget or send cap). Run it again; nobody is mailed twice. */
   remaining: number
   time_budget_hit: boolean
+  /** Preview only: fingerprint of the list shown. A real send must pass it back; the API refuses (409) when the list changed. */
+  preview_digest: string | null
 }

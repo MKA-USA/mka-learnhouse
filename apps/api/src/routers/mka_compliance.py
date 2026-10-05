@@ -311,6 +311,9 @@ async def api_remind_course(
     org_slug: Optional[str] = Query(None),
     cycle_id: Optional[int] = Query(None),
     dry_run: bool = Query(True, description="Preview the counts only (default); false sends"),
+    preview_digest: Optional[str] = Query(
+        None, max_length=128, description="A real send must present the digest its preview returned (422 without, 409 when the list changed)"
+    ),
     current_user=Depends(get_authenticated_user),
     db_session: AsyncSession = Depends(get_db_session),
 ) -> dict:
@@ -326,6 +329,7 @@ async def api_remind_course(
     try:
         return await reminders.remind_course(
             db_session, org=org, cycle=cycle, link=link, course=course, viewer_id=current_user.id, dry_run=dry_run,
+            expected_digest=preview_digest,
         )
     except reminders.ManualRemindBlocked as blocked:
         headers = {"Retry-After": str(blocked.retry_after)} if blocked.retry_after else None

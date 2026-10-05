@@ -127,9 +127,16 @@ export async function remindCourse(
   courseUuid: string,
   cycleId: number | null,
   dryRun: boolean,
+  previewDigest: string | null = null,
 ): Promise<RemindResponse> {
   if (MKA_COMPLIANCE_MOCK) return (await import('./compliance.mock')).mockRemind(courseUuid, dryRun)
-  const qs = buildQuery({ org_id: auth.orgId, cycle_id: cycleId, dry_run: dryRun ? 'true' : 'false' })
+  // A real send carries the digest of the list the person confirmed; the API refuses it when the list has changed.
+  const qs = buildQuery({
+    org_id: auth.orgId,
+    cycle_id: cycleId,
+    dry_run: dryRun ? 'true' : 'false',
+    preview_digest: dryRun ? null : previewDigest,
+  })
   const res = await fetch(
     `${getAPIUrl()}mka/compliance/courses/${seg(courseUuid)}/remind?${qs}`,
     RequestBodyWithAuthHeader('POST', null, { revalidate: 0 }, auth.token),

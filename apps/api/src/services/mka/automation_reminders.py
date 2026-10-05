@@ -23,6 +23,8 @@ Run reports and logs carry COUNTS only: never an address, a name or an answer. T
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import logging
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
@@ -187,21 +189,24 @@ def _local_midnight_utc(day: date) -> datetime:
     return start.astimezone(timezone.utc).replace(tzinfo=None)
 
 
-async def _send_reminders(
-    db: AsyncSession, *, org_id: int, cycle: MkaComplianceCycle, people: dict, url: str, today: date,
-    dry_run: bool, budget: SendBudget, now: datetime, counts: dict, manual_course_id: Optional[int] = None,
-    window_start: Optional[date] = None,
-) -> dict:
-    """Send (or preview) the reminders for ``people``.
+@dataclass
+class Selection:
+    """Who a run would remind, in the order it would remind them (review H2) and under which key week."""
 
-    Selection (review H2): people who already got THIS window's / week's reminder are dropped BEFORE the per-run cap
-    or time budget is spent, and the rest go least-recently-reminded first (then by address), so every run makes
-    progress through the not-yet-reminded remainder instead of re-walking the same alphabetical head. When the
-    budget stops the run ``remaining`` says how many are left and ``time_budget_hit`` whether it was the clock.
+    pending: list  # e-mail addresses, least recently reminded first
+    key_week: str  # ISO week label used in the dedupe key (scheduled: the window's first week)
+    already: int  # people dropped because they were already reminded in this window / week
+    last_sent: dict = field(default_factory=dict)
 
-    ``window_start`` (scheduled runs) is the scheduled date whose reminder window we are in: its ISO week is the
-    dedupe-key week, so a window that straddles two ISO weeks still reminds each person once.
-    ``manual_course_id`` (the Remind button) switches to the per-course manual key space."""
+
+async def select_pending(
+    db: AsyncSession, *, org_id: int, people: dict, today: date, now: datetime,
+    manual_course_id: Optional[int] = None, window_start: Optional[date] = None,
+) -> Selection:
+    """People already reminded this window / week are dropped BEFORE any per-run cap or time budget is spent, and the
+    rest are ordered least-recently-reminded first (then by address), so every run makes progress through the
+    not-yet-reminded remainder instead of re-walking the same alphabetical head. Manual runs use the per-course
+    manual key space instead and go by address."""
     week = current_iso_week(now)
     test_mode = current_mode_is_test()
     last_sent: dict = {}
@@ -210,6 +215,7 @@ async def _send_reminders(
             db, org_id, key_like=manual_dedupe_key(manual_course_id, week, "%"), test_mode=test_mode
         )
         excluded_people = set(done)
+        key_week = week
     else:
         key_week = iso_week_label(window_start) if window_start is not None else week
         cutoff = min(week_window_utc(week)[0], _local_midnight_utc(window_start or today))
@@ -219,11 +225,32 @@ async def _send_reminders(
         (e for e in people if e not in excluded_people),
         key=lambda e: (last_sent.get(e) or datetime.min, e),
     )
-    counts["skipped_recent"] += len(people) - len(pending)
+    return Selection(pending, key_week, len(people) - len(pending), last_sent)
+
+
+async def _send_reminders(
+    db: AsyncSession, *, org_id: int, cycle: MkaComplianceCycle, people: dict, url: str, today: date,
+    dry_run: bool, budget: SendBudget, now: datetime, counts: dict, manual_course_id: Optional[int] = None,
+    window_start: Optional[date] = None, selection: Optional[Selection] = None,
+) -> dict:
+    """Send (or preview) the reminders for ``people`` (see :func:`select_pending` for who and in which order).
+
+    When the budget stops the run ``remaining`` says how many are left and ``time_budget_hit`` whether it was the
+    clock. ``window_start`` (scheduled runs) is the scheduled date whose reminder window we are in: its ISO week is the
+    dedupe-key week, so a window that straddles two ISO weeks still reminds each person once. ``manual_course_id``
+    (the Remind button) switches to the per-course manual key space. ``selection`` lets the caller pass the exact
+    list it already showed / verified: nobody outside it is ever mailed."""
+    sel = selection or await select_pending(
+        db, org_id=org_id, people=people, today=today, now=now, manual_course_id=manual_course_id,
+        window_start=window_start,
+    )
+    week = current_iso_week(now)
+    pending = sel.pending
+    counts["skipped_recent"] += sel.already
     for index, email in enumerate(pending):
         p = people[email]
         dedupe_key = (
-            reminder_dedupe_key(email, key_week) if manual_course_id is None
+            reminder_dedupe_key(email, sel.key_week) if manual_course_id is None
             else manual_dedupe_key(manual_course_id, week, email)
         )
         mail = tpl.render_reminder(
@@ -494,6 +521,19 @@ def _naive_utc(now: datetime) -> datetime:
     return now.astimezone(timezone.utc).replace(tzinfo=None) if now.tzinfo else now
 
 
+def preview_digest(*, org_id: int, cycle_id: int, course_uuid: str, day: date, test_mode: bool, recipients: list) -> str:
+    """Stable fingerprint of WHO a manual remind would mail (review M4): the sorted recipient addresses plus org, cycle,
+    course, day and mode, keyed with the server secret so the browser cannot forge one or test guesses against it.
+    The real send recomputes it and refuses when it differs, so it never reaches anyone the dialog did not show."""
+    from src.security.security import SECRET_KEY  # lazy: the security module reads the configuration at import
+
+    material = "\n".join(
+        [f"org:{org_id}", f"cycle:{cycle_id}", f"course:{course_uuid}", f"day:{day.isoformat()}", f"test:{int(test_mode)}"]
+        + sorted(recipients)
+    )
+    return hmac.new(str(SECRET_KEY).encode(), material.encode(), hashlib.sha256).hexdigest()[:40]
+
+
 async def remind_course(
     db: AsyncSession,
     *,
@@ -504,6 +544,7 @@ async def remind_course(
     viewer_id: int,
     dry_run: bool,
     now: Optional[datetime] = None,
+    expected_digest: Optional[str] = None,
 ) -> dict:
     """Remind everyone still outstanding on ONE course. The caller has already resolved scope (404 otherwise)."""
     moment = now or current_instant()
@@ -528,6 +569,20 @@ async def remind_course(
     records = svc.course_records(ds, link, today.isoformat())
     people, counts = collect_people([(course.name, records)], ds.user_map, excluded_departments())
     counts = {**_blank_counts(), **counts}
+    # Review M4: the list is decided ONCE, here. The digest of that list is what a preview returns and what a real send
+    # must present; the send then goes to exactly this list and to nobody else.
+    selection = await select_pending(
+        db, org_id=org.id, people=people, today=today, now=moment, manual_course_id=link.course_id  # type: ignore[arg-type]
+    )
+    digest = preview_digest(
+        org_id=org.id, cycle_id=cycle.id, course_uuid=link.course_uuid, day=today,  # type: ignore[arg-type]
+        test_mode=current_mode_is_test(), recipients=selection.pending,
+    )
+    if not dry_run:
+        if not expected_digest:
+            raise ManualRemindBlocked(422, "Preview the list first: a real send needs the preview_digest it returned")
+        if not hmac.compare_digest(expected_digest, digest):
+            raise ManualRemindBlocked(409, "The list of recipients changed since the preview. Please review it again.")
 
     event_id: Optional[int] = None
     if not dry_run:
@@ -546,7 +601,7 @@ async def remind_course(
 
     counts = await _send_reminders(
         db, org_id=org.id, cycle=cycle, people=people, url=url, today=today, dry_run=dry_run,
-        budget=SendBudget(), now=moment, counts=counts, manual_course_id=link.course_id,
+        budget=SendBudget(), now=moment, counts=counts, manual_course_id=link.course_id, selection=selection,
     )
     if event_id is not None:
         event = await db.get(MkaAutomationEvent, event_id)
@@ -564,4 +619,5 @@ async def remind_course(
     return {
         "dry_run": dry_run, "enabled": cfg.reminders_enabled(), "test_mode": cfg.status_snapshot()["test_mode"],
         "candidates": len(people), **{k: v for k, v in counts.items() if k != "disabled_reason"},
+        "preview_digest": digest if dry_run else None,
     }

@@ -12,7 +12,7 @@ from src.db.mka_automation import MkaAutomationEvent, MkaAutomationSendLog
 from src.db.mka_compliance import MkaComplianceCycle, MkaComplianceCycleCourse, MkaComplianceExpected
 from src.services.mka import automation_reminders as rem
 from src.tests.routers.test_mka_automation_reminders_router import (  # noqa: F401
-    BASE, GENERAL, MON, TABLIGH, TESTER, client_for, count, env, on, q, transport, world,
+    BASE, GENERAL, MON, TABLIGH, TESTER, client_for, count, env, on, q, real, transport, world,
 )
 
 
@@ -74,7 +74,7 @@ def real_mode(monkeypatch):
 
 async def test_a_manual_remind_does_not_use_up_the_scheduled_weekly_reminder(db, org, world, transport, on, real_mode):  # noqa: F811
     async with client_for(db, 1) as c:
-        manual = await c.post(TABLIGH, params=q(org, dry_run="false"))  # one course only
+        manual = await real(c, TABLIGH, org)  # one course only
     assert manual.status_code == 200 and manual.json()["sent"] == 4
     report = await rem.run_all(db, dry_run=False, kind="reminder", now=MON)
     mine = next(o for o in report["orgs"] if o["org_id"] == org.id)["reminder"]
@@ -84,8 +84,8 @@ async def test_a_manual_remind_does_not_use_up_the_scheduled_weekly_reminder(db,
 
 async def test_manual_keys_are_per_course_and_per_week(db, org, world, transport, on, real_mode):  # noqa: F811
     async with client_for(db, 1) as c:
-        t1 = await c.post(TABLIGH, params=q(org, dry_run="false"))
-        g1 = await c.post(GENERAL, params=q(org, dry_run="false"))  # same people, another course: its own slot
+        t1 = await real(c, TABLIGH, org)
+        g1 = await real(c, GENERAL, org)  # same people, another course: its own slot
     assert t1.json()["sent"] == 4 and g1.json()["sent"] == 8
     keys = sorted(r.dedupe_key for r in (await db.execute(select(MkaAutomationSendLog))).scalars().all())
     assert all(k.startswith("manual:") for k in keys) and len(keys) == 12
@@ -96,9 +96,9 @@ async def test_a_second_manual_remind_of_the_same_course_in_the_same_week_reache
     db, org, world, transport, on, real_mode, monkeypatch  # noqa: F811
 ):
     async with client_for(db, 1) as c:
-        assert (await c.post(TABLIGH, params=q(org, dry_run="false"))).json()["sent"] == 4
+        assert (await real(c, TABLIGH, org)).json()["sent"] == 4
         monkeypatch.setattr(rem, "current_instant", lambda: MON + timedelta(hours=25))  # past the 24 h course limit
-        later = await c.post(TABLIGH, params=q(org, dry_run="false"))
+        later = await real(c, TABLIGH, org)
     assert later.status_code == 200 and later.json()["sent"] == 0 and later.json()["skipped_recent"] == 4
     assert len(transport.calls) == 4
 
@@ -107,7 +107,7 @@ async def test_the_scheduled_run_does_not_count_manual_rows_against_the_weekly_c
     from src.services.mka import automation_send as send
 
     async with client_for(db, 1) as c:
-        await c.post(GENERAL, params=q(org, dry_run="false"))
+        await real(c, GENERAL, org)
     week = send.current_iso_week(MON)
     assert await send.reminders_this_week(db, org.id, "l2@example.invalid", week) == 0
     assert not await send.reminded_this_week(db, org.id, "l2@example.invalid", week)
@@ -125,17 +125,17 @@ async def test_the_button_stops_at_the_budget_reports_what_is_left_and_can_be_ru
 
     monkeypatch.setattr(rem, "SendBudget", lambda: send.SendBudget(max_sends=3, delay_seconds=0))
     async with client_for(db, 1) as c:
-        first = await c.post(GENERAL, params=q(org, dry_run="false"))
+        first = await real(c, GENERAL, org)
         assert first.status_code == 200
         a = first.json()
         assert (a["sent"], a["remaining"], a["time_budget_hit"], a["stopped"]) == (3, 5, False, "send_cap_reached")
         # a partial run does not hold the 24 h slot: run it again for the rest, nobody is mailed twice
-        second = await c.post(GENERAL, params=q(org, dry_run="false"))
+        second = await real(c, GENERAL, org)
         b = second.json()
         assert second.status_code == 200 and (b["sent"], b["remaining"], b["skipped_recent"]) == (3, 2, 3)
-        third = await c.post(GENERAL, params=q(org, dry_run="false"))
+        third = await real(c, GENERAL, org)
         assert third.status_code == 200 and third.json()["sent"] == 2 and third.json()["remaining"] == 0
-        done = await c.post(GENERAL, params=q(org, dry_run="false"))  # a COMPLETE run takes the 24 h slot
+        done = await real(c, GENERAL, org)  # a COMPLETE run takes the 24 h slot
         assert done.status_code == 429
     to = [call["to"] for call in transport.calls]
     assert len(to) == 8 and set(to) == {TESTER}
@@ -149,7 +149,84 @@ async def test_the_button_stops_at_the_time_budget(db, org, world, transport, on
     ticks = iter(range(0, 1000, 40))  # the clock jumps 40 s per look: the 90 s budget is gone after two sends
     monkeypatch.setattr(rem, "SendBudget", lambda: send.SendBudget(delay_seconds=0, clock=lambda: float(next(ticks))))
     async with client_for(db, 1) as c:
-        r = await c.post(GENERAL, params=q(org, dry_run="false"))
+        r = await real(c, GENERAL, org)
     body = r.json()
     assert body["time_budget_hit"] is True and body["stopped"] == "time_budget_reached"
     assert 0 < body["sent"] < 8 and body["remaining"] == 8 - body["sent"]
+
+
+# ---------------------------------------------------------------------------------------------------------
+# M4: the real send is tied to the preview
+# ---------------------------------------------------------------------------------------------------------
+
+
+async def preview(c, org, path=TABLIGH):
+    r = await c.post(path, params=q(org))
+    assert r.status_code == 200
+    return r.json()
+
+
+async def test_the_preview_returns_a_stable_digest_and_a_real_send_with_it_goes_through(db, org, world, transport, on):  # noqa: F811
+    async with client_for(db, 1) as c:
+        p1, p2 = await preview(c, org), await preview(c, org)
+        assert p1["preview_digest"] == p2["preview_digest"] and len(p1["preview_digest"]) >= 32
+        assert "example.invalid" not in p1["preview_digest"]
+        sent = await c.post(TABLIGH, params=q(org, dry_run="false", preview_digest=p1["preview_digest"]))
+    assert sent.status_code == 200 and sent.json()["sent"] == p1["would_send"] == 4
+    assert sent.json()["preview_digest"] is None
+
+
+async def test_a_real_send_without_a_digest_is_refused_and_sends_nothing(db, org, world, transport, on):  # noqa: F811
+    async with client_for(db, 1) as c:
+        r = await c.post(TABLIGH, params=q(org, dry_run="false"))
+    assert r.status_code == 422
+    assert transport.calls == [] and await count(db, MkaAutomationSendLog) == 0 and await count(db, MkaAutomationEvent) == 0
+
+
+async def test_a_person_becoming_eligible_between_preview_and_send_is_never_mailed(db, org, world, transport, on):  # noqa: F811
+    async with client_for(db, 1) as c:
+        shown = await preview(c, org)
+        db.add(MkaComplianceExpected(org_id=org.id, cycle_id=world.cycle.id, email="late.joiner@example.invalid",
+                                     department="tabligh", level="local", majlis="Albany", region="Northeast",
+                                     role_title="Nazim Tabligh", person_name="Late Joiner"))
+        await db.commit()
+        refused = await c.post(TABLIGH, params=q(org, dry_run="false", preview_digest=shown["preview_digest"]))
+        assert refused.status_code == 409 and "changed since the preview" in refused.json()["detail"]
+        assert transport.calls == [] and await count(db, MkaAutomationSendLog) == 0
+        assert await count(db, MkaAutomationEvent) == 0  # the refusal did not take the 24 h slot
+        again = await preview(c, org)  # review the new list, confirm it
+        assert again["would_send"] == shown["would_send"] + 1 and again["preview_digest"] != shown["preview_digest"]
+        ok = await c.post(TABLIGH, params=q(org, dry_run="false", preview_digest=again["preview_digest"]))
+    assert ok.status_code == 200 and ok.json()["sent"] == 5
+
+
+async def test_a_swapped_person_with_the_same_head_count_is_refused_too(db, org, world, transport, on):  # noqa: F811
+    async with client_for(db, 1) as c:
+        shown = await preview(c, org)
+        row = (await db.execute(select(MkaComplianceExpected).where(MkaComplianceExpected.email == "ghost1@example.invalid"))).scalars().first()
+        row.email = "someone.else@example.invalid"  # same number of people, different person
+        await db.commit()
+        r = await c.post(TABLIGH, params=q(org, dry_run="false", preview_digest=shown["preview_digest"]))
+    assert r.status_code == 409 and transport.calls == []
+
+
+async def test_fewer_people_than_previewed_is_also_a_changed_list(db, org, world, transport, on):  # noqa: F811
+    async with client_for(db, 1) as c:
+        shown = await preview(c, org)
+        row = (await db.execute(select(MkaComplianceExpected).where(MkaComplianceExpected.email == "ghost1@example.invalid"))).scalars().first()
+        await db.delete(row)
+        await db.commit()
+        r = await c.post(TABLIGH, params=q(org, dry_run="false", preview_digest=shown["preview_digest"]))
+    assert r.status_code == 409 and transport.calls == []
+
+
+async def test_a_digest_is_bound_to_its_course_and_garbage_is_refused(db, org, world, transport, on):  # noqa: F811
+    async with client_for(db, 1) as c:
+        tabligh = await preview(c, org)
+        general = await preview(c, org, GENERAL)
+        assert tabligh["preview_digest"] != general["preview_digest"]
+        wrong_course = await c.post(GENERAL, params=q(org, dry_run="false", preview_digest=tabligh["preview_digest"]))
+        garbage = await c.post(GENERAL, params=q(org, dry_run="false", preview_digest="0" * 32))
+        too_long = await c.post(GENERAL, params=q(org, dry_run="false", preview_digest="x" * 500))
+    assert wrong_course.status_code == garbage.status_code == 409 and too_long.status_code == 422
+    assert transport.calls == []

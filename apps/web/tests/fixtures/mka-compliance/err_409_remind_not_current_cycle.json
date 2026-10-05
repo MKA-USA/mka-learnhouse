@@ -1,0 +1,7 @@
+{
+  "body": {
+    "detail": "Reminders only apply to the current cycle"
+  },
+  "path": "courses/course_tabligh/remind?cycle_id=<past>",
+  "status": 409
+}

@@ -12,12 +12,13 @@ import {
 } from '@components/ui/dialog'
 import { MKA_COMPLIANCE_REMIND, errorDetail, errorStatus, remindCourse, useComplianceAuth } from '@services/mka/compliance'
 import type { RemindResponse } from '@services/mka/compliance.types'
-import { canSendReminders, remindErrorMessage, remindHeadline, remindSkipped } from './format'
+import { canSendReminders, remindConflict, remindErrorMessage, remindHeadline, remindSkipped } from './format'
 
 export type RemindPhase =
   | { kind: 'loading' }
   | { kind: 'preview'; data: RemindResponse }
   | { kind: 'sending'; data: RemindResponse }
+  | { kind: 'changed' } // the list moved between the preview and the confirm: nothing was sent, review it again
   | { kind: 'error'; status: number | null; detail?: string | null; sending?: boolean }
 
 /**
@@ -41,6 +42,24 @@ export function RemindDialogView({
         <Loader2 aria-hidden="true" className="size-4 animate-spin" />
         Checking who still needs a reminder…
       </p>
+    )
+  }
+
+  if (phase.kind === 'changed') {
+    return (
+      <div className="space-y-4">
+        <p role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          The list changed since you looked at it, so nothing more was sent. Please review it again before sending.
+        </p>
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <Button type="button" variant="outline" onClick={onClose}>
+            Close
+          </Button>
+          <Button type="button" onClick={onRetry}>
+            Review the list again
+          </Button>
+        </div>
+      </div>
     )
   }
 
@@ -152,13 +171,17 @@ export function RemindButton({
     const mine = ++seq.current
     setPhase({ kind: 'sending', data: before })
     try {
-      const result = await remindCourse(auth, courseUuid, cycleId, false)
+      const result = await remindCourse(auth, courseUuid, cycleId, false, before.preview_digest)
       if (seq.current !== mine) return
       setOpen(false)
       toast.success(remindHeadline(result), { duration: result.remaining > 0 ? 8000 : undefined })
     } catch (err) {
       if (seq.current !== mine) return
       const status = errorStatus(err)
+      if (status === 409 && remindConflict(errorDetail(err)) === 'preview_changed') {
+        setPhase({ kind: 'changed' }) // keep the dialog open: show the new list, let them confirm it
+        return
+      }
       setOpen(false)
       // a real send that died half way (timeout, dropped connection) may have mailed people: say so, truthfully
       toast.error(remindErrorMessage(status, { sending: true, detail: errorDetail(err) }), { duration: 10000 })

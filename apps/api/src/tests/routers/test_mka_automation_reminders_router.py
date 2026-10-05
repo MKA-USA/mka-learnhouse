@@ -116,6 +116,15 @@ def q(org, **extra):
     return {"org_id": org.id, **extra}
 
 
+async def real(c, path, org, **extra):
+    """What the dialog does: preview first, then send with the digest the preview returned. A preview that is itself
+    refused (24 h limit, not current cycle, ...) is the answer, exactly as it is for the person at the keyboard."""
+    shown = await c.post(path, params=q(org, **extra))
+    if shown.status_code != 200:
+        return shown
+    return await c.post(path, params=q(org, dry_run="false", preview_digest=shown.json()["preview_digest"], **extra))
+
+
 async def count(db, model):
     return len((await db.execute(select(model))).scalars().all())
 
@@ -246,7 +255,7 @@ async def test_unauthenticated_is_401(db, org, world):
 
 async def test_a_real_send_goes_only_to_the_test_address_and_counts(db, org, world, transport, on):
     async with client_for(db, 1) as c:
-        r = await c.post(TABLIGH, params=q(org, dry_run="false"))
+        r = await real(c, TABLIGH, org)
     assert r.status_code == 200
     body = r.json()
     assert body["sent"] == 4 and body["would_send"] == 0 and body["test_mode"] is True and body["failed"] == 0
@@ -260,15 +269,15 @@ async def test_a_real_send_goes_only_to_the_test_address_and_counts(db, org, wor
 
 async def test_at_most_one_manual_remind_per_course_per_24h(db, org, world, transport, on, monkeypatch):
     async with client_for(db, 1) as c:
-        assert (await c.post(TABLIGH, params=q(org, dry_run="false"))).status_code == 200
-        again = await c.post(TABLIGH, params=q(org, dry_run="false"))
+        assert (await real(c, TABLIGH, org)).status_code == 200
+        again = await real(c, TABLIGH, org)
         preview = await c.post(TABLIGH, params=q(org, dry_run="true"))
-        other_course = await c.post(GENERAL, params=q(org, dry_run="false"))  # another course is its own allowance
+        other_course = await real(c, GENERAL, org)  # another course is its own allowance
         assert again.status_code == 429 and preview.status_code == 429
         assert int(again.headers["retry-after"]) > 0
         assert other_course.status_code == 200
         monkeypatch.setattr(rem, "current_instant", lambda: MON + timedelta(hours=25))
-        later = await c.post(TABLIGH, params=q(org, dry_run="false"))
+        later = await real(c, TABLIGH, org)
     assert later.status_code == 200
     assert await count(db, MkaAutomationEvent) == 3
     assert later.json()["sent"] == 0 and later.json()["skipped_recent"] == 4  # same ISO week: the weekly cap holds
@@ -279,12 +288,12 @@ async def test_the_weekly_per_person_cap_is_honoured(db, org, world, transport, 
     course in the same week reaches nobody again, while another course is a separate email."""
     monkeypatch.delenv("MKA_AUTOMATION_TEST_RECIPIENT")  # real mode: the cap counts real reminders
     async with client_for(db, 1) as c:
-        first = await c.post(GENERAL, params=q(org, dry_run="false"))
+        first = await real(c, GENERAL, org)
         assert first.json()["sent"] == 8
         monkeypatch.setattr(rem, "current_instant", lambda: MON + timedelta(hours=25))  # past the 24 h course limit
         preview = await c.post(GENERAL, params=q(org))  # a preview takes no slot
-        again = await c.post(GENERAL, params=q(org, dry_run="false"))
-        other_course = await c.post(TABLIGH, params=q(org, dry_run="false"))  # another course: its own email
+        again = await real(c, GENERAL, org)
+        other_course = await real(c, TABLIGH, org)  # another course: its own email
     assert again.status_code == 200 and again.json()["sent"] == 0 and again.json()["skipped_recent"] == 8
     assert preview.json()["would_send"] == 0 and preview.json()["skipped_recent"] == 8
     assert other_course.json()["sent"] == 4 and other_course.json()["skipped_attested"] == 1
@@ -295,12 +304,12 @@ async def test_a_disabled_feature_cannot_send_and_does_not_burn_the_24h_slot(db,
     monkeypatch.setenv("MKA_AUTOMATION_TEST_RECIPIENT", TESTER)  # flags stay off
     async with client_for(db, 1) as c:
         preview = await c.post(TABLIGH, params=q(org))
-        real = await c.post(TABLIGH, params=q(org, dry_run="false"))
+        blocked = await real(c, TABLIGH, org)
         monkeypatch.setenv("MKA_AUTOMATION_ENABLED", "true")
         monkeypatch.setenv("MKA_REMINDERS_ENABLED", "true")
-        after = await c.post(TABLIGH, params=q(org, dry_run="false"))
+        after = await real(c, TABLIGH, org)
     assert preview.status_code == 200 and preview.json()["enabled"] is False
-    assert real.status_code == 409
+    assert blocked.status_code == 409
     assert after.status_code == 200 and after.json()["sent"] == 4
     assert len(transport.calls) == 4
 
@@ -308,7 +317,7 @@ async def test_a_disabled_feature_cannot_send_and_does_not_burn_the_24h_slot(db,
 async def test_an_invalid_test_recipient_sends_nothing_and_keeps_the_slot(db, org, world, transport, on, monkeypatch):
     monkeypatch.setenv("MKA_AUTOMATION_TEST_RECIPIENT", "bad, address")
     async with client_for(db, 1) as c:
-        r = await c.post(TABLIGH, params=q(org, dry_run="false"))
+        r = await real(c, TABLIGH, org)
     assert r.status_code == 409 and transport.calls == []
     rows = (await db.execute(select(MkaAutomationEvent))).scalars().all()
     assert [e.status for e in rows] == ["ignored"]
@@ -327,5 +336,5 @@ async def test_a_concurrent_second_click_backs_out(db, org, world, transport, on
                               status="received", received_at=datetime(2026, 11, 16, 14, 59)))
     await db.commit()
     async with client_for(db, 1) as c:
-        r = await c.post(TABLIGH, params=q(org, dry_run="false"))
+        r = await real(c, TABLIGH, org)
     assert r.status_code == 429 and transport.calls == []

@@ -5,6 +5,7 @@
     "dry_run": false,
     "enabled": true,
     "failed": 0,
+    "preview_digest": null,
     "remaining": 0,
     "sent": 4,
     "skipped_attested": 1,

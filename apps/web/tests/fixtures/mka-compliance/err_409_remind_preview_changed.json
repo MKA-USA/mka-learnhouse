@@ -1,0 +1,7 @@
+{
+  "body": {
+    "detail": "The list of recipients changed since the preview. Please review it again."
+  },
+  "path": "courses/course_general/remind?dry_run=false&preview_digest=<stale>",
+  "status": 409
+}
