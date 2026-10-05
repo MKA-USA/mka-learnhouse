@@ -6,6 +6,7 @@ import type {
   AttentionItem,
   CellRow,
   ComplianceCounts,
+  ComplianceCycle,
   ComplianceRag,
   ComplianceStatus,
   DepartmentRow,
@@ -319,6 +320,27 @@ export function remindSkipped(r: Pick<RemindResponse, 'skipped_recent' | 'skippe
   return parts.length === 1
     ? `${total} skipped: ${parts[0][1]}`
     : `${total} skipped: ${parts.map(([n, why]) => `${n} ${why}`).join(', ')}`
+}
+
+/**
+ * The cycle the server treats as CURRENT (same rule as the API's default cycle): the one whose window contains
+ * `today`, else the most recent one that has started. `null` when none has started.
+ */
+export function currentCycle(cycles: ComplianceCycle[] | undefined, today: string): ComplianceCycle | null {
+  const sorted = [...(cycles ?? [])].sort((a, b) => (a.starts_on < b.starts_on ? 1 : a.starts_on > b.starts_on ? -1 : 0))
+  return (
+    sorted.find((c) => c.starts_on <= today && today <= c.deadline_on) ?? sorted.find((c) => c.starts_on <= today) ?? null
+  )
+}
+
+/** Why Remind must be off for the cycle on screen, or null when it may be used (the server enforces this too: 409). */
+export function remindBlockedReason(viewed: ComplianceCycle, cycles: ComplianceCycle[] | undefined, today: string): string | null {
+  if (viewed.starts_on > today) return `Cycle ${viewed.label} hasn't started yet, so reminders can't be sent for it.`
+  const current = currentCycle(cycles?.length ? cycles : [viewed], today)
+  if (current && current.id !== viewed.id) {
+    return `Reminders only go out for the current cycle (${current.label}). Switch to it to send one.`
+  }
+  return null
 }
 
 /** Calm, specific wording for each status the remind endpoint can answer with. */

@@ -446,6 +446,12 @@ async def remind_course(
     """Remind everyone still outstanding on ONE course. The caller has already resolved scope (404 otherwise)."""
     moment = now or current_instant()
     naive_now = _naive_utc(moment)
+    # Review H1: a manual remind only ever acts on the CURRENT, already-started cycle, resolved HERE with the same
+    # default-cycle rule as the cron run. The cycle the client asked for is only checked against it, never trusted.
+    today = cycle_today(moment)
+    current = await _org_cycle(db, org.id, today)  # type: ignore[arg-type]
+    if current is None or current.id != cycle.id or cycle.starts_on > today:
+        raise ManualRemindBlocked(409, "Reminders only apply to the current cycle")
     last = await _last_manual(db, org.id, link.course_uuid, naive_now - MANUAL_WINDOW)  # type: ignore[arg-type]
     if last is not None:
         wait = int((last + MANUAL_WINDOW - naive_now).total_seconds())
@@ -456,7 +462,6 @@ async def remind_course(
     if not url:
         raise ManualRemindBlocked(409, "Reminders are not configured")
 
-    today = cycle_today(moment)
     ds = await svc.load_dataset(db, org.id, cycle, [link], {course.id: course})  # type: ignore[arg-type]
     records = svc.course_records(ds, link, today.isoformat())
     people, counts = collect_people([(course.name, records)], ds.user_map, excluded_departments())

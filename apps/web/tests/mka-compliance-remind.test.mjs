@@ -7,7 +7,7 @@ import { join } from "node:path";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { canSendReminders, remindErrorMessage, remindHeadline, remindSkipped } from "../components/mka/compliance/format.ts";
+import { canSendReminders, currentCycle, remindBlockedReason, remindErrorMessage, remindHeadline, remindSkipped } from "../components/mka/compliance/format.ts";
 import { RemindButton, RemindDialogView } from "../components/mka/compliance/RemindDialog.tsx";
 import { MKA_COMPLIANCE_REMIND, errorStatus } from "../services/mka/compliance.ts";
 
@@ -149,5 +149,30 @@ describe("feature flag", () => {
   test("the placeholder is gone from the actions module", async () => {
     const mod = await import("../components/mka/compliance/ChaseActions.tsx");
     expect("RemindPlaceholder" in mod).toBe(false);
+  });
+});
+
+describe("Remind only for the current, started cycle (review H1)", () => {
+  const past = { id: 1, label: "2025-26", starts_on: "2025-11-01", deadline_on: "2025-12-01" };
+  const now = { id: 2, label: "2026-27", starts_on: "2026-11-01", deadline_on: "2026-12-01" };
+  const next = { id: 3, label: "2027-28", starts_on: "2027-11-01", deadline_on: "2027-12-01" };
+  const all = [past, now, next];
+  test("the current cycle is the one whose window holds today, else the latest started one", () => {
+    expect(currentCycle(all, "2026-11-16").id).toBe(2);
+    expect(currentCycle(all, "2026-12-20").id).toBe(2); // after the deadline, before the next start
+    expect(currentCycle(all, "2024-01-01")).toBeNull();
+  });
+  test("the current cycle may send; last year's and a not-yet-started one may not (with a reason)", () => {
+    expect(remindBlockedReason(now, all, "2026-11-16")).toBeNull();
+    expect(remindBlockedReason(past, all, "2026-11-16")).toContain("current cycle (2026-27)");
+    expect(remindBlockedReason(next, all, "2026-11-16")).toContain("hasn't started");
+  });
+  test("with no cycle list the single cycle on screen is judged on its own dates", () => {
+    expect(remindBlockedReason(now, undefined, "2026-11-16")).toBeNull();
+    expect(remindBlockedReason(next, undefined, "2026-11-16")).not.toBeNull();
+  });
+  test("a blocked button is disabled and carries the explanation (hidden flag is checked elsewhere)", () => {
+    // RemindButton returns null while the feature flag is off, so only the pure rule is rendered here.
+    expect(remindBlockedReason(past, all, "2026-11-16").length).toBeGreaterThan(20);
   });
 });

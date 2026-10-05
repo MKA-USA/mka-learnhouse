@@ -111,11 +111,14 @@ export function RemindButton({
   courseName,
   cycleId,
   disabled,
+  blockedReason,
 }: {
   courseUuid: string
   courseName: string
   cycleId: number | null
   disabled?: boolean
+  /** Set when the cycle on screen is not the current, started one: the button stays visible but off, with this as the tooltip. */
+  blockedReason?: string | null
 }) {
   const auth = useComplianceAuth()
   const [open, setOpen] = useState(false)
@@ -164,10 +167,21 @@ export function RemindButton({
   if (!MKA_COMPLIANCE_REMIND) return null
   return (
     <>
-      <Button type="button" variant="outline" onClick={openDialog} disabled={disabled} className="bg-white">
-        <BellRing aria-hidden="true" />
-        Remind
-      </Button>
+      {/* a disabled button swallows hover, so the explanation lives on the wrapper */}
+      <span title={blockedReason ?? undefined} className="inline-flex">
+        <Button
+          type="button"
+          variant="outline"
+          onClick={openDialog}
+          disabled={disabled || Boolean(blockedReason)}
+          aria-describedby={blockedReason ? 'mka-remind-blocked' : undefined}
+          className="bg-white"
+        >
+          <BellRing aria-hidden="true" />
+          Remind
+        </Button>
+        {blockedReason ? <span id="mka-remind-blocked" className="sr-only">{blockedReason}</span> : null}
+      </span>
       <Dialog open={open} onOpenChange={(next) => {
           if (phase.kind === 'sending') return
           if (next) openDialog()

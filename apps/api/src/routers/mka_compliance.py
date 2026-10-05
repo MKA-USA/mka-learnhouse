@@ -315,7 +315,8 @@ async def api_remind_course(
     db_session: AsyncSession = Depends(get_db_session),
 ) -> dict:
     """Remind the people still outstanding on this course. Session users only (API tokens: 403); the course must be
-    in the viewer's compliance scope (404 otherwise); at most one real remind per course per 24 h (429)."""
+    in the viewer's compliance scope (404 otherwise); only the CURRENT, started cycle can be reminded (409; the
+    ``cycle_id`` is never trusted for sending); at most one real remind per course per 24 h (429)."""
     _private(response)
     if isinstance(current_user, (APITokenUser, SuperadminAPITokenUser)):
         raise HTTPException(status_code=403, detail="A user session is required")
