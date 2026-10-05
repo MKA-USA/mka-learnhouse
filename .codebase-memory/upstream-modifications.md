@@ -739,3 +739,18 @@ diff --git a/apps/web/components/Auth/TurnstileWidget.tsx b/apps/web/components/
 @@ after the `MagicBlock.configure({ editable: false, activity: activity }),` entry
 +      ...mkaEditorExtensions({ editable: false, activity }), // MKA fork
 ```
+
+### Audience block: AI prompt strip hook (`apps/api/src/services/ai/ai.py`)
+
+- **Date**: 2026-10-05 (user-approved upstream hook)
+- **Reason**: the learner "ask AI about this activity" paths serialize `activity.content` into the model context. Audience sections (`mkaAudience` nodes) a learner cannot see must never be part of that context. The fork module `apps/api/src/services/mka/audience_strip.py::mka_content_for_ai` removes every non-matching section and UNWRAPS every matching one (replaced by its children, so the top-level-only serializer reads what the learner sees; fail-closed reader + Python evaluator; can-view-all viewers get all sections unwrapped; any error strips all audience sections). One import line and one call line per site; all logic is fork-only. Three call sites cover the four entry points (`ai_start_activity_chat_session`, `ai_send_activity_chat_message`, and `_get_activity_and_course_info` which both streaming functions use).
+- **Why no extension point**: `ai.py` builds the prompt inline from `activity.content`; there is no content filter hook.
+- **Note**: `structure_activity_content_by_type` only reads TOP-LEVEL heading / callout / paragraph nodes, so without unwrapping the model would see none of the text inside `mkaAudience` wrappers. Matching sections are therefore unwrapped by the hook.
+- **Diff** (same three lines after each `content = activity.content`, plus the import):
+```diff
+ from src.services.ai.llm import model_for_tier
++from src.services.mka.audience_strip import mka_content_for_ai  # MKA fork
+@@ in ai_start_activity_chat_session, ai_send_activity_chat_message, _get_activity_and_course_info
+     content = activity.content
++    content = await mka_content_for_ai(content, current_user, db_session, request, course=course)  # MKA fork
+```
