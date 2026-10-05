@@ -40,7 +40,7 @@ migration run starts from the wrong revision). If ilm-dev `alembic current` is n
 4. Deploy the web image (build with the env above).
 5. Backfill attributes for existing Google users (idempotent, safe to repeat; it can only reuse proof recorded by a
    Google login, never create it): `cd apps/api && python -m src.services.mka.backfill --dry-run`, then without `--dry-run`.
-6. Create an org API token with the **Full Access** permission preset (reads work with Read-only, writes need Full Access; the UI cannot grant users/organizations rights, so the fork maps reads to courses+assignments read and writes to courses.action_update; `push-cycle`, `push-roster`, `apply` and `assign-authors` need Full Access) and import the cycle and roster with the
+6. Create an org API token with the **Full Access** permission preset (reads work with Read-only, writes need Full Access; the UI cannot grant users/organizations rights, so the fork maps reads to courses+assignments read and writes to all Full Access update rights; `push-cycle`, `push-roster`, `apply` and `assign-authors` need Full Access) and import the cycle and roster with the
    provisioner: `POST /api/v1/mka/compliance/cycles` then `POST /api/v1/mka/compliance/expected/import?org_slug=<slug>`
    (re-import is idempotent; `dry_run: true` first). Give viewers access per the roles runbook.
 
@@ -81,3 +81,9 @@ after any rules bump so attributes are refreshed.
   route (admin edit/DB). Self-service changes within a Google-only domain are blocked by `block_email_change`. Not
   reachable by normal users; revisit if admins edit emails of officeholders.
 - An admin attribute override does not make an account "matched" for compliance (override is not proof of the mailbox).
+
+## Token hygiene
+- Writes (`push-*`, `apply`, `assign-authors`, `reconcile --apply`) need a token created with the **Full Access** preset; narrower Custom tokens (e.g. course editing only) are refused because writes change the identity roster.
+- A Read-only-preset token can still read learner lists (names, emails, answers): treat every token as a secret, store it only in the keychain / a secret manager.
+- Use a SEPARATE Read-only token for any reminder or reporting workflow (Make.com, n8n); never reuse the Full Access token there.
+- Rotate tokens on staff changes.

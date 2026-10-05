@@ -297,7 +297,7 @@ async def test_r1_hook_never_raises_and_never_touches_callers_session(db, org, m
     assert result.access_token
 
 
-FULL_ACCESS = {"courses": {"action_read": True, "action_update": True}, "assignments": {"action_read": True}}
+FULL_ACCESS = {**{r: {"action_read": True, "action_update": True} for r in ("courses", "activities", "assignments", "coursechapters", "usergroups", "certifications")}}
 
 
 # --- M5: token rights ------------------------------------------------------------------------------------------------
@@ -330,7 +330,7 @@ async def test_m5_token_rights_are_enforced(db, org, admin_user):
         ({}, 403, 403),                                                              # empty rights refused
         ({"search": {"action_read": True}}, 403, 403),                               # unrelated rights
         ({"courses": {"action_read": True}, "assignments": {"action_read": True}}, 200, 403),   # read only
-        ({"courses": {"action_update": True}}, 403, 200),                            # write only
+        ({r: {"action_update": True} for r in FULL_ACCESS}, 403, 200),                # all update rights, no read
         (FULL_ACCESS, 200, 200),
     ]
     for rights, read_status, write_status in cases:

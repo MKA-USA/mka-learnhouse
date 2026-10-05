@@ -107,3 +107,42 @@ async def test_full_access_token_of_another_org_still_cannot_read(db, org, other
         for path in READ_PATHS:
             assert (await c.get(f"{BASE}/{path}", params=_q(org))).status_code in (403, 404), path
         assert (await c.post(f"{BASE}/cycles", params=_q(org), json=cycle_payload())).status_code in (403, 404)
+
+
+# ---- writes need the whole Full Access update set ------------------------------------------------------------
+
+UPDATE_RESOURCES = ("courses", "activities", "assignments", "coursechapters", "usergroups", "certifications")
+COURSES_UPDATE_ONLY = {"courses": {"action_read": True, "action_update": True}, "assignments": {"action_read": True}}
+
+
+def _without(resource: str) -> dict:
+    rights = {r: dict(v) for r, v in FULL.items()}
+    rights[resource]["action_update"] = False
+    return rights
+
+
+async def _write_attempts(c, org):
+    return [
+        await c.post(f"{BASE}/cycles", params=_q(org), json=cycle_payload()),
+        await c.delete(f"{BASE}/cycles/1/expected", params=_q(org)),
+        await c.put("/api/v1/mka/attributes/roster/x.y@mkausa.org", params=_q(org), json={"attributes": {"level": "national"}}),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_courses_update_only_token_cannot_write(db, org, world):  # noqa: F811
+    async with await _client(db, org, COURSES_UPDATE_ONLY, "apitoken_cu") as c:
+        for r in await _write_attempts(c, org):
+            assert r.status_code == 403
+            d = r.json()["detail"]
+            assert "activities.action_update" in d and "Full Access" in d
+        assert (await c.get(f"{BASE}/overview", params=_q(org))).status_code == 200
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("resource", UPDATE_RESOURCES)
+async def test_each_update_right_is_required_for_writes(db, org, world, resource):  # noqa: F811
+    async with await _client(db, org, _without(resource), f"apitoken_no_{resource}") as c:
+        for r in await _write_attempts(c, org):
+            assert r.status_code == 403 and f"{resource}.action_update" in r.json()["detail"]
+        assert (await c.get(f"{BASE}/overview", params=_q(org))).status_code == 200

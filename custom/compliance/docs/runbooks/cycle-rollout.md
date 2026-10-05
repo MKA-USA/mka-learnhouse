@@ -27,7 +27,7 @@ then pick the **Full Access** permission preset (the Read-only preset is enough 
 | Resource | Actions | Needed for |
 |---|---|---|
 | courses + assignments | read | fork compliance / attributes **reads** (`courses.action_read` AND `assignments.action_read`; Read-only preset has both) |
-| courses | update | fork **imports, deletes, roster writes**: `push-cycle`, `push-roster` (`courses.action_update`; Full Access only) |
+| courses, activities, assignments, coursechapters, usergroups, certifications | update (all six) | fork **imports, deletes, roster writes**: `push-*`, `apply`, `assign-authors`, `reconcile --apply` (Full Access preset only) |
 | courses | create, read, update, delete | apply / plan / publish / assign-authors |
 | coursechapters, activities, assignments | create, read, update, delete | apply / publish |
 | certifications | read | probes |
@@ -35,7 +35,7 @@ then pick the **Full Access** permission preset (the Read-only preset is enough 
 
 Copy the token once (it is shown once) into the macOS keychain item `MKA_LH_DEV_API_TOKEN`
 (`security add-generic-password -s MKA_LH_DEV_API_TOKEN -a "$USER" -w` then paste at the prompt; never put it in a file or chat).
-The fork API returns **403 "API token lacks courses.action_update ... create the token with the 'Full Access' permission preset"** (or `courses.action_read` / `assignments.action_read` for reads) when a right is missing, and **403 "no permissions configured"** for an empty token.
+The fork API returns **403 "API token lacks activities.action_update, ... create the token with the 'Full Access' permission preset"** (or `courses.action_read` / `assignments.action_read` for reads) when a right is missing, and **403 "no permissions configured"** for an empty token.
 `push-cycle` and `push-roster` stop at the first 403 with that message (`push-roster --apply` first sends a one-row server `dry_run` as a preflight, so a missing right
 fails before anything is written). A 409 means a concurrent import hit the same key: re-run.
 
@@ -44,3 +44,9 @@ fails before anything is written). A 409 means a concurrent import hit the same 
 bun run lh push-cycle ; bun run lh push-roster --all          # dry runs dump out/payload-cycle.json and out/payload-expected.json
 FORK_API_DIR=<fork worktree>/apps/api uv run --project "$FORK_API_DIR" python scripts/validate-against-api.py
 ```
+
+## Token hygiene
+- Writes (`push-*`, `apply`, `assign-authors`, `reconcile --apply`) need a token created with the **Full Access** preset; narrower Custom tokens (e.g. course editing only) are refused because writes change the identity roster.
+- A Read-only-preset token can still read learner lists (names, emails, answers): treat every token as a secret, store it only in the keychain / a secret manager.
+- Use a SEPARATE Read-only token for any reminder or reporting workflow (Make.com, n8n); never reuse the Full Access token there.
+- Rotate tokens on staff changes.

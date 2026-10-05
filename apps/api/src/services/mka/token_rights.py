@@ -4,7 +4,7 @@ A token acts only within its configured rights: empty rights are refused, otherw
 ``rights[resource][action]`` must be true. The requirements are mapped onto rights the org API-token UI can
 actually grant (it has no ``users`` / ``organizations`` permission): reads need ``courses.action_read`` and
 ``assignments.action_read`` (the Read-only and Full Access presets both have them); writes (imports, deletes,
-roster writes) need ``courses.action_update`` (Full Access only).
+roster writes) need every ``action_update`` right in TOKEN_WRITE_FULL (Full Access only).
 """
 
 from typing import Iterable, Tuple
@@ -16,11 +16,15 @@ from src.db.users import APITokenUser
 Right = Tuple[str, str]
 
 TOKEN_READ: Tuple[Right, ...] = (("courses", "action_read"), ("assignments", "action_read"))
-TOKEN_WRITE: Tuple[Right, ...] = (("courses", "action_update"),)
+# Exactly the update rights the UI's Full Access preset grants: a narrower Custom token (e.g. course-editing only)
+# must not be able to write the identity roster / expected roster.
+TOKEN_WRITE_FULL: Tuple[Right, ...] = tuple(
+    (r, "action_update") for r in ("courses", "activities", "assignments", "coursechapters", "usergroups", "certifications")
+)
 
 _PRESET_HINT = {
     TOKEN_READ: "the 'Read-only' or 'Full Access'",
-    TOKEN_WRITE: "the 'Full Access'",
+    TOKEN_WRITE_FULL: "the 'Full Access'",
 }
 
 

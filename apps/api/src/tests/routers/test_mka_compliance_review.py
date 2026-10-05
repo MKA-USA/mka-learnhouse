@@ -52,7 +52,7 @@ async def test_read_only_token_cannot_import_or_delete_and_write_only_token_cann
         assert (await c.post(f"{BASE}/cycles", params=p, json=cycle_payload())).status_code == 403
         assert (await c.post(f"{BASE}/expected/import", params=p, json={"cycle_id": cid, "rows": []})).status_code == 403
         assert (await c.delete(f"{BASE}/cycles/{cid}/expected", params=p)).status_code == 403
-    async with await token_with(db, org, {"courses": {"action_update": True}}, "apitoken_wo") as c:
+    async with await token_with(db, org, {r: {"action_update": True} for r in ("courses", "activities", "assignments", "coursechapters", "usergroups", "certifications")}, "apitoken_wo") as c:
         assert (await c.get(f"{BASE}/overview", params=p)).status_code == 403
         assert (await c.post(f"{BASE}/expected/import", params=p, json={"cycle_id": cid, "rows": []})).status_code == 200
 
