@@ -81,6 +81,8 @@ import PlanBadge from '@components/Dashboard/Shared/PlanRestricted/PlanBadge'
 import { usePlan } from '@components/Hooks/usePlan'
 import { planMeetsRequirement } from '@services/plans/plans'
 import useAdminStatus from '@components/Hooks/useAdminStatus'
+import { ShieldCheck } from '@phosphor-icons/react' // MKA fork
+import { useMkaComplianceScope } from '@services/mka/compliance' // MKA fork
 import { useLHAnalytics, AnalyticsEvent } from '@services/analytics'
 import OnboardingSidebarBox from '@components/Dashboard/Onboarding/OnboardingSidebarBox'
 import { useOnboarding } from '@components/Hooks/useOnboarding'
@@ -195,6 +197,7 @@ function DashLeftMenu() {
   // Only org managers (admins/superadmins) see billing surfaces — non-admins
   // shouldn't manage the plan/subscription.
   const { canManageOrg } = useAdminStatus()
+  const mkaScope = useMkaComplianceScope() // MKA fork
 
   if (!org || !session) return null
   const planLabel =
@@ -828,6 +831,7 @@ function DashLeftMenu() {
                 )
               })()}
             </HoverMenu>
+            {mkaScope !== 'none' && <MenuLink href="/dash/compliance" icon={<ShieldCheck size={20} weight="fill" />} label="Compliance" isCollapsed={isCollapsed} active={isActivePath('/dash/compliance')} />} {/* MKA fork */}
 
             {/* Disabled features shown in an "Other" hover menu */}
             {(!showCommunities || !showPodcasts || !showBoards || !showPlaygrounds || !showPayments) && (
