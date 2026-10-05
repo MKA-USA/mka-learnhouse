@@ -619,7 +619,21 @@ describe("undo semantics: only Done is an undo step", () => {
     expect(secs(m.editor())[0].attrs.rule.groups[0].level).toEqual(["local", "regional", "national"]);
   });
 
-  test("Done on a NEW section: one Ctrl+Z removes it entirely (never a section without its rule); redo restores it with the rule", async () => {
+  test("Done on a NEW EMPTY section: cursor stays inside it, so the next keystrokes land in the section", async () => {
+    const m = await mount(doc(para("hello"), para("world")), { editable: true, flag: "1" });
+    await settle();
+    await insertNew(m);
+    await click("Local officeholders");
+    await click("Done");
+    const $from = m.editor().state.selection.$from;
+    expect($from.node($from.depth - 1).type.name).toBe("mkaAudience");
+    await act(async () => { m.editor().commands.insertContent("TYPED"); });
+    const json = m.editor().getJSON();
+    expect(secs(m.editor())[0].content.map((n) => n.content?.[0]?.text).join("")).toContain("TYPED");
+    expect(JSON.stringify(json.content.filter((n) => n.type !== "mkaAudience"))).not.toContain("TYPED");
+  });
+
+  test("Done on a NEW section: ONE Ctrl+Z removes it and leaves no wrapper; redo restores it WITH the final rule", async () => {
     const m = await mount(doc(para("hello"), para("world")), { editable: true, flag: "1" });
     await settle();
     const before = JSON.stringify(m.editor().getJSON());
@@ -627,7 +641,7 @@ describe("undo semantics: only Done is an undo step", () => {
     await click("Local officeholders");
     gap(m.editor());
     await click("Done");
-    expect(secs(m.editor()).length).toBe(1);
+    gap(m.editor());
     expect(secs(m.editor())[0].attrs.rule.groups[0].level).toEqual(["local"]);
     await act(async () => { m.editor().commands.undo(); });
     await settle();
@@ -639,20 +653,49 @@ describe("undo semantics: only Done is an undo step", () => {
     expect(secs(m.editor())[0].attrs.rule.groups[0].level).toEqual(["local"]);
   });
 
-  test("Done on a NEW section that wrapped blocks: one Ctrl+Z restores the unwrapped document", async () => {
-    const m = await mount(doc(para("alpha"), para("beta")), { editable: true, flag: "1" });
+  test("an edit made BEFORE wrapping is still undoable after wrap + pick + Done", async () => {
+    const m = await mount(doc(para("hello"), para("world")), { editable: true, flag: "1" });
     await settle();
-    const before = JSON.stringify(m.editor().getJSON());
+    await act(async () => { m.editor().commands.insertContentAt(1, "ZZ"); });
+    gap(m.editor());
+    expect(m.editor().state.doc.textContent).toContain("ZZhello");
     await act(async () => { m.editor().commands.setTextSelection({ from: 1, to: 8 }); m.editor().commands.setMkaAudience(); });
     await settle();
     gap(m.editor());
     await click("Local officeholders");
     gap(m.editor());
     await click("Done");
+    gap(m.editor());
     expect(secs(m.editor()).length).toBe(1);
     await act(async () => { m.editor().commands.undo(); });
     await settle();
-    expect(JSON.stringify(m.editor().getJSON())).toBe(before);
+    expect(secs(m.editor()).length).toBe(0); // undo #1: the section
+    expect(m.editor().state.doc.textContent).toContain("ZZhello");
+    await act(async () => { m.editor().commands.undo(); });
+    await settle();
+    expect(m.editor().state.doc.textContent).toBe("helloworld"); // undo #2: the earlier typing survived the wrap
+  });
+
+  test("an edit made BEFORE wrapping is still undoable after wrap + Escape", async () => {
+    const m = await mount(doc(para("hello"), para("world")), { editable: true, flag: "1" });
+    await settle();
+    await act(async () => { m.editor().commands.insertContentAt(1, "ZZ"); });
+    gap(m.editor());
+    await act(async () => { m.editor().commands.setTextSelection({ from: 1, to: 8 }); m.editor().commands.setMkaAudience(); });
+    await settle();
+    gap(m.editor());
+    await click("Local officeholders");
+    gap(m.editor());
+    await escape();
+    gap(m.editor());
+    expect(secs(m.editor()).length).toBe(0);
+    expect(m.editor().state.doc.textContent).toContain("ZZhello");
+    for (let i = 0; i < 4 && m.editor().state.doc.textContent.includes("ZZ"); i++) {
+      await act(async () => { m.editor().commands.undo(); });
+      await settle();
+      expect(secs(m.editor()).length).toBe(0); // never resurrects the cancelled section
+    }
+    expect(m.editor().state.doc.textContent).toBe("helloworld");
   });
 });
 
