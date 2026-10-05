@@ -1,5 +1,5 @@
 {
-  "version": "2026.1",
+  "version": "2026.3",
   "_comment": "MKA fork. Data, not code: reviewed in PRs and exercised by src/tests/services/mka/test_identity_parser.py. The Majlis -> Region map is NOT here: it is MAJLIS_TO_REGION in services/users/mka_profile.py.",
 
   "departments": [
@@ -23,7 +23,8 @@
     {"key": "wasiyyat", "name": "Wasiyyat"},
     {"key": "waqf_e_nau", "name": "Waqf-e-Nau"},
     {"key": "new_immigrants", "name": "New Immigrants"},
-    {"key": "atfal", "name": "Atfal"}
+    {"key": "atfal", "name": "Atfal"},
+    {"key": "muqami", "name": "Muqami", "has_course": false}
   ],
 
   "_comment_titles": "Role display titles. Lookup order: 'role:level' then 'role'. {department} is replaced by the department name. UNVERIFIED org vocabulary: change here, no deploy of code needed beyond the file.",
@@ -58,9 +59,11 @@
     "virginia": "Virginia"
   },
 
-  "_comment_slugs": "Majlis slugs are generated from MAJLIS_TO_REGION (lowercase, spaces removed, hyphens kept). Global aliases map extra slugs to a canonical Majlis name. Unconfirmed slugs are known-but-unresolved: parse as partial + needs_review (OPEN QUESTION: what newyorkmetro-region refers to).",
+  "_comment_slugs": "Majlis slugs are generated from MAJLIS_TO_REGION (lowercase, spaces removed, hyphens kept). Global aliases map extra slugs to a canonical Majlis name. Unconfirmed slugs are known-but-unresolved: parse as partial + needs_review (none at present).",
   "slug_aliases": {},
-  "unconfirmed_slugs": ["newyorkmetro-region"],
+  "unconfirmed_slugs": [],
+  "_comment_same_entity": "Slugs that are BOTH a Region and a Majlis but one and the same entity (Muqami): never ambiguous, resolve to the local Majlis. Dormant unless the slug is also listed under regions.",
+  "same_entity_slugs": ["muqami"],
 
   "domains": {
     "mkausa.org": {
@@ -90,7 +93,11 @@
         "qaid": {"department": null, "role": "qaid", "regional": "regional_qaid"},
         "naibqaid": {"department": null, "role": "naib_qaid"}
       },
-      "_comment_national": "Mailboxes without a dot: national role mailboxes. 'status' overrides the default 'matched'.",
+      "_comment_regional_aliases": "Explicit full-localpart mailboxes that ARE a regional officeholder, outside the {prefix}.{slug} scheme. Key = localpart (lowercase, no +tag); 'region' is a key of 'regions'; 'role' as in role_titles. NOT a pattern: add one line per confirmed mailbox (e.g. east.region). newyorkmetro.region confirmed by the product owner 2026-10-05.",
+      "regional_mailbox_aliases": {
+        "newyorkmetro.region": {"region": "newyorkmetro", "department": null, "role": "regional_qaid"}
+      },
+      "_comment_national": "Mailboxes without a dot: national role mailboxes. 'status' overrides the default 'matched'. Optional 'majlis'/'region' mark a national office that is also a chapter/region (muqami@: the national Mohtamim Muqami; Muqami is also a region and a Majlis; it has no department course: General course only).",
       "national_exact": {
         "sadr": {"department": null, "role": "sadr"},
         "motamid": {"department": "aitmad", "role": "motamid"},
@@ -119,7 +126,7 @@
         "it": {"department": null, "role": "national_staff"},
         "media": {"department": null, "role": "national_staff"},
         "expense": {"department": null, "role": "national_staff"},
-        "muqami": {"status": "partial", "flags": ["needs_review", "muqami_unconfirmed"]}
+        "muqami": {"department": "muqami", "role": "mohtamim", "majlis": "Muqami", "region": "Muqami"}
       },
       "_comment_personal": "Explicit personal-name mailboxes (national officers). Anything else of the form first.last is 'unrecognized' (the roster/admin override fills it in).",
       "personal_mailboxes": {

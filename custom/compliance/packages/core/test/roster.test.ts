@@ -2,17 +2,18 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { activeDepartments, resolveConfig, withoutExcluded } from "../src/config";
-import { generateRoster, MAJLIS_TO_REGION, REGION_NAMES, slugify } from "../src/roster";
+import auth from "./fixtures/authoritative-qaid-mailboxes.json";
+import { coursesFor, generateRoster, MAJLIS_TO_REGION, REGION_NAMES, slugify } from "../src/roster";
 
 const rows = generateRoster();
 describe("roster generator", () => {
   test("52 Majlis (51 + Muqami) x 22 local roles, 10 regional qaids, national mailboxes", () => {
     expect(Object.keys(MAJLIS_TO_REGION).length).toBe(52);
     expect(REGION_NAMES.length).toBe(10);
-    expect(rows.filter((r) => r.level === "majlis").length).toBe(52 * 22);
+    expect(rows.filter((r) => r.level === "majlis").length).toBe(52 * 22 - 1); // Muqami has no qaid.muqami@ row
     expect(rows.filter((r) => r.role === "regional_qaid").length).toBe(10);
     expect(rows.filter((r) => r.level === "region").length).toBe(10 + 10 * 20);
-    expect(rows.filter((r) => r.level === "national").length).toBe(20 + 1 + 5);
+    expect(rows.filter((r) => r.level === "national").length).toBe(20 + 1 + 1 + 5); // 20 department heads (Atfal excluded) + Sadr + Mohtamim Muqami + 5 staff
   });
   test("every Majlis has every role", () => {
     for (const m of Object.keys(MAJLIS_TO_REGION)) {
@@ -41,6 +42,18 @@ describe("roster generator", () => {
     expect(e("new-immigrants", "New York Metro")).toBe("immigrants.newyorkmetro@mkausa.org");
     expect(rows.filter((r) => r.level === "majlis" || r.role === "regional_qaid").every((r) => r.source === "formula")).toBe(true);
   });
+  test("Muqami: one national mailbox, no regional-department set, no department course", () => {
+    expect(REGION_NAMES).not.toContain("Muqami");
+    const nat = rows.filter((r) => r.learnerEmail === "muqami@mkausa.org");
+    expect(nat.length).toBe(1);
+    expect(nat[0]).toMatchObject({ level: "national", role: "mohtamim", roleTitle: "Mohtamim Muqami", departmentSlug: "" });
+    expect(coursesFor(nat[0]!)).toEqual({ general: true, department: null });
+    // region "Muqami" has no regional rows at all; its rows are 21 chapter roles (24 minus 2 Atfal minus the Qaid) plus the national muqami@ row
+    expect(rows.filter((r) => r.region === "Muqami" && r.level !== "majlis").length).toBe(1); // only muqami@ (also the chapter Qaid)
+    expect(nat[0]).toMatchObject({ majlis: "Muqami", region: "Muqami" });
+    expect(rows.filter((r) => r.majlis === "Muqami").length).toBe(22); // 21 chapter rows + muqami@
+    expect(rows.filter((r) => r.learnerEmail.includes(".muqami@")).length).toBe(21);
+  });
   test("Atfal is excluded everywhere by default and comes back with one switch", () => {
     expect(rows.filter((r) => r.departmentSlug === "atfal" || r.learnerEmail.endsWith("@atfalusa.org")).length).toBe(0);
     const on = generateRoster({ excludedDepartments: [] });
@@ -63,7 +76,7 @@ describe("roster generator", () => {
   test("slugify", () => { expect(slugify("Saint Louis")).toBe("saintlouis"); expect(slugify("Syracuse-Binghamton")).toBe("syracuse-binghamton"); });
 });
 
-const regionRules = fileURLToPath(new URL("../../../../../apps/api/src/services/mka/identity_rules/2026.1.json", import.meta.url));
+const regionRules = fileURLToPath(new URL("../../../../../apps/api/src/services/mka/identity_rules/2026.3.json", import.meta.url));
 describe.skipIf(!existsSync(regionRules))("region slugs conform to rules", () => {
   test("region slugs match", () => {
     const rules = JSON.parse(readFileSync(regionRules, "utf8"));
@@ -76,5 +89,26 @@ describe.skipIf(!existsSync(pyPath))("majlis map conforms to fork source", () =>
   test("every key of the JSON map appears in mka_profile.py", () => {
     const py = readFileSync(pyPath, "utf8");
     for (const [m, r] of Object.entries(MAJLIS_TO_REGION)) expect(py).toContain(`"${m}": "${r}"`);
+  });
+});
+
+describe("authoritative Qaid mailboxes (product owner, 2026-10-05)", () => {
+  const sorted = (a: string[]) => [...a].sort();
+  test("regional Qaid emails equal the 10 listed", () => {
+    expect(sorted(rows.filter((r) => r.role === "regional_qaid").map((r) => r.learnerEmail))).toEqual(sorted(auth.regionalQaids.map((q) => q.email)));
+  });
+  test("local Qaid emails equal the 51 chapter mailboxes; Muqami chapter Qaid is muqami@", () => {
+    const expected = auth.chapters.filter((c) => c.chapter !== "Muqami").map((c) => c.qaidEmail);
+    expect(expected.length).toBe(51);
+    expect(sorted(rows.filter((r) => r.role === "qaid").map((r) => r.learnerEmail))).toEqual(sorted(expected));
+    const mq = rows.filter((r) => r.majlis === "Muqami" && r.learnerEmail === auth.chapters.find((c) => c.chapter === "Muqami")!.qaidEmail);
+    expect(mq.map((r) => r.learnerEmail)).toEqual(["muqami@mkausa.org"]);
+  });
+  test("chapter set and chapter -> region map equal the authoritative 52", () => {
+    expect(Object.fromEntries(auth.chapters.map((c) => [c.chapter, c.region]))).toEqual(MAJLIS_TO_REGION);
+  });
+  test("no qaid.muqami@ anywhere", () => {
+    expect(rows.some((r) => r.learnerEmail === "qaid.muqami@mkausa.org")).toBe(false);
+    expect(JSON.stringify(auth)).not.toContain("qaid.muqami");
   });
 });

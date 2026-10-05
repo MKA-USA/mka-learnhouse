@@ -118,7 +118,7 @@ type MkaAttributes = {
   "national_exact": {"sadr":"sadr","muqami":"…","legal":null,"events":null,"it":null,"media":null,"expense":null},
   "regions": {"east":"East","greatlakes":"Great Lakes","gulf":"Gulf","midwest":"Midwest","newyorkmetro":"New York Metro",
               "northeast":"Northeast","northwest":"Northwest","southeast":"Southeast","southwest":"Southwest","virginia":"Virginia"},
-  "majlis_slug_aliases": {"syracuse":"Syracuse-Binghamton","newyorkmetro-region":"??","rtp":"RTP"},
+  "majlis_slug_aliases": {"syracuse":"Syracuse-Binghamton","newyorkmetro-region":"?? (ERROR, removed 2026-10-05)","rtp":"RTP"},
   "slug_overrides_by_domain": {"atfalusa.org": {"syracuse": "Syracuse-Binghamton"}}
 }
 ```
@@ -128,7 +128,7 @@ Majlis slugs are generated from `MAJLIS_TO_REGION` (origin/dev `apps/api/src/ser
 **Data quirks to address explicitly:**
 - The source department-mailbox sheet has the **Atfal/Amoor-e-Tuluba email columns swapped**. The rules file is written from the corrected mapping and has a test row for each.
 - `rishtanata.{majlis}` is sometimes used for Nau Mubaeen. Parse it as Rishta Nata. Real exceptions go through roster or admin override, and the parser does not special-case them.
-- **`newyorkmetro-region` is UNVERIFIED.** It does not match any Majlis in `MAJLIS_TO_REGION` (origin/dev lists Bronx, Brooklyn, Long Island and Queens under New York Metro). Its alias target is left as `??` until confirmed. Until then the parser returns `partial`.
+- **[RESOLVED 2026-10-05: `newyorkmetro-region` was an ERROR; `newyorkmetro.region@mkausa.org` is the New York Metro Regional Qaid mailbox (rules 2026.3, `regional_mailbox_aliases`). Original note follows.]** `newyorkmetro-region` was UNVERIFIED. It does not match any Majlis in `MAJLIS_TO_REGION` (origin/dev lists Bronx, Brooklyn, Long Island and Queens under New York Metro). Its alias target is left as `??` until confirmed. Until then the parser returns `partial`.
 - `muqami@` (national) vs the Majlis "Muqami" (region "Muqami" in `MAJLIS_TO_REGION`) needs a ruling. Default: `muqami@` is national/executive.
 
 **Algorithm (precedence order, first match wins):**
@@ -451,7 +451,7 @@ Optional, not in v1: O1 a `get_activity` strip hook (B4); O2 a completion-denomi
   - `qaid.northeast@` → regional; `qaid.albany@` → local Qaid; a synthetic collision rules file → `ambiguous`;
   - `naibqaid.houston@`;
   - `nazim.syracuse@atfalusa.org` and `murabbi.syracuse@atfalusa.org` → Syracuse-Binghamton; `tabligh.syracuse-binghamton@mkausa.org`;
-  - `rtp`, `kansascity`, `saintlouis`, `siliconvalley`, `newyorkmetro-region` (→ partial until confirmed);
+  - `rtp`, `kansascity`, `saintlouis`, `siliconvalley` (→ partial until confirmed; `newyorkmetro-region` was an error, see the 2026-10-05 resolution);
   - Atfal/Amoor-e-Tuluba swap regressions;
   - `rishtanata.x` → Rishta Nata;
   - `mahmood.kauser@` → unrecognized (roster fills it); `someone@gmail.com` → not_applicable;
@@ -496,7 +496,7 @@ Optional, not in v1: O1 a `get_activity` strip hook (B4); O2 a completion-denomi
 
 1. **Identity belongs to the role account, not the person.** Role mailboxes (`tabligh.albany@`) pass to the next officeholder on Nov 1, so last year's progress and certificates come with the account. The successor might see "completed", or completions might be attributed to the wrong person. Mitigations: annual new courses (companion), plus the AMC ID in `mka_user_profile` as the person key for reporting; the profile gate should re-confirm AMC ID each year. *This needs an owner decision outside this spec.*
 2. **Blank-lesson failure mode.** Any TipTap instance missing the extension renders the whole activity empty (verified TipTap behaviour). Mitigations: the hook-guard test, the console-warning canary, and nodes registered regardless of the feature flag.
-3. **Data quality of the mailbox scheme.** Swapped columns, `rishtanata` reuse, `newyorkmetro-region`, personal-address officeholders and possible future region/Majlis slug collisions. Mitigations: fail-safe statuses, the review queue, roster overrides, and the load-time collision check.
+3. **Data quality of the mailbox scheme.** Swapped columns, `rishtanata` reuse, ~~`newyorkmetro-region`~~ (error, resolved 2026-10-05), personal-address officeholders and possible future region/Majlis slug collisions. Mitigations: fail-safe statuses, the review queue, roster overrides, and the load-time collision check.
 4. **Audience is not access control.** A learner with dev tools can read other sections, and RAG chat may quote them. This is acceptable only while content is non-confidential; it is stated in the UI.
 5. **atfalusa.org spoofing** if `MKA_GOOGLE_ONLY_DOMAINS` is not extended. The fallback amr gate covers it, but the config must change.
 6. **Counts undercount** before everyone has signed in (the dataset is signed-in users only). Mitigation: the label says so, and roster backfill from the companion closes the gap.
@@ -509,4 +509,4 @@ Optional, not in v1: O1 a `get_activity` strip hook (B4); O2 a completion-denomi
 2. **D2 – Rules storage:** versioned JSON file in the repo (reviewed and tested) vs admin-editable DB table? **Default: file for v1, DB layer later if changes become frequent.**
 3. **D3 – Activity-level targeting:** none in v1 (block-level plus "nothing applies to you, continue" card)? **Default: none in v1.**
 4. **D4 – "Not shown to the user":** OK that learners can see their own values via author-placed inline fields and the `/me` call? **Default: yes. Attributes are not on any profile or settings screen.**
-5. **D5 – Unresolved org facts:** (a) the meaning of `newyorkmetro-region`, (b) `muqami@` national vs local, (c) role-title vocabulary (Nazim/Mohtamim/Regional Qaid), (d) add `atfalusa.org` to `MKA_GOOGLE_ONLY_DOMAINS`. **Defaults: (a) `partial` until confirmed, (b) national executive, (c) titles as in A3 held in config, (d) yes, add it.**
+5. **D5 – Unresolved org facts:** (a) ~~the meaning of `newyorkmetro-region`~~ (resolved: error; `newyorkmetro.region@` is the NY Metro Regional Qaid), (b) `muqami@` national vs local, (c) role-title vocabulary (Nazim/Mohtamim/Regional Qaid), (d) add `atfalusa.org` to `MKA_GOOGLE_ONLY_DOMAINS`. **Defaults: (a) `partial` until confirmed, (b) national executive, (c) titles as in A3 held in config, (d) yes, add it.**

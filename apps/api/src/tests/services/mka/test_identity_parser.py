@@ -128,14 +128,25 @@ HAND_ROWS = [
     # --- partial: role known, slug unknown / unconfirmed -------------------------------------------------------------
     ("tabligh.atlantis@mkausa.org", "partial", True, None, "tabligh", "nazim_dept", None, None),
     ("qaid.atlantis@mkausa.org", "partial", True, None, None, "qaid", None, None),
-    ("tabligh.newyorkmetro-region@mkausa.org", "partial", True, None, "tabligh", "nazim_dept", None, None),
-    ("qaid.newyorkmetro-region@mkausa.org", "partial", True, None, None, "qaid", None, None),
+    # --- New York Metro Regional Qaid: explicit alias newyorkmetro.region@ (2026-10-05) + the qaid.{region} form -----
+    ("newyorkmetro.region@mkausa.org", M, True, "regional", None, "regional_qaid", None, "New York Metro"),
+    ("NEWYORKMETRO.REGION@MKAUSA.ORG", M, True, "regional", None, "regional_qaid", None, "New York Metro"),
+    ("  NewYorkMetro.Region@mkausa.org \n", M, True, "regional", None, "regional_qaid", None, "New York Metro"),
+    ("newyorkmetro.region+test@mkausa.org", M, True, "regional", None, "regional_qaid", None, "New York Metro"),
+    ("qaid.newyorkmetro@mkausa.org", M, True, "regional", None, "regional_qaid", None, "New York Metro"),
+    ("QAID.NewYorkMetro@mkausa.org", M, True, "regional", None, "regional_qaid", None, "New York Metro"),
+    ("newyorkmetro.region@atfalusa.org", "unrecognized", None, None, None, None, None, None),
+    ("newyorkmetro.region@example.com", "not_applicable", False, None, None, None, None, None),
+    ("east.region@mkausa.org", "unrecognized", None, None, None, None, None, None),
+    ("newyorkmetro.region2@mkausa.org", "unrecognized", None, None, None, None, None, None),
+    ("newyorkmetro.regions@mkausa.org", "unrecognized", None, None, None, None, None, None),
+    ("newyorkmetro.region.x@mkausa.org", "unrecognized", None, None, None, None, None, None),
+    ("region.newyorkmetro@mkausa.org", "unrecognized", None, None, None, None, None, None),
     ("naibqaid.northeast@mkausa.org", "partial", True, None, None, "naib_qaid", None, None),
     ("tabligh.northeast@mkausa.org", M, True, "regional", "tabligh", "regional_nazim_dept", None, "Northeast"),
     ("tabligh.syracuse@mkausa.org", "partial", True, None, "tabligh", "nazim_dept", None, None),
     ("nazim.atlantis@atfalusa.org", "partial", True, None, "atfal", "nazim_atfal", None, None),
     ("nazim.northeast@atfalusa.org", "partial", True, None, "atfal", "nazim_atfal", None, None),
-    ("muqami@mkausa.org", "partial", True, None, None, None, None, None),
     # --- unrecognized: officeholder domain, no rule -------------------------------------------------------------------
     ("john.smith@mkausa.org", "unrecognized", None, None, None, None, None, None),
     ("jsmith@mkausa.org", "unrecognized", None, None, None, None, None, None),
@@ -207,7 +218,29 @@ ATFAL_ROWS = [
     for m, r in MAJLIS_TO_REGION.items()
 ]
 
-ALL_ROWS = HAND_ROWS + QAID_ROWS + REGION_ROWS + REGIONAL_DEPT_ROWS + ATFAL_ROWS
+# Muqami: the national Mohtamim Muqami mailbox AND its own chapter + region (one entity).
+_MQ_LOCAL = ("local", "Muqami", "Muqami")
+MUQAMI_ROWS = [
+    ("muqami@mkausa.org", M, True, "national", "muqami", "mohtamim", "Muqami", "Muqami"),
+    ("MUQAMI@MKAUSA.ORG", M, True, "national", "muqami", "mohtamim", "Muqami", "Muqami"),
+    ("  muqami@mkausa.org\n", M, True, "national", "muqami", "mohtamim", "Muqami", "Muqami"),
+    ("muqami+x@mkausa.org", M, True, "national", "muqami", "mohtamim", "Muqami", "Muqami"),
+    ("qaid.muqami@mkausa.org", M, True, "local", None, "qaid", "Muqami", "Muqami"),
+    ("Qaid.Muqami@MKAUSA.org", M, True, "local", None, "qaid", "Muqami", "Muqami"),
+    ("naibqaid.muqami@mkausa.org", M, True, "local", None, "naib_qaid", "Muqami", "Muqami"),
+    *[
+        (f"{p}.muqami@mkausa.org", M, True, "local", d, "motamid" if p == "motamid" else "nazim_dept", "Muqami", "Muqami")
+        for p, d in {**LOCAL_DEPT_PREFIXES, "motamid": "aitmad"}.items()
+    ],
+    ("nazim.muqami@atfalusa.org", M, True, "local", "atfal", "nazim_atfal", "Muqami", "Muqami"),
+    ("murabbi.muqami@atfalusa.org", M, True, "local", "atfal", "murabbi_atfal", "Muqami", "Muqami"),
+    # junk stays unrecognized: muqami is not a department prefix
+    ("muqami.x@mkausa.org", "unrecognized", None, None, None, None, None, None),
+    ("muqami.muqami@mkausa.org", "unrecognized", None, None, None, None, None, None),
+    ("muqami@atfalusa.org", "unrecognized", None, None, None, None, None, None),
+]
+
+ALL_ROWS = MUQAMI_ROWS + HAND_ROWS + QAID_ROWS + REGION_ROWS + REGIONAL_DEPT_ROWS + ATFAL_ROWS
 
 
 def test_matrix_size():
@@ -237,14 +270,72 @@ def test_atfal_amoor_e_tuluba_not_swapped():
     assert parse_identity("atfal.albany@mkausa.org", RULES).status == "unrecognized"
 
 
-def test_muqami_needs_review():
+def test_muqami_national_officeholder_is_multi_level():
     a = parse_identity("muqami@mkausa.org", RULES)
-    assert a.status == "partial" and "needs_review" in a.flags
+    assert a.status == "matched" and a.level == "national" and a.department == "muqami"
+    assert a.role_title == "Mohtamim Muqami" and (a.majlis, a.region) == ("Muqami", "Muqami")
+    assert a.flags == []  # muqami_unconfirmed / needs_review are gone
+    assert RULES.raw["departments"][-1] == {"key": "muqami", "name": "Muqami", "has_course": False}
+    assert "muqami" in RULES.department_names  # admin overrides may name it
+    assert "muqami_unconfirmed" not in json.dumps(RULES.raw)
 
 
-def test_unconfirmed_slug_needs_review():
-    a = parse_identity("tabligh.newyorkmetro-region@mkausa.org", RULES)
+def test_muqami_local_roles_are_chapter_and_region_not_ambiguous():
+    assert parse_identity("qaid.muqami@mkausa.org", RULES).role_title == "Qaid"
+    for e in ("qaid.muqami@mkausa.org", "tabligh.muqami@mkausa.org", "motamid.muqami@mkausa.org"):
+        a = parse_identity(e, RULES)
+        assert a.status == "matched" and a.level == "local" and "ambiguous_slug" not in a.flags
+        assert (a.majlis, a.region) == ("Muqami", "Muqami")
+
+
+def test_same_entity_region_and_majlis_is_not_a_collision():
+    # Even if a rules edit lists Muqami as a region slug, Region == Majlis -> local, never ambiguous.
+    raw = copy.deepcopy(RULES.raw)
+    raw["regions"]["muqami"] = "Muqami"
+    assert "muqami" in raw["same_entity_slugs"]
+    rules = IdentityRules.from_dict(raw, MAJLIS_TO_REGION)
+    # without the explicit same-entity declaration the overlap is (correctly) ambiguous
+    undeclared = copy.deepcopy(raw)
+    undeclared["same_entity_slugs"] = []
+    assert parse_identity("qaid.muqami@mkausa.org", IdentityRules.from_dict(undeclared, MAJLIS_TO_REGION)).status == "ambiguous"
+    assert rules.collisions() == []
+    for e in ("qaid.muqami@mkausa.org", "tabligh.muqami@mkausa.org"):
+        a = parse_identity(e, rules)
+        assert (a.status, a.level, a.majlis, a.region) == ("matched", "local", "Muqami", "Muqami")
+
+
+def test_unconfirmed_slug_mechanism_kept_but_empty():
+    assert RULES.raw["unconfirmed_slugs"] == [] and RULES.unconfirmed_slugs == set()
+    raw = copy.deepcopy(RULES.raw)
+    raw["unconfirmed_slugs"] = ["madeup"]
+    a = parse_identity("tabligh.madeup@mkausa.org", IdentityRules.from_dict(raw, MAJLIS_TO_REGION))
     assert a.status == "partial" and "needs_review" in a.flags and a.majlis is None
+
+
+def test_newyorkmetro_region_alias():
+    a = parse_identity("newyorkmetro.region@mkausa.org", RULES)
+    assert (a.status, a.level, a.role, a.role_title, a.region, a.majlis, a.department) == (
+        "matched", "regional", "regional_qaid", "Regional Qaid", "New York Metro", None, None)
+    assert a.flags == []
+    b = parse_identity("qaid.newyorkmetro@mkausa.org", RULES)
+    assert (b.role_title, b.region) == (a.role_title, a.region)
+    # the alias is explicit data, not a generalised {region}.region pattern
+    assert set(RULES.domains["mkausa.org"]["regional_mailbox_aliases"]) == {"newyorkmetro.region"}
+    assert "regional_mailbox_aliases" not in RULES.domains["atfalusa.org"]
+    assert RULES.collisions() == []
+
+
+def test_alias_to_unknown_region_fails_closed():
+    raw = copy.deepcopy(RULES.raw)
+    raw["domains"]["mkausa.org"]["regional_mailbox_aliases"]["east.region"] = {"region": "nowhere", "department": None, "role": "regional_qaid"}
+    r = IdentityRules.from_dict(raw, MAJLIS_TO_REGION)
+    assert parse_identity("east.region@mkausa.org", r).status == "unrecognized"
+    raw["domains"]["mkausa.org"]["regional_mailbox_aliases"]["east.region"]["region"] = "east"
+    assert parse_identity("east.region@mkausa.org", IdentityRules.from_dict(raw, MAJLIS_TO_REGION)).region == "East"
+
+
+def test_newyorkmetro_region_slug_gone_from_rules():
+    assert "newyorkmetro-region" not in json.dumps(RULES.raw)
 
 
 def test_regional_department_title_and_counts():
@@ -351,13 +442,14 @@ def test_non_ascii_never_matches():
 # --- rules file integrity -------------------------------------------------------------------------
 
 def test_rules_version_and_domains():
-    assert RULES.version == "2026.1"
+    assert RULES.version == "2026.3"
     assert set(RULES.domains) == {"mkausa.org", "atfalusa.org"}
 
 
 def test_every_rule_department_is_canonical():
     keys = {d["key"] for d in RULES.raw["departments"]}
-    assert len(keys) == 21
+    assert len(keys) == 22  # 21 course departments + muqami (has_course: false)
+    assert {d["key"] for d in RULES.raw["departments"] if d.get("has_course") is False} == {"muqami"}
     for dom in RULES.raw["domains"].values():
         for table in ("local_prefixes", "national_exact", "personal_mailboxes"):
             for e in dom[table].values():

@@ -64,6 +64,12 @@ attribute-based compliance scope `all` is withheld until refreshed) but does NOT
 their progress (proof depends on the mailbox only). Run `python -m src.services.mka.backfill` (or the admin recompute)
 after any rules bump so attributes are refreshed.
 
+Rules 2026.2 (Muqami): `muqami@mkausa.org` now parses as the matched national Mohtamim Muqami (also region/Majlis
+"Muqami", department `muqami`, no department course) instead of partial/needs_review. After deploying a rules bump an
+admin MUST run the recompute (or users re-login): attribute reads fail closed (`unrecognized`, scope `all` withheld)
+for any row stored under an older `rules_version` until it is refreshed. Existing compliance matches and attestations are
+unaffected. Re-import the roster so the new national `muqami@` row (+1 national, 28 total national rows) exists.
+
 ## Rollback
 - Web: redeploy the previous web image (hooks are inert without it).
 - API: redeploy the previous image. The new tables are unused by old code and harmless; leave them. The login hook
@@ -87,3 +93,5 @@ after any rules bump so attributes are refreshed.
 - A Read-only-preset token can still read learner lists (names, emails, answers): treat every token as a secret, store it only in the keychain / a secret manager.
 - Use a SEPARATE Read-only token for any reminder or reporting workflow (Make.com, n8n); never reuse the Full Access token there.
 - Rotate tokens on staff changes.
+
+Rules 2026.3 (New York Metro): `newyorkmetro.region@mkausa.org` is the New York Metro Regional Qaid mailbox (product owner, 2026-10-05), via the explicit `regional_mailbox_aliases` entry (add `east.region` etc. there as one line each when confirmed); `qaid.newyorkmetro@mkausa.org` stays recognised too. The earlier `newyorkmetro-region` "unconfirmed slug" was an error and is removed. Because the version changed, stored attribute rows read as unrecognized until the user's next Google login or an admin recompute (`python -m src.services.mka.backfill`). Mailbox proof and attestations are unaffected. The provisioner roster still emits `qaid.newyorkmetro@mkausa.org` for this Qaid (roster-email question still open with the product owner).
