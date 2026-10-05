@@ -10,12 +10,14 @@ from datetime import date, datetime, timedelta, timezone
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import delete
 from sqlmodel import select
 
 from src.core.events.database import get_db_session
 from src.db.courses.assignments import AssignmentUserSubmissionStatus
 from src.db.mka_automation import MkaAutomationEvent, MkaAutomationSendLog
 from src.db.mka_compliance import MkaComplianceCycle, MkaComplianceCycleCourse
+from src.db.user_organizations import UserOrganization
 from src.services.email import utils as email_utils
 from src.services.mka import automation_send as send
 from src.services.mka.automation_auth import compute_signature
@@ -448,6 +450,19 @@ async def test_roster_user_without_proof_of_the_address_gets_nothing(db, world, 
     async with make_client(db) as c:
         await post(c, payload(user_uuid="user_33"))
     assert transport.calls == [] and await logs(db) == []
+
+
+async def test_a_proven_roster_person_who_is_not_an_org_member_gets_nothing_from_webhook_or_sweep(db, world, transport, on):
+    """Review M5: the org-membership guard in ``build_context`` had no test (mutating it away left the suite green)."""
+    await attest(db, 31, 5001, TODAY)  # user 31 is on the roster, identity proven, sign-off submitted ...
+    await db.execute(delete(UserOrganization).where(UserOrganization.user_id == 31))  # ... but no longer a member
+    await db.commit()
+    async with make_client(db) as c:
+        hook = await post(c, payload())
+        sweep = await c.post(SWEEP, params={"dry_run": "false"}, headers=cron())
+    assert hook.status_code == 200 and sweep.status_code == 200
+    assert transport.calls == [] and await logs(db) == []
+    assert sweep.json()["results"].get("sent", 0) == 0
 
 
 async def test_signoff_not_actually_submitted_sends_nothing(db, world, transport, on):
