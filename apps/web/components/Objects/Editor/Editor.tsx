@@ -52,6 +52,7 @@ import { CourseProvider } from '@components/Contexts/CourseContext'
 const AIEditorToolkit = dynamic(() => import('./AI/AIEditorToolkit'), { ssr: false, loading: () => null })
 const AIEditorSidePanel = dynamic(() => import('./AI/AIEditorSidePanel'), { ssr: false, loading: () => null })
 import AIStreamingMark from './Extensions/AIStreaming/AIStreamingMark'
+import { mkaEditorExtensions } from '@components/mka/editor' // MKA fork
 import AISelectionHighlight from './Extensions/AISelectionHighlight/AISelectionHighlight'
 import useGetAIFeatures from '@components/Hooks/useGetAIFeatures'
 import { getUriWithOrg } from '@services/config/config'
@@ -201,6 +202,7 @@ function Editor(props: EditorProps) {
         getAccessToken,
       }),
       MagicBlock.configure({ editable: true, activity: stableActivity }),
+      ...mkaEditorExtensions({ editable: true, activity: stableActivity, courseUuid: props.course?.course_uuid }), // MKA fork
       AIStreamingMark,
       AISelectionHighlight,
     ],
