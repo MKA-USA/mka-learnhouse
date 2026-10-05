@@ -79,7 +79,7 @@ export async function cmdGapReport(a: Args) {
     const carryId = await getCycleId(db, carry);
     const carried = carryId === null ? [] : (await loadPlans(db, carryId)).filter((p) => !have.has(p.departmentSlug)).map((p) => ({ departmentSlug: p.departmentSlug, level: p.level, stale: true, source: `${p.source} (carried over)` }));
     const { markdown, counts } = buildGapReport({ cycleLabel: label, roster, plans: [...own, ...carried], issues, notes: [
-      "Muqami is counted among the 52 Majlis in the fork's MAJLIS_TO_REGION; its mailbox status is an open question (rules file: unconfirmed).",
+      "Muqami is counted among the 52 Majlis in the fork's MAJLIS_TO_REGION and is also a region; muqami@ is the national Mohtamim Muqami (General course only, no department course).",
       "Names are optional enrichment: supply names.csv (email,name) to fill them. Thinkific directory snapshots were not imported (PII, stale).",
     ] });
     const path = writeOut("data-gap-report.md", markdown);

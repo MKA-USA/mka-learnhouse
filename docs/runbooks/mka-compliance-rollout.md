@@ -64,6 +64,12 @@ attribute-based compliance scope `all` is withheld until refreshed) but does NOT
 their progress (proof depends on the mailbox only). Run `python -m src.services.mka.backfill` (or the admin recompute)
 after any rules bump so attributes are refreshed.
 
+Rules 2026.2 (Muqami): `muqami@mkausa.org` now parses as the matched national Mohtamim Muqami (also region/Majlis
+"Muqami", department `muqami`, no department course) instead of partial/needs_review. After deploying a rules bump an
+admin MUST run the recompute (or users re-login): attribute reads fail closed (`unrecognized`, scope `all` withheld)
+for any row stored under an older `rules_version` until it is refreshed. Existing compliance matches and attestations are
+unaffected. Re-import the roster so the new national `muqami@` row (+1 national, 28 total national rows) exists.
+
 ## Rollback
 - Web: redeploy the previous web image (hooks are inert without it).
 - API: redeploy the previous image. The new tables are unused by old code and harmless; leave them. The login hook

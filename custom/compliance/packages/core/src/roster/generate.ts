@@ -57,6 +57,8 @@ export function generateRoster(opts: GenerateOptions = {}): RosterRow[] {
     push({ departmentSlug: d.slug, role: isAitmad ? "motamid" : "mohtamim", level: "national", region: "", majlis: "",
       roleTitle: isAitmad ? "National Motamid" : `Mohtamim ${d.name}`, learnerEmail: `${d.mailboxPrefix}@${MKA_DOMAIN}` });
   }
+  // Muqami: national Mohtamim Muqami (also the Muqami region/chapter). NO department course: departmentSlug "" = General course only.
+  push({ departmentSlug: "", role: "mohtamim", level: "national", region: "", majlis: "", roleTitle: "Mohtamim Muqami", slot: "muqami", learnerEmail: `muqami@${MKA_DOMAIN}` });
   push({ departmentSlug: "", role: "sadr", level: "national", region: "", majlis: "", roleTitle: "Sadr", learnerEmail: `sadr@${MKA_DOMAIN}` });
   for (const s of NATIONAL_STAFF) push({ departmentSlug: "", role: "national_staff", level: "national", region: "", majlis: "", roleTitle: `National staff (${s})`, slot: s, learnerEmail: `${s}@${MKA_DOMAIN}` });
 
