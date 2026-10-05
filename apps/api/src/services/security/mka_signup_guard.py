@@ -7,10 +7,10 @@ It is NOT hooked into ``create_user`` itself (OAuth also calls that).
 
 Rules (see docs/superpowers/specs/2026-10-05-mka-signup-hardening-eval.md):
 - SaaS mode: inert. SaaS behaves exactly like upstream.
-- Exempt (validated callers only): API-token callers (org-scoped or
-  superadmin tokens), superadmin sessions, and sessions of an ADMIN of the
-  target org on ``/users/{org_id}...``. ``POST /users/`` (no org) exempts
-  superadmins only. Every other caller (anonymous, member, maintainer, admin of
+- Exempt (validated callers only): superadmin API tokens and superadmin
+  sessions everywhere; on ``/users/{org_id}...`` also an org-scoped API token
+  OF THAT ORG and a session of an ADMIN of that org. ``POST /users/`` (no org)
+  exempts superadmins only. Every other caller (anonymous, member, maintainer, admin of
   another org) is guarded.
 - Guarded callers: Cloudflare Turnstile first (when BOTH keys are configured,
   see ``mka_turnstile``), then the per-IP signup limit
@@ -61,55 +61,91 @@ def signup_rate_limit_per_hour() -> int:
     return value
 
 
+MAX_FORWARDED_LENGTH = 4096
+
+
+def _parse_ip(value):
+    """Canonical ``ip_address`` or None: strips ``%zone`` and ``[...]``,
+    unwraps IPv4-mapped IPv6. Never raises."""
+    if not value:
+        return None
+    text = str(value).strip().strip("[]").split("%", 1)[0]
+    try:
+        addr = ipaddress.ip_address(text)
+    except ValueError:
+        return None
+    mapped = getattr(addr, "ipv4_mapped", None)
+    return mapped or addr
+
+
 def _is_distinguishable_client_ip(ip) -> bool:
     """True only for a globally routable address (a real, per-client IP)."""
-    if not ip:
-        return False
-    try:
-        return ipaddress.ip_address(str(ip).strip()).is_global
-    except ValueError:
-        return False
+    addr = _parse_ip(ip)
+    return addr is not None and _is_unicast_global(addr)
 
 
-def _is_trusted_peer(ip: str) -> bool:
-    try:
-        addr = ipaddress.ip_address(ip)
-    except ValueError:
-        return False
-    return addr.is_loopback or addr.is_private
+def _is_unicast_global(addr) -> bool:
+    # Python reports some multicast ranges as is_global; a client is unicast.
+    return addr.is_global and not addr.is_multicast
+
+
+def _is_proxy_hop(addr) -> bool:
+    """Our own infrastructure: loopback, private and link-local ranges."""
+    return addr.is_loopback or addr.is_private or addr.is_link_local
 
 
 def mka_client_ip(request: Request) -> str:
-    """Client IP for the signup guard: the RIGHT-MOST globally routable
-    ``X-Forwarded-For`` entry when the direct peer is a local proxy.
+    """Client IP for the signup guard (fork-only; upstream ``get_client_ip``,
+    shared with the login limiter, is left unchanged).
 
-    Stricter than upstream ``get_client_ip`` (which takes the FIRST entry and
-    is shared with the login limiter, so it is left unchanged). The container
-    nginx APPENDS to any incoming X-Forwarded-For (``$proxy_add_x_forwarded_for``,
-    no ``real_ip`` module), so entries on the left can be client-supplied. Only
-    entries appended by the proxy chain sit on the right; the right-most global
-    one is the address the edge saw. Private entries (proxy hops) are skipped.
-    With no global entry the (private) direct peer is returned, which the
-    limiter treats as "cannot tell clients apart" and skips.
+    The container nginx APPENDS to any incoming X-Forwarded-For
+    (``$proxy_add_x_forwarded_for``, no ``real_ip`` module) and upstream takes
+    the FIRST entry, which a client can choose. Here, when the direct peer is
+    a local proxy, all XFF header lines are joined and walked from the RIGHT,
+    skipping only proxy hops (loopback/private/link-local). The first entry
+    that is not a proxy hop IS the client: if it is unparseable or not globally
+    routable the result is ``"unknown"`` (the limiter is skipped) and nothing
+    further left (attacker-controlled) is ever considered. Oversized headers
+    yield ``"unknown"``. A public direct peer is used as-is. Never raises.
     """
-    direct_ip = request.client.host if request.client else None
-    if not direct_ip:
+    direct = request.client.host if request.client else None
+    direct_addr = _parse_ip(direct)
+    if direct_addr is None:
         return "unknown"
-    if not _is_trusted_peer(direct_ip):
-        return direct_ip
-    forwarded = request.headers.get("X-Forwarded-For") or ""
+    if not _is_proxy_hop(direct_addr):
+        return str(direct_addr)
+    forwarded = ", ".join(request.headers.getlist("x-forwarded-for"))
+    if len(forwarded) > MAX_FORWARDED_LENGTH:
+        return "unknown"
     for entry in reversed(forwarded.split(",")):
-        candidate = entry.strip()
-        if _is_distinguishable_client_ip(candidate):
-            return str(ipaddress.ip_address(candidate))
-    return direct_ip
+        if not entry.strip():
+            continue
+        addr = _parse_ip(entry)
+        if addr is not None and _is_proxy_hop(addr):
+            continue
+        if addr is None or not _is_unicast_global(addr):
+            return "unknown"
+        return str(addr)
+    return "unknown"
+
+
+def mka_rate_limit_bucket(ip: str) -> str:
+    """Bucket for an IP: IPv4 address, or the IPv6 /64 (one client usually owns
+    a whole /64 and could otherwise mint a bucket per address)."""
+    addr = _parse_ip(ip)
+    if addr is None:
+        return "unknown"
+    if addr.version == 6:
+        return str(ipaddress.ip_network(f"{addr}/64", strict=False))
+    return str(addr)
 
 
 def enforce_mka_signup_rate_limit(request: Request) -> None:
     """Raise 429 when this client IP exceeded the signup limit.
 
-    Keys on ``mka_client_ip`` (right-most global X-Forwarded-For entry behind
-    a local proxy, so a spoofed left-hand entry cannot pick the bucket).
+    Keys on ``mka_rate_limit_bucket(mka_client_ip(...))``: the client the proxy
+    chain saw (a spoofed left-hand XFF entry cannot pick the bucket), IPv4
+    address or IPv6 /64.
     Skipped when the resolved IP is empty/unknown/not globally routable, and
     fails OPEN when Redis is missing or erroring: neither situation may block
     member signups.
@@ -123,7 +159,7 @@ def enforce_mka_signup_rate_limit(request: Request) -> None:
         return
     try:
         is_allowed, _count, retry_after = check_rate_limit(
-            key=f"signup:{ip}", max_attempts=limit, window_seconds=SIGNUP_WINDOW_SECONDS
+            key=f"signup:{mka_rate_limit_bucket(ip)}", max_attempts=limit, window_seconds=SIGNUP_WINDOW_SECONDS
         )
     except Exception:
         logger.warning("Signup rate limit unavailable (failing open)", exc_info=True)
@@ -175,13 +211,17 @@ async def _is_exempt(request: Request, current_user, db_session: AsyncSession) -
     from fields on the user object. The org comes from the PATH only (never a
     query parameter), so ``POST /users/?org_id=...`` cannot borrow an org.
     """
-    if isinstance(current_user, (APITokenUser, SuperadminAPITokenUser)):
+    raw_org_id = request.path_params.get("org_id")
+    if isinstance(current_user, SuperadminAPITokenUser):
         return True
+    if isinstance(current_user, APITokenUser):
+        # Org-scoped token: exempt only on its own org's routes. POST /users/
+        # has no org in the path to check the token against.
+        return raw_org_id is not None and str(raw_org_id) == str(current_user.org_id)
     if not isinstance(current_user, PublicUser) or not current_user.id:
         return False
     if await is_user_superadmin(current_user.id, db_session):
         return True
-    raw_org_id = request.path_params.get("org_id")
     if raw_org_id is None:
         # POST /users/ creates an org-less account: superadmin only. Being an
         # admin of SOME org grants no authority over standalone accounts.

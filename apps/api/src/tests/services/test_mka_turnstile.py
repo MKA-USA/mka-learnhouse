@@ -203,19 +203,34 @@ async def _guard(request, user):
     await guard.mka_signup_guard(request, db_session=object(), current_user=user)
 
 
-@pytest.mark.parametrize(
-    "user",
-    [
-        APITokenUser(id=0, org_id=7, token_name="t", created_by_user_id=1),
-        SuperadminAPITokenUser(),
-    ],
-)
-async def test_api_token_callers_exempt(monkeypatch, keys, not_saas, roles, user):
+@pytest.mark.parametrize("path_params", [{}, {"org_id": "7"}, {"org_id": "7", "invite_code": "X"}])
+async def test_superadmin_api_token_exempt_everywhere(monkeypatch, keys, not_saas, roles, path_params):
     calls = _mock_cloudflare(monkeypatch, _bad)
     with patch.object(guard, "enforce_mka_signup_rate_limit") as limiter:
-        await _guard(_request(path_params={"org_id": "7"}), user)
+        await _guard(_request(path_params=path_params), SuperadminAPITokenUser())
     limiter.assert_not_called()
     assert calls == []
+
+
+@pytest.mark.parametrize("path_params", [{"org_id": "7"}, {"org_id": "7", "invite_code": "X"}])
+async def test_org_api_token_exempt_for_its_own_org(monkeypatch, keys, not_saas, roles, path_params):
+    calls = _mock_cloudflare(monkeypatch, _bad)
+    token = APITokenUser(id=0, org_id=7, token_name="t", created_by_user_id=1)
+    with patch.object(guard, "enforce_mka_signup_rate_limit") as limiter:
+        await _guard(_request(path_params=path_params), token)
+    limiter.assert_not_called()
+    assert calls == []
+
+
+@pytest.mark.parametrize("path_params", [{}, {"org_id": "8"}, {"org_id": "x"}])
+async def test_org_api_token_guarded_off_its_org(monkeypatch, keys, not_saas, roles, path_params):
+    # POST /users/ has no org to check the token against; another org is out of scope.
+    _mock_cloudflare(monkeypatch, _ok)
+    token = APITokenUser(id=0, org_id=7, token_name="t", created_by_user_id=1)
+    with patch.object(guard, "enforce_mka_signup_rate_limit"):
+        with pytest.raises(HTTPException) as exc:
+            await _guard(_request(path_params=path_params), token)
+    assert exc.value.status_code == 403
 
 
 @pytest.mark.parametrize("path_params", [{}, {"org_id": "7"}, {"org_id": "7", "invite_code": "X"}])

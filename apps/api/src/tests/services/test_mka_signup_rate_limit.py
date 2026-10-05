@@ -137,6 +137,9 @@ def test_unknown_client_skips_limiter():
         ("10.0.1.7", "8.8.4.4, 172.18.0.2", "8.8.4.4"),
         ("127.0.0.1", "8.8.4.4", "8.8.4.4"),
         ("127.0.0.1", "garbage, 8.8.4.4, 10.0.0.1", "8.8.4.4"),
+        ("127.0.0.1", "fe80::1%eth0, 8.8.4.4, fe80::2%eth0", "8.8.4.4"),  # link-local hops
+        ("127.0.0.1", "2001:4860:4860::8888%eth0", "2001:4860:4860::8888"),  # zone stripped
+        ("127.0.0.1", "::ffff:8.8.4.4", "8.8.4.4"),  # IPv4-mapped unwrapped
         ("127.0.0.1", "8.8.4.4 , 172.18.0.2 ", "8.8.4.4"),
         # public direct peer: headers are never trusted
         ("8.8.8.8", "1.2.3.4, 9.9.9.9", "8.8.8.8"),
@@ -147,7 +150,20 @@ def test_mka_client_ip_takes_rightmost_global_entry(peer, xff, expected):
 
 
 @pytest.mark.parametrize(
-    "xff", ["", "10.0.0.1, 172.18.0.2", "garbage", "unknown", " , "]
+    "xff",
+    [
+        "",
+        "10.0.0.1, 172.18.0.2",
+        "garbage",
+        "unknown",
+        " , ",
+        "9.9.9.9, 100.64.1.1",  # proxy-appended client is not global: never walk further left
+        "8.8.4.4, garbage, 10.0.0.1",  # unparseable client entry: stop
+        "8.8.4.4, 224.0.0.1",
+        "x" * 10000,
+        ",".join(["8.8.4.4"] * 2000),
+        "\u00ff\u00fe, 10.0.0.1",
+    ],
 )
 def test_mka_client_ip_without_global_entry_is_not_distinguishable(xff):
     ip = guard.mka_client_ip(_request("127.0.0.1", {"X-Forwarded-For": xff}))
@@ -169,3 +185,50 @@ def test_empty_or_unknown_ip_never_creates_a_key(ip):
     with patch.object(guard, "mka_client_ip", return_value=ip), patch(PATCH_CHECK) as check:
         guard.enforce_mka_signup_rate_limit(_request())
     check.assert_not_called()
+
+
+def test_multiple_xff_header_lines_are_joined():
+    scope = {
+        "type": "http", "method": "POST", "path": "/", "query_string": b"",
+        "client": ("127.0.0.1", 1),
+        "headers": [(b"x-forwarded-for", b"1.1.1.1"), (b"x-forwarded-for", b"8.8.4.4, 10.0.0.2")],
+    }
+    assert guard.mka_client_ip(Request(scope)) == "8.8.4.4"
+
+
+def test_public_direct_peer_is_canonicalized():
+    assert guard.mka_client_ip(_request("::ffff:8.8.8.8")) == "8.8.8.8"
+
+
+@pytest.mark.parametrize(
+    "a,b,same",
+    [
+        ("::ffff:1.2.3.4", "1.2.3.4", True),
+        ("2001:db8:1:2::1", "2001:db8:1:2:ffff::9", True),  # same /64
+        ("2a00:1450:4001:81a::1", "2a00:1450:4001:81a:abcd::2", True),
+        ("2a00:1450:4001:81a::1", "2a00:1450:4001:81b::1", False),  # different /64
+        ("8.8.8.8", "8.8.4.4", False),
+    ],
+)
+def test_bucket_keys(a, b, same):
+    assert (guard.mka_rate_limit_bucket(a) == guard.mka_rate_limit_bucket(b)) is same
+
+
+def test_ipv6_client_keyed_on_slash_64():
+    req1 = _request("127.0.0.1", {"X-Forwarded-For": "2a00:1450:4001:81a::1, 10.0.0.2"})
+    req2 = _request("127.0.0.1", {"X-Forwarded-For": "2a00:1450:4001:81a::dead:beef, 10.0.0.2"})
+    keys = []
+    for req in (req1, req2):
+        with patch(PATCH_CHECK, return_value=(True, 1, 3600)) as check:
+            guard.enforce_mka_signup_rate_limit(req)
+        keys.append(check.call_args.kwargs["key"])
+    assert keys[0] == keys[1] == "signup:2a00:1450:4001:81a::/64"
+
+
+def test_mapped_and_plain_ipv4_share_a_key():
+    keys = []
+    for xff in ("::ffff:8.8.4.4, 10.0.0.2", "8.8.4.4, 10.0.0.2"):
+        with patch(PATCH_CHECK, return_value=(True, 1, 3600)) as check:
+            guard.enforce_mka_signup_rate_limit(_request("127.0.0.1", {"X-Forwarded-For": xff}))
+        keys.append(check.call_args.kwargs["key"])
+    assert keys == ["signup:8.8.4.4", "signup:8.8.4.4"]
