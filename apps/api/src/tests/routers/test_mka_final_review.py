@@ -45,3 +45,28 @@ async def test_m1_proven_workspace_national_officer_still_gets_all(db, org, worl
     await add_attributes(db, 61, "national.officer@ws.example.invalid", level="national", department="aitmad", role="motamid")
     async with client_for(db, 61) as c:
         assert (await c.get(f"{BASE}/scope", params=q(org))).json()["scope"] == "all"
+
+
+# ---- M2: a rules-version bump must not invalidate identity proof or hide progress ------------------------------
+
+@pytest.mark.asyncio
+async def test_m2_rules_version_bump_keeps_matched_learners_and_their_attestations(db, org, world):
+    async def snapshot():
+        async with client_for(db, 1) as c:
+            ov = (await c.get(f"{BASE}/overview", params=q(org))).json()["totals"]
+            items = (await c.get(f"{BASE}/courses/course_general/learners", params=q(org, page_size=200))).json()["items"]
+        return ov, {i["email"]: i["stage"] for i in items}
+
+    before_totals, before_stages = await snapshot()
+    assert before_totals["attested"] >= 1 and before_totals["not_signed_in"] < before_totals["expected"]
+    rows = (await db.execute(select(MkaUserAttributes))).scalars().all()
+    for row in rows:                                    # an older rules version on every stored row
+        row.rules_version = "2025.0"
+        db.add(row)
+    await db.commit()
+    after_totals, after_stages = await snapshot()
+    assert after_totals == before_totals
+    assert after_stages == before_stages
+    u = await db.get(User, 31)
+    assert attrs.is_address_proven(await attrs.get_row(db, 31), u)                 # proof is about the mailbox only
+    assert attrs.read_effective_from_row(await attrs.get_row(db, 31), u)[1] is True  # attributes are still marked for refresh

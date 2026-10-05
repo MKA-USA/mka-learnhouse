@@ -52,6 +52,12 @@ migration run starts from the wrong revision). If ilm-dev `alembic current` is n
 - No request to `/mka/compliance/*` returns 5xx in the API log; `Cache-Control: private, no-store` on responses.
 - Sign in with Google as a test officeholder, then the admin attributes list shows the derived row.
 
+## After an identity-rules version bump
+Bumping the rules version marks stored ATTRIBUTES for refresh (the fail-closed reader reports them unrecognized, and
+attribute-based compliance scope `all` is withheld until refreshed) but does NOT change who is matched in compliance or
+their progress (proof depends on the mailbox only). Run `python -m src.services.mka.backfill` (or the admin recompute)
+after any rules bump so attributes are refreshed.
+
 ## Rollback
 - Web: redeploy the previous web image (hooks are inert without it).
 - API: redeploy the previous image. The new tables are unused by old code and harmless; leave them. The login hook

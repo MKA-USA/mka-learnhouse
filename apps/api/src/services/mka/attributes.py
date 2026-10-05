@@ -248,11 +248,13 @@ def is_stale(row: MkaUserAttributes, user: User, rules: Optional[IdentityRules] 
 
 def is_address_proven(row: Optional[MkaUserAttributes], user: User, rules: Optional[IdentityRules] = None) -> bool:
     """True when Workspace ownership of the account's CURRENT address is proven by a fresh row: ``verified_hd`` equals the
-    domain of ``email_seen``, ``email_seen`` is still the account's email, and the row is not stale. An admin override
-    does NOT count (it changes attributes, it does not prove who owns the mailbox). Used by compliance matching."""
-    if row is None or not row.verified_hd:
+    domain of ``email_seen``, ``email_seen`` is still the account's email, and the row is not marked stale. Mailbox
+    ownership does not depend on the identity-rules version, so a rules bump does NOT invalidate it (it only marks the
+    ATTRIBUTES for refresh, see ``is_stale``). An admin override does NOT count (it changes attributes, it does not prove
+    who owns the mailbox). Used by compliance matching and by attribute-based compliance scope."""
+    if row is None or not row.verified_hd or row.stale:
         return False
-    return row.verified_hd == _domain(row.email_seen) and not is_stale(row, user, rules)
+    return row.verified_hd == _domain(row.email_seen) and row.email_seen == normalize_email(user.email)
 
 
 def read_effective_from_row(row: Optional[MkaUserAttributes], user: User) -> tuple[dict, bool]:
