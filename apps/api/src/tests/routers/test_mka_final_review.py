@@ -70,3 +70,17 @@ async def test_m2_rules_version_bump_keeps_matched_learners_and_their_attestatio
     u = await db.get(User, 31)
     assert attrs.is_address_proven(await attrs.get_row(db, 31), u)                 # proof is about the mailbox only
     assert attrs.read_effective_from_row(await attrs.get_row(db, 31), u)[1] is True  # attributes are still marked for refresh
+
+
+# ---- contact check: Aitmad's national officer is titled "National Motamid" ------------------------------------
+
+def test_contact_check_recognises_national_motamid_as_department_head():
+    roster = [expected(1, 1, "head@example.invalid", "aitmad", "national", None, None, "National Motamid", "Head Person"),
+              expected(1, 1, "mem@example.invalid", "aitmad", "local", "Albany", "Northeast", "Nazim Aitmad", "Mem Ber")]
+    idx = svc.expected_contacts(roster)
+    assert idx["dept_head"] == {"aitmad": ["Head Person"]}
+    assert svc.classify_question("Name of the National Motamid") == "dept_head"
+    check = svc.self_check_for(roster[1], {"majlis": "Albany", "regional_qaid": None, "dept_head": "Someone Else"}, idx)
+    assert check["mismatch"] is True                                  # a wrong head is now flagged for Aitmad
+    ok = svc.self_check_for(roster[1], {"majlis": "Albany", "regional_qaid": None, "dept_head": "Head Person"}, idx)
+    assert ok["mismatch"] is False

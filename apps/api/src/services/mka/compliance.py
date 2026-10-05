@@ -68,13 +68,13 @@ MAX_ATTENTION_ITEMS = 50
 # mismatch for that field (never a false alarm).
 CONTACT_CHECK_RULES: dict[str, dict] = {
     "regional_qaid": {"level": "regional", "role_keywords": ("regional qaid",)},
-    "dept_head": {"level": "national", "role_keywords": ("mohtamim",)},
+    "dept_head": {"level": "national", "role_keywords": ("mohtamim", "motamid")},
 }
 # How FORM questions are mapped to fields: lower-case substrings of ``questionText`` (provisioner wording:
 # "Name of your Regional Qaid" / "Name of the National Mohtamim <dept>").
 CONTACT_QUESTION_KEYWORDS: dict[str, tuple[str, ...]] = {
     "regional_qaid": ("regional qaid",),
-    "dept_head": ("mohtamim", "department head"),
+    "dept_head": ("mohtamim", "motamid", "department head"),
 }
 
 SUBMITTED_STATES = (
