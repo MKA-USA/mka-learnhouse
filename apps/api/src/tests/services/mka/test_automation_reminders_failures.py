@@ -95,3 +95,22 @@ async def test_the_digest_names_the_failing_mailbox_for_the_supervisor(db, org, 
     rep = await go(db, utc(2026, 11, 16), org, dry_run=False, kind="digest")  # a Monday
     assert rep["digest"]["sent"] >= 1
     assert any("(address failing)" in call["body"] for call in transport.calls)
+
+
+async def test_the_run_totals_report_newly_quarantined_and_the_last_window_day(db, org, with_bad_addresses, on, rejecting):  # noqa: F811
+    newly = []
+    last_flags = []
+    for day in (8, 9, 10, 11):
+        rep = (await go(db, utc(2026, 11, day), org, dry_run=False))["_all"]
+        newly.append(rep["newly_quarantined"])
+        last_flags.append(rep["last_window_day"])
+    assert newly == [0, 0, 5, 0]  # the third failed attempt of each of the 5 addresses, reported once
+    assert last_flags == [False, False, False, True]
+
+
+async def test_a_disabled_run_says_why_in_the_totals(db, org, world, monkeypatch):  # noqa: F811
+    monkeypatch.setenv("MKA_AUTOMATION_ENABLED", "true")
+    monkeypatch.setenv("MKA_REMINDERS_ENABLED", "true")
+    monkeypatch.setenv("MKA_AUTOMATION_TEST_RECIPIENT", "not an address, x@y.invalid")
+    rep = (await go(db, utc(2026, 11, 15), org, dry_run=False))["_all"]
+    assert rep["sent"] == 0 and rep["disabled_reason"] == "invalid_test_recipient"

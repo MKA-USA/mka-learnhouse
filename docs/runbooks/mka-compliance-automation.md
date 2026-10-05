@@ -177,6 +177,11 @@ logging filter on `src.services.email.utils` would remove it without touching up
   skipped ("reminded in the last 3 days" in the dialog). A person reminded manually on day 1 of a window is skipped by
   the scheduled runs until the cooldown passes and still gets the scheduled reminder later in the window. A cycle that
   has not started cannot be reminded (409, "has not started yet").
+- **Last day of a window (round 3)**: on the LAST day of a reminder window the scheduled run ignores the cooldown that
+  comes from a MANUAL reminder (it still enforces at most one scheduled reminder per ISO week, the scheduled-vs-scheduled
+  cooldown and the quarantine). A manual remind covers one course; the scheduled mail lists everything outstanding and
+  there is no later run in the window, so nobody outstanding may fall through. Cost: a person reminded manually shortly
+  before can get two emails about 3 days apart, only on that last day.
 - **Failing addresses (quarantine)**: each failed attempt is counted on the send-log row. Addresses with
   `MKA_REMINDER_MAX_ADDRESS_FAILURES` failures in 7 days are skipped (`quarantined` in the run report,
   `send_log.failing_addresses` in `/status`, "(address failing)" next to the role in the Monday digest) and addresses
@@ -188,8 +193,13 @@ logging filter on `src.services.email.utils` would remove it without touching up
   says how many are left and WHY it stopped (`stopped`: `time_budget_reached`, `send_cap_reached` or
   `too_many_consecutive_failures`). The cron workflow runs the receipts sweep first, then calls `reminders/run` again
   (at most 10 calls, `curl --max-time 150`, job `timeout-minutes: 30` = sweep 150 s + 10 x 155 s) while the server
-  reports `time_budget_hit` and `remaining > 0`. The job goes red only when nothing could be sent (every attempt
-  failed), on a non-2xx or non-JSON answer, or on a sweep failure; a failure stop after some sends is a warning; leftovers after a send-cap stop wait for the next daily
+  reports `time_budget_hit` and `remaining > 0`. **The job is RED** when: an answer is non-2xx or not JSON (the sweep
+  too); a call sent nothing and some attempts failed; across the run `failed >= 3` and `failed x 5 >= sent + failed`
+  (20 % or more of the sends failed); any address was newly quarantined; or time ran out on the LAST day of the
+  reminder window with people still left. **A `::warning::` with the counts** (still green) is any other run with
+  `failed > 0`, or a failure stop after some sends. A server that reports reminders switched off (`disabled_reason`,
+  e.g. `invalid_test_recipient`) prints a `::notice::` and stays green by design. The shell logic is tested against a
+  stub server in `apps/api/src/tests/workflows/test_mka_cron_workflow.py`; leftovers after a send-cap stop wait for the next daily
   run inside the window. With ~1,400 outstanding people and the default cap of 400, a window needs 4 daily runs
   (`MKA_REMINDER_WINDOW_DAYS=4`); raise the cap, not the window, if you want it done in one day.
 - **Claim before send**: a `queued` row (unique per org, kind, dedupe key) is committed before the transport is called.

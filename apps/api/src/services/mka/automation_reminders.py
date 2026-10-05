@@ -181,7 +181,7 @@ def _blank_counts() -> dict:
         "would_send": 0, "sent": 0, "skipped_recent": 0, "skipped_attested": 0, "skipped_excluded": 0,
         "suppressed": 0, "failed": 0, "disabled": 0, "stopped": None, "disabled_reason": None,
         "remaining": 0, "time_budget_hit": False, "quarantined": 0,
-        "skipped_cooldown": 0,
+        "skipped_cooldown": 0, "newly_quarantined": 0,
     }
 
 
@@ -199,6 +199,7 @@ class Selection:
     key_week: str  # ISO week label used in the dedupe key (scheduled: the window's first week)
     already: int  # people dropped because they were already reminded in this window / week
     quarantined: int = 0  # people dropped because their address keeps failing (review N1)
+    fails: dict = field(default_factory=dict)  # recent failed attempts per address (for 'newly quarantined')
     cooled: int = 0  # people dropped because ANY reminder (scheduled or manual) reached them inside the cooldown (N3)
     last_sent: dict = field(default_factory=dict)
 
@@ -251,7 +252,9 @@ async def select_pending(
         key=lambda e: (fails.get(e, 0) > 0, last_sent.get(e) or datetime.min, e),
     )
     already = sum(1 for e in people if e in excluded_people)
-    return Selection(pending, key_week, already, len(quarantined), sum(1 for e in people if e in cooled), last_sent)
+    return Selection(
+        pending, key_week, already, len(quarantined), fails, sum(1 for e in people if e in cooled), last_sent
+    )
 
 
 async def _send_reminders(
@@ -299,6 +302,9 @@ async def _send_reminders(
             counts["skipped_recent"] += 1
         elif status in ("failed", "suppressed"):
             counts[status] += 1
+            before = sel.fails.get(email, 0)
+            if status == "failed" and before < cfg.reminder_max_address_failures() <= before + 1:
+                counts["newly_quarantined"] += 1  # this very attempt pushed the address over the limit
         elif status == "budget_exhausted":
             counts["stopped"] = result.reason
             counts["remaining"] += len(pending) - index
@@ -492,8 +498,13 @@ async def run_org(
             db, org_id=org.id, cycle=cycle, people=people, url=url, today=today, dry_run=dry_run, budget=budget,
             now=now, counts=counts, window_start=window_start,
         )
-        out["reminder"] = {"ran": True, "window_start": window_start.isoformat() if window_start else None,
-                           "candidates": len(people), **counts}
+        out["reminder"] = {
+            "ran": True, "window_start": window_start.isoformat() if window_start else None,
+            "last_window_day": bool(
+                window_start and today >= window_start + timedelta(days=cfg.reminder_window_days() - 1)
+            ),
+            "candidates": len(people), **counts,
+        }
     if want_digest:
         res = await _send_digests(
             db, org=org, cycle=cycle, ds=ds, per_course=per_course, url=url, dry_run=dry_run, budget=budget,
@@ -519,7 +530,10 @@ async def run_all(db: AsyncSession, *, dry_run: bool, kind: str, now: Optional[d
             await db.rollback()
             logger.error("reminders: org=%s failed (%s)", org_id, type(exc).__name__)
             reports.append({"org_id": org_id, "error": type(exc).__name__})
-    totals = {"sent": 0, "would_send": 0, "skipped_recent": 0, "failed": 0, "remaining": 0}
+    totals = {"sent": 0, "would_send": 0, "skipped_recent": 0, "failed": 0, "remaining": 0, "quarantined": 0,
+              "newly_quarantined": 0, "disabled": 0}
+    disabled_reason = None
+    last_window_day = False
     time_budget_hit = False
     reasons: set = set()
     for report in reports:
@@ -530,9 +544,11 @@ async def run_all(db: AsyncSession, *, dry_run: bool, kind: str, now: Optional[d
             for key in totals:
                 totals[key] += int(block.get(key) or 0)
             time_budget_hit = time_budget_hit or bool(block.get("time_budget_hit"))
+            disabled_reason = disabled_reason or block.get("disabled_reason")
+            last_window_day = last_window_day or bool(block.get("last_window_day"))
     return {
         "dry_run": dry_run, "kind": kind, "test_mode": cfg.status_snapshot()["test_mode"], **totals,
-        "time_budget_hit": time_budget_hit,
+        "time_budget_hit": time_budget_hit, "disabled_reason": disabled_reason, "last_window_day": last_window_day,
         # WHY the run stopped early, for the caller (the workflow words its summary from this; a failure stop is not a cap)
         "stopped": next((r for r in ("too_many_consecutive_failures", "time_budget_reached", "send_cap_reached") if r in reasons), None),
         "orgs": reports,

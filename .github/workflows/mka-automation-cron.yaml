@@ -95,6 +95,12 @@ jobs:
             2??) ;;
             *) rm -f sweep-response.json; echo "::error::receipts/sweep returned HTTP $status"; exit 1 ;;
           esac
+          # A 2xx that is not the expected JSON (a proxy or maintenance page) is a failure too.
+          if ! jq -e 'type == "object"' sweep-response.json >/dev/null 2>&1; then
+            rm -f sweep-response.json
+            echo "::error::receipts/sweep returned HTTP $status but the answer is not the expected JSON"
+            exit 1
+          fi
           echo "receipts/sweep: HTTP $status $(jq -c '{dry_run, candidates, results}' sweep-response.json)"
           rm -f sweep-response.json
 
@@ -112,9 +118,32 @@ jobs:
           fi
           echo "::add-mask::$MKA_AUTOMATION_CRON_SECRET"
           # A long run stops itself (time budget / send cap / failures) and says why, with `remaining`. Call again only while
-          # the SERVER ran out of TIME and has more to do. "More to do" is not a failure. A non-2xx answer, an answer that
-          # is not JSON, or a run in which every attempt failed (nothing could be sent) is. Only counts are printed: never
-          # the response body.
+          # the SERVER ran out of TIME and has more to do. "More to do" is not a failure. RED means: a non-2xx or non-JSON
+          # answer; a call in which nothing could be sent; across the run a meaningful share of sends failed
+          # (failed >= 3 and failed x 5 >= attempted, i.e. >= 20 %); any address newly quarantined; or time ran out on the
+          # LAST window day with people still left. Any other failure is a ::warning:: with the counts. Counts only.
+          tot_sent=0; tot_failed=0; tot_newq=0
+          conclude() { # $1 = last_window_day, $2 = time budget still hit with people left (after the last call)
+            attempted=$((tot_sent + tot_failed))
+            echo "run total: sent=$tot_sent failed=$tot_failed newly_quarantined=$tot_newq"
+            if [ "$tot_failed" -ge 3 ] && [ $((tot_failed * 5)) -ge "$attempted" ]; then
+              echo "::error::$tot_failed of $attempted sends failed (>= 20 %). Look at the provider and at GET /mka/automation/status (send_log.failing_addresses)."
+              exit 1
+            fi
+            if [ "$tot_newq" -gt 0 ]; then
+              echo "::error::$tot_newq addresses were newly quarantined (their reminders keep failing). See the Monday digest and /status."
+              exit 1
+            fi
+            if [ "$2" = "true" ] && [ "$1" = "true" ]; then
+              echo "::error::Out of time on the LAST day of the reminder window with people still left to remind."
+              exit 1
+            fi
+            if [ "$tot_failed" -gt 0 ]; then
+              echo "::warning::$tot_failed of $attempted sends failed in this run (below the red threshold)."
+            fi
+            exit 0
+          }
+          last_day=false; left_and_timed_out=false
           for i in 1 2 3 4 5 6 7 8 9 10; do
             rc=0
             # The header goes through curl's config on stdin so the secret never appears in a process list or in the log.
@@ -139,11 +168,19 @@ jobs:
             would=$(jq -r '.would_send // 0' reminders-response.json)
             failed=$(jq -r '.failed // 0' reminders-response.json)
             remaining=$(jq -r '.remaining // 0' reminders-response.json)
+            newq=$(jq -r '.newly_quarantined // 0' reminders-response.json)
             budget_hit=$(jq -r '.time_budget_hit // false' reminders-response.json)
             stopped=$(jq -r '.stopped // "none"' reminders-response.json)
+            last_day=$(jq -r '.last_window_day // false' reminders-response.json)
+            disabled_reason=$(jq -r '.disabled_reason // ""' reminders-response.json)
             rm -f reminders-response.json
-            echo "call $i: HTTP $status sent=$sent would_send=$would failed=$failed remaining=$remaining stopped=$stopped time_budget_hit=$budget_hit"
+            echo "call $i: HTTP $status sent=$sent would_send=$would failed=$failed newly_quarantined=$newq remaining=$remaining stopped=$stopped time_budget_hit=$budget_hit"
+            tot_sent=$((tot_sent + sent)); tot_failed=$((tot_failed + failed)); tot_newq=$((tot_newq + newq))
             if [ "$DRY_RUN" = "true" ]; then
+              exit 0
+            fi
+            if [ -n "$disabled_reason" ]; then
+              echo "::notice::Reminders are switched off on the server ($disabled_reason), so nothing was sent. Green by design."
               exit 0
             fi
             if [ "$sent" -eq 0 ] && [ "$failed" -gt 0 ]; then
@@ -153,19 +190,22 @@ jobs:
             case "$stopped" in
               too_many_consecutive_failures)
                 echo "::warning::The run stopped after repeated send failures (sent=$sent, failed=$failed, remaining=$remaining). The next run continues; failing addresses are quarantined."
-                exit 0 ;;
+                conclude "$last_day" false ;;
               send_cap_reached)
                 echo "::notice::The run hit its send cap with $remaining left. The next daily run continues while the reminder window is open."
-                exit 0 ;;
+                conclude "$last_day" false ;;
             esac
             if [ "$remaining" -gt 0 ] && [ "$budget_hit" = "true" ]; then
+              left_and_timed_out=true
               continue
             fi
+            left_and_timed_out=false
             if [ "$remaining" -gt 0 ]; then
               echo "::notice::$remaining left that need no further call (people already handled or in their cooldown count here)."
             else
               echo "::notice::Nothing left to do."
             fi
-            exit 0
+            conclude "$last_day" false
           done
           echo "::notice::Stopped after 10 calls; the rest continues on the next run while the reminder window is open."
+          conclude "$last_day" "$left_and_timed_out"
