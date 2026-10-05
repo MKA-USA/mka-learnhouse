@@ -1,7 +1,8 @@
 import {
-  DEFAULT_THINKIFIC_DIR, DEPARTMENTS, THINKIFIC_SOURCE, buildDepartmentCourse, buildGeneralCourse, foundationCourse, getCycleId, listTkCourses, loadFoundation, loadPlans, loadRoster,
+  DEFAULT_THINKIFIC_DIR, THINKIFIC_SOURCE, activeDepartments, withoutExcluded, type ProvisionConfig, buildDepartmentCourse, buildGeneralCourse, foundationCourse, getCycleId, listTkCourses, loadFoundation, loadPlans, loadRoster,
   thinkificPlanRefs, type Db, type CourseSpec, type PlanInput, type RosterRow,
 } from "@mka/compliance-core";
+import { assertNotExcluded } from "./config";
 import { loadCycleDef } from "./cycles";
 
 export const PILOT = ["aitmad", "tabligh"];
@@ -9,16 +10,18 @@ export interface WorldSpec { spec: CourseSpec; thinkificCourseId?: number }
 
 const toPlan = (p: any): PlanInput => ({ departmentSlug: p.departmentSlug, level: p.level, responsibilitiesDoc: p.responsibilitiesDoc, okrsDoc: p.okrsDoc, resourcesDoc: p.resourcesDoc, stale: p.stale, source: p.source });
 
-export async function buildWorld(db: Db, o: { cycle: string; only?: string[]; includeGeneral: boolean; thinkificDir?: string; carryOver?: string }): Promise<{ cycleId: number; specs: WorldSpec[]; warnings: string[] }> {
+export async function buildWorld(db: Db, o: { cycle: string; only?: string[]; includeGeneral: boolean; config: ProvisionConfig; thinkificDir?: string; carryOver?: string }): Promise<{ cycleId: number; specs: WorldSpec[]; warnings: string[] }> {
+  assertNotExcluded(o.only, o.config);
+  const excluded = o.config.excludedDepartments; const DEPARTMENTS = activeDepartments(excluded);
   const cycleId = await getCycleId(db, o.cycle);
   if (cycleId === null) throw new Error(`cycle ${o.cycle} not found; run roster/import first`);
   const def = await loadCycleDef(db, o.cycle); const warnings: string[] = [];
   const deadline = new Date(def.deadlineOn + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
-  const roster = (await loadRoster(db, cycleId)).map((r) => ({ ...r, level: r.level as RosterRow["level"] })) as RosterRow[];
+  const roster = (await loadRoster(db, cycleId, excluded)).map((r) => ({ ...r, level: r.level as RosterRow["level"] })) as RosterRow[];
   if (!roster.length) throw new Error("roster is empty; run `roster` first");
-  const own = (await loadPlans(db, cycleId)).map(toPlan);
+  const own = withoutExcluded(await loadPlans(db, cycleId), excluded).map(toPlan);
   const carryId = await getCycleId(db, o.carryOver ?? "2025-26");
-  const carried = carryId === null ? [] : (await loadPlans(db, carryId)).map(toPlan);
+  const carried = carryId === null ? [] : withoutExcluded(await loadPlans(db, carryId), excluded).map(toPlan);
   const plansFor = (slug: string) => { const x = own.filter((p) => p.departmentSlug === slug); return x.length ? x : carried.filter((p) => p.departmentSlug === slug); };
 
   const tkDir = o.thinkificDir ?? process.env.THINKIFIC_DIR ?? DEFAULT_THINKIFIC_DIR;

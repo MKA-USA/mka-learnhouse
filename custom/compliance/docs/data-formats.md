@@ -19,6 +19,8 @@ A row with fewer/more cells than the header is skipped (`shifted-row`).
 
 Key: (cycle, department, level). Duplicate rows: later wins (`duplicate-key`). All-empty rows: `empty-plan`.
 
+> **Atfal is excluded by config** (see README, "Excluded departments"): Atfal rows in any CSV are ignored downstream (no roster rows, no course); pass `--include-atfal` to bring them back.
+
 ## directory_overrides.csv  (`import overrides`)
 Corrections to the generated roster (name and/or mailbox) for one role slot.
 | column | notes |
@@ -26,7 +28,7 @@ Corrections to the generated roster (name and/or mailbox) for one role slot.
 | department | blank for roles without a department (qaid, naib qaid, sadr) |
 | majlis | canonical name or slug alias (`syracuse` -> Syracuse-Binghamton, logged `slug-alias`). Blank + region = regional role; both blank = national |
 | region | optional for Majlis rows (validated against the fork map) |
-| role | optional; required when two roles share a slot (Atfal: `nazim_atfal` / `murabbi_atfal`) |
+| role | optional; required when two roles share a slot (Atfal: `nazim_atfal` / `murabbi_atfal`; only relevant with `--include-atfal`) |
 | learner_email | optional; must be `@mkausa.org` or `@atfalusa.org` (else `foreign-domain` warning) |
 | person_name | optional |
 | note | optional |

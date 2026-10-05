@@ -30,6 +30,9 @@ describe("objectives + quiz", () => {
 });
 
 describe("directory", () => {
+  test("default roster contains no Atfal mailbox at all", () => {
+    expect(roster.some((r) => r.departmentSlug === "atfal" || r.learnerEmail.endsWith("@atfalusa.org"))).toBe(false);
+  });
   test("generated from roster: 52 local rows, regional dept officer + Qaid per region, names where known", () => {
     const d = renderDirectory({ cycle: "2026-27", dept: dept("tabligh"), roster });
     const tables = d.content.filter((n) => n.type === "table");
@@ -37,8 +40,8 @@ describe("directory", () => {
     expect(plainText(d)).toContain("tabligh.boston@mkausa.org");
     expect(plainText(d)).toContain("Test Person");
   });
-  test("Atfal lists nazim and murabbi on atfalusa.org", () => {
-    const t = plainText(renderDirectory({ cycle: "2026-27", dept: dept("atfal"), roster }));
+  test("Atfal (only when switched on) lists nazim and murabbi on atfalusa.org", () => {
+    const t = plainText(renderDirectory({ cycle: "2026-27", dept: dept("atfal"), roster: generateRoster({ excludedDepartments: [] }) }));
     expect(t).toContain("nazim.boston@atfalusa.org"); expect(t).toContain("murabbi.boston@atfalusa.org");
   });
 });

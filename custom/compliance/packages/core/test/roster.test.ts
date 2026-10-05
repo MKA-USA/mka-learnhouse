@@ -1,22 +1,23 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { activeDepartments, resolveConfig, withoutExcluded } from "../src/config";
 import { coursesFor, generateRoster, MAJLIS_TO_REGION, REGION_NAMES, slugify } from "../src/roster";
 
 const rows = generateRoster();
 describe("roster generator", () => {
-  test("52 Majlis (51 + Muqami) x 24 local roles, 10 regional qaids, national mailboxes", () => {
+  test("52 Majlis (51 + Muqami) x 22 local roles, 10 regional qaids, national mailboxes", () => {
     expect(Object.keys(MAJLIS_TO_REGION).length).toBe(52);
     expect(REGION_NAMES.length).toBe(10);
-    expect(rows.filter((r) => r.level === "majlis").length).toBe(52 * 24);
+    expect(rows.filter((r) => r.level === "majlis").length).toBe(52 * 22);
     expect(rows.filter((r) => r.role === "regional_qaid").length).toBe(10);
     expect(rows.filter((r) => r.level === "region").length).toBe(10 + 10 * 20);
-    expect(rows.filter((r) => r.level === "national").length).toBe(21 + 1 + 1 + 5); // 21 department heads + Sadr + Mohtamim Muqami + 5 staff
+    expect(rows.filter((r) => r.level === "national").length).toBe(20 + 1 + 1 + 5); // 20 department heads (Atfal excluded) + Sadr + Mohtamim Muqami + 5 staff
   });
   test("every Majlis has every role", () => {
     for (const m of Object.keys(MAJLIS_TO_REGION)) {
       const roles = rows.filter((r) => r.majlis === m);
-      expect(new Set(roles.map((r) => `${r.role}:${r.departmentSlug}`)).size).toBe(24);
+      expect(new Set(roles.map((r) => `${r.role}:${r.departmentSlug}`)).size).toBe(22);
     }
   });
   test("email formulas", () => {
@@ -24,15 +25,16 @@ describe("roster generator", () => {
     expect(e((r) => r.role === "motamid" && r.majlis === "Albany")).toBe("motamid.albany@mkausa.org");
     expect(e((r) => r.departmentSlug === "nau-mubaeen" && r.majlis === "Saint Louis")).toBe("nau-mubaeen.saintlouis@mkausa.org");
     expect(e((r) => r.departmentSlug === "new-immigrants" && r.majlis === "RTP")).toBe("immigrants.rtp@mkausa.org");
-    expect(e((r) => r.role === "nazim_atfal" && r.majlis === "Boston")).toBe("nazim.boston@atfalusa.org");
+    expect(e((r) => r.role === "nazim_atfal" && r.majlis === "Boston")).toBeUndefined(); // Atfal excluded by default
+    expect(generateRoster({ excludedDepartments: [] }).find((r) => r.role === "nazim_atfal" && r.majlis === "Boston")?.learnerEmail).toBe("nazim.boston@atfalusa.org");
     expect(e((r) => r.role === "regional_qaid" && r.region === "New York Metro")).toBe("qaid.newyorkmetro@mkausa.org");
     expect(e((r) => r.role === "mohtamim" && r.departmentSlug === "rishta-nata")).toBe("rishtanata@mkausa.org");
     expect(e((r) => r.role === "motamid" && r.level === "national")).toBe("motamid@mkausa.org");
   });
-  test("regional department officers: 10 regions x 20 departments (not Atfal), flagged unconfirmed", () => {
+  test("regional department officers: 10 regions x 20 departments (not Atfal), pattern confirmed", () => {
     const reg = rows.filter((r) => r.role === "regional_nazim" || r.role === "regional_motamid");
     expect(reg.length).toBe(200);
-    expect(reg.every((r) => r.source === "formula-unconfirmed")).toBe(true);
+    expect(reg.every((r) => r.source === "formula")).toBe(true);
     const e = (d: string, rg: string) => reg.find((r) => r.departmentSlug === d && r.region === rg)?.learnerEmail;
     expect(e("mohasib", "East")).toBe("mohasib.east@mkausa.org");
     expect(e("aitmad", "Great Lakes")).toBe("motamid.greatlakes@mkausa.org");
@@ -45,10 +47,22 @@ describe("roster generator", () => {
     expect(nat.length).toBe(1);
     expect(nat[0]).toMatchObject({ level: "national", role: "mohtamim", roleTitle: "Mohtamim Muqami", departmentSlug: "" });
     expect(coursesFor(nat[0]!)).toEqual({ general: true, department: null });
-    // region "Muqami" has no regional rows at all; its only rows are the 24 chapter (Majlis) roles
+    // region "Muqami" has no regional rows at all; its only rows are the 22 chapter (Majlis) roles (24 minus the 2 Atfal roles, excluded by default)
     expect(rows.filter((r) => r.region === "Muqami" && r.level !== "majlis").length).toBe(0);
-    expect(rows.filter((r) => r.majlis === "Muqami").length).toBe(24);
-    expect(rows.filter((r) => r.learnerEmail.includes(".muqami@")).length).toBe(24);
+    expect(rows.filter((r) => r.majlis === "Muqami").length).toBe(22);
+    expect(rows.filter((r) => r.learnerEmail.includes(".muqami@")).length).toBe(22);
+  });
+  test("Atfal is excluded everywhere by default and comes back with one switch", () => {
+    expect(rows.filter((r) => r.departmentSlug === "atfal" || r.learnerEmail.endsWith("@atfalusa.org")).length).toBe(0);
+    const on = generateRoster({ excludedDepartments: [] });
+    expect(on.filter((r) => r.departmentSlug === "atfal").map((r) => r.level + ":" + r.role).sort().filter((x, i, a) => a.indexOf(x) === i)).toEqual(["majlis:murabbi_atfal", "majlis:nazim_atfal", "national:mohtamim"]);
+    expect(on.length - rows.length).toBe(1 + 52 * 2);
+  });
+  test("config helpers", () => {
+    expect(resolveConfig().excludedDepartments).toEqual(["atfal"]);
+    expect(resolveConfig({ includeAtfal: true }).excludedDepartments).toEqual([]);
+    expect(activeDepartments(["atfal"]).length).toBe(20);
+    expect(withoutExcluded([{ departmentSlug: "atfal" }, { departmentSlug: "" }, { departmentSlug: "maal" }], ["atfal"]).length).toBe(2);
   });
   test("emails are unique", () => {
     expect(new Set(rows.map((r) => r.learnerEmail)).size).toBe(rows.length);
