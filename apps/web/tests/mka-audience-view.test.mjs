@@ -27,6 +27,7 @@ const { createRoot } = await import("react-dom/client");
 const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
 const { EditorContent, useEditor } = await import("@tiptap/react");
 const { default: StarterKit } = await import("@tiptap/starter-kit");
+const { NoTextInput } = await import("../components/Objects/Editor/Extensions/NoTextInput/NoTextInput");
 const { default: EditorOptionsProvider } = await import("../components/Contexts/Editor/EditorContext.tsx");
 const { mkaEditorExtensions } = await import("../components/mka/editor/index.ts");
 const { AudienceView } = await import("../components/mka/editor/AudienceView.tsx");
@@ -51,7 +52,7 @@ function Harness({ content, editable, onEditor }) {
   const editor = useEditor({
     immediatelyRender: false,
     editable,
-    extensions: [StarterKit.configure({ trailingNode: false }), ...mkaEditorExtensions({ editable, activity: { org_id: 1 }, courseUuid: "course_x" })],
+    extensions: [StarterKit.configure({ trailingNode: false }), ...(editable ? [] : [NoTextInput]), ...mkaEditorExtensions({ editable, activity: { org_id: 1 }, courseUuid: "course_x" })],
     content,
   });
   React.useEffect(() => { if (editor) onEditor?.(editor); }, [editor]);
@@ -338,6 +339,8 @@ describe("learner filter: hidden content is not in the editor state", () => {
     expect(tocHeadings(m.editor())).toEqual(["PUBLIC-HEADING", "LOCAL-HEADING"]);
     expect(m.container.textContent).toContain("LOCAL-BODY");
     expect(m.container.innerHTML).not.toContain("REGIONAL-BODY");
+    // the state swap must not re-mount (duplicate) the document-level chrome
+    expect(m.container.querySelectorAll(".mka-audience-chrome").length).toBe(1);
   });
 
   test("filtering is not a user edit: no history entry, and `update` fires once (the TOC's refresh hook)", async () => {

@@ -50,7 +50,7 @@ export const MkaAudience = Node.create<AudienceNodeOptions>({
   },
 
   addStorage() {
-    return { store: createAudienceStore({ editableDoc: this.options.editable }), original: null as unknown, stripping: false }
+    return { store: createAudienceStore({ editableDoc: this.options.editable }), original: null as unknown, stripping: false, chromeRenderer: null as unknown }
   },
 
   addAttributes() {

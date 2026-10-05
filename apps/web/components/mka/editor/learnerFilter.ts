@@ -6,6 +6,7 @@
 // document in which every non-matching section keeps its node and attrs (so learner notes still compute) but holds a
 // single empty paragraph. The original is kept in extension storage and the filter always re-runs from it.
 import { Fragment, Slice } from '@tiptap/pm/model'
+import { EditorState } from '@tiptap/pm/state'
 import type { Node as PMNode } from '@tiptap/pm/model'
 import { evaluateRule } from '../audience/evaluate'
 import type { MkaViewerAttributes } from '../audience/types'
@@ -44,7 +45,7 @@ export function transformCopiedSlice(slice: Slice, policy: CopyPolicy): Slice {
   return new Slice(filterFragment(slice.content, keepFor(policy)), slice.openStart, slice.openEnd)
 }
 
-type EditorLike = { state: any; view: any; schema?: any; storage: Record<string, any> }
+type EditorLike = { state: any; view: any; storage: Record<string, any>; emit: (event: any, ...args: any[]) => unknown }
 
 /** Re-applies the filter from the original document. `viewer: 'all'` restores the full document. */
 export function applyLearnerFilter(editor: EditorLike, viewer: MkaViewerAttributes | null | 'all'): boolean {
@@ -54,15 +55,17 @@ export function applyLearnerFilter(editor: EditorLike, viewer: MkaViewerAttribut
   const target = viewer === 'all' ? original : filterDocJSON(original, viewer)
   const doc: PMNode = editor.state.schema.nodeFromJSON(target)
   if (doc.eq(editor.state.doc)) return false
-  const tr = editor.state.tr
-    .replace(0, editor.state.doc.content.size, new Slice(doc.content, 0, 0))
-    .setMeta('addToHistory', false)
-    .setMeta('mkaFilter', true)
+  // Not a transaction on purpose. DynamicCanva (the learner viewer) installs upstream's NoTextInput plugin, whose
+  // filterTransaction rejects EVERY doc-changing transaction, ours included. The viewer is read-only and keeps no
+  // history, so we swap in a fresh state over the same plugins and doc instead (selection resets to the start,
+  // plugin state is re-initialised; both are irrelevant for a read-only viewer).
   storage.stripping = true
   try {
-    // Emits `update` once: upstream's TableOfContents only refreshes on it. Viewer editors have no persistence
-    // listeners (DynamicCanva / EditorPreview never save content).
-    editor.view.dispatch(tr)
+    const next = EditorState.create({ schema: editor.state.schema, doc, plugins: editor.state.plugins })
+    editor.view.updateState(next)
+    // Upstream's TableOfContents refreshes only on `update`. Viewer editors have no persistence listeners
+    // (DynamicCanva / EditorPreview never save content), so this is safe.
+    editor.emit('update', { editor, transaction: next.tr, appendedTransactions: [] })
   } finally {
     storage.stripping = false
   }

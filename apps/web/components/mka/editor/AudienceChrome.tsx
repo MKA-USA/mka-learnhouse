@@ -82,12 +82,21 @@ function Inner({ editor, options }: Props) {
   useEffect(() => {
     if (!learnerDoc || me.state === 'loading') return
     const store = getAudienceStore(editor)
-    if (me.canViewAll) {
-      applyLearnerFilter(editor, 'all')
-      store.set({ copyPolicy: { kind: 'all' } })
-    } else {
-      applyLearnerFilter(editor, me.viewer)
-      store.set({ copyPolicy: { kind: 'viewer', viewer: me.viewer } })
+    // Deferred out of the effect: node view updates flushSync React renders, which React rejects mid-lifecycle.
+    // Until it runs, hidden sections stay DOM-detached (no flash).
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled || editor.isDestroyed) return
+      if (me.canViewAll) {
+        applyLearnerFilter(editor, 'all')
+        store.set({ copyPolicy: { kind: 'all' } })
+      } else {
+        applyLearnerFilter(editor, me.viewer)
+        store.set({ copyPolicy: { kind: 'viewer', viewer: me.viewer } })
+      }
+    })
+    return () => {
+      cancelled = true
     }
   }, [learnerDoc, me.state, me.viewer, me.canViewAll, st.originalVersion, editor])
 
