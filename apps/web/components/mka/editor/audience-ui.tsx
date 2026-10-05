@@ -23,11 +23,11 @@ export function useIsNarrow(): boolean {
 
 /** Literal class strings so Tailwind sees them. Colour is never the only signal: labels and icons always accompany it. */
 export const TONE_STYLE: Record<LevelTone, { bar: string; chip: string; text: string }> = {
-  national: { bar: 'bg-violet-600 dark:bg-violet-400', chip: 'bg-violet-100 text-violet-900 border-violet-300 dark:bg-violet-950 dark:text-violet-100 dark:border-violet-700', text: 'text-violet-800 dark:text-violet-200' },
-  regional: { bar: 'bg-blue-600 dark:bg-blue-400', chip: 'bg-blue-100 text-blue-900 border-blue-300 dark:bg-blue-950 dark:text-blue-100 dark:border-blue-700', text: 'text-blue-800 dark:text-blue-200' },
-  local: { bar: 'bg-emerald-600 dark:bg-emerald-400', chip: 'bg-emerald-100 text-emerald-900 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-100 dark:border-emerald-700', text: 'text-emerald-800 dark:text-emerald-200' },
-  mixed: { bar: 'bg-slate-500 dark:bg-slate-400', chip: 'bg-slate-100 text-slate-900 border-slate-300 dark:bg-slate-800 dark:text-slate-100 dark:border-slate-600', text: 'text-slate-700 dark:text-slate-200' },
-  hide: { bar: 'text-slate-500 dark:text-slate-400', chip: 'bg-slate-100 text-slate-900 border-slate-300 dark:bg-slate-800 dark:text-slate-100 dark:border-slate-600', text: 'text-slate-700 dark:text-slate-200' },
+  national: { bar: 'bg-violet-600', chip: 'bg-violet-100 text-violet-900 border-violet-300', text: 'text-violet-800' },
+  regional: { bar: 'bg-blue-600', chip: 'bg-blue-100 text-blue-900 border-blue-300', text: 'text-blue-800' },
+  local: { bar: 'bg-emerald-600', chip: 'bg-emerald-100 text-emerald-900 border-emerald-300', text: 'text-emerald-800' },
+  mixed: { bar: 'bg-slate-500', chip: 'bg-slate-100 text-slate-900 border-slate-300', text: 'text-slate-700' },
+  hide: { bar: 'text-slate-500', chip: 'bg-slate-100 text-slate-900 border-slate-300', text: 'text-slate-700' },
 }
 
 /** Hatched bar for "Hide from"; colours via currentColor so it works in both themes. */
@@ -35,7 +35,7 @@ export const HATCH_STYLE: React.CSSProperties = {
   backgroundImage: 'repeating-linear-gradient(135deg, currentColor 0 3px, transparent 3px 6px)',
 }
 
-export const FOCUS_RING = 'focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background'
+export const FOCUS_RING = 'focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-sky-600 focus-visible:ring-offset-2 focus-visible:ring-offset-white'
 /** 44px touch targets on narrow screens, 36px on desktop where a pointer is precise. */
 export const TARGET = 'min-h-11 sm:min-h-9'
 export const PRESS = 'transition-[transform,background-color,color,border-color] duration-150 ease-out active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100'
@@ -66,13 +66,13 @@ export function Sheet({
           aria-describedby={undefined}
           style={{ zIndex: 'var(--z-modal)' }}
           className={cn(
-            'fixed inset-x-0 bottom-0 flex max-h-[92dvh] flex-col rounded-t-2xl border-t bg-background text-foreground shadow-2xl outline-hidden',
+            'fixed inset-x-0 bottom-0 flex max-h-[92dvh] flex-col rounded-t-2xl border-t border-gray-200 bg-white text-gray-900 shadow-2xl outline-hidden',
             'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:slide-in-from-bottom data-[state=closed]:slide-out-to-bottom duration-200 ease-out',
             className,
           )}
         >
           <DialogPrimitive.Title className="sr-only">{title}</DialogPrimitive.Title>
-          <div aria-hidden className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-muted-foreground/30" />
+          <div aria-hidden className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-gray-300" />
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-[env(safe-area-inset-bottom)]">{children}</div>
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
@@ -114,7 +114,7 @@ export function ResponsivePopover({
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>{trigger}</PopoverTrigger>
-      <PopoverContent align={align} className={cn('w-[min(24rem,calc(100vw-2rem))] p-0 origin-(--radix-popover-content-transform-origin)', className)}>
+      <PopoverContent align={align} className={cn('w-[min(24rem,calc(100vw-2rem))] border-gray-200 bg-white p-0 text-gray-900 origin-(--radix-popover-content-transform-origin)', className)}>
         {children}
       </PopoverContent>
     </Popover>
@@ -151,11 +151,11 @@ export function Chip({
       role="group"
       aria-label={shown}
       className={cn(
-        'inline-flex max-w-full items-center gap-0.5 rounded-full border ps-3 text-sm font-medium',
+        'inline-flex max-w-full items-center gap-0.5 rounded-full border border-gray-200 ps-3 text-sm font-medium',
         TARGET,
         unknown
-          ? 'border-red-300 bg-red-50 text-red-900 dark:border-red-800 dark:bg-red-950/70 dark:text-red-100'
-          : (tone ?? 'border-primary/25 bg-primary/10 text-foreground'),
+          ? 'border-red-300 bg-red-50 text-red-900'
+          : (tone ?? 'border-gray-300 bg-gray-100 text-gray-900'),
       )}
     >
       <span className="truncate" title={shown}>{shown}</span>
@@ -238,7 +238,7 @@ export function MultiPick({
       disabled={disabled || loading}
       aria-label={`${ariaLabel}: ${anyLabel}. Choose…`}
       className={cn(
-        'inline-flex items-center gap-1.5 rounded-full border border-dashed border-muted-foreground/50 px-3 text-sm text-muted-foreground hover:border-foreground/60 hover:text-foreground disabled:opacity-50',
+        'inline-flex items-center gap-1.5 rounded-full border border-dashed border-gray-500 px-3 text-sm text-gray-600 hover:border-gray-600 hover:text-gray-900 disabled:opacity-50',
         TARGET, PRESS, FOCUS_RING,
       )}
     >
@@ -251,7 +251,7 @@ export function MultiPick({
       disabled={disabled || loading}
       aria-label={`Add ${noun}`}
       className={cn(
-        'inline-flex min-w-11 items-center justify-center rounded-full border border-dashed border-muted-foreground/50 text-muted-foreground hover:border-foreground/60 hover:text-foreground disabled:opacity-50 sm:min-w-9',
+        'inline-flex min-w-11 items-center justify-center rounded-full border border-dashed border-gray-500 text-gray-600 hover:border-gray-600 hover:text-gray-900 disabled:opacity-50 sm:min-w-9',
         TARGET, PRESS, FOCUS_RING,
       )}
     >
@@ -280,7 +280,7 @@ export function MultiPick({
         title={replacing ? `Replace ${labelFor(replacing)}` : `Choose ${noun}`}
         trigger={trigger}
       >
-        <Command>
+        <Command className="bg-white text-gray-900">
           <CommandInput placeholder={searchPlaceholder} autoFocus />
           <CommandList className="max-h-72">
             <CommandEmpty>No match. Try a different word.</CommandEmpty>
@@ -291,7 +291,7 @@ export function MultiPick({
                     value={`__action__${g.heading}`}
                     keywords={[g.heading ?? '', 'whole', 'region']}
                     onSelect={() => g.action!.onSelect()}
-                    className="min-h-11 font-medium text-primary data-[selected=true]:bg-muted data-[selected=true]:text-primary sm:min-h-9"
+                    className="min-h-11 font-medium text-sky-800 data-[selected=true]:bg-gray-100 data-[selected=true]:text-sky-800 sm:min-h-9"
                   >
                     {g.action.label}
                   </CommandItem>
@@ -304,7 +304,7 @@ export function MultiPick({
                       value={it.value}
                       keywords={it.keywords ?? [it.label]}
                       onSelect={() => pick(it.value)}
-                      className="min-h-11 data-[selected=true]:bg-muted data-[selected=true]:text-foreground sm:min-h-9"
+                      className="min-h-11 data-[selected=true]:bg-gray-100 data-[selected=true]:text-gray-900 sm:min-h-9"
                     >
                       <Check className={cn('size-4', on ? 'opacity-100' : 'opacity-0')} aria-hidden />
                       <span className="flex-1">{it.label}</span>
@@ -315,9 +315,9 @@ export function MultiPick({
               </CommandGroup>
             ))}
           </CommandList>
-          <div className="flex items-center justify-between border-t px-3 py-2">
-            <span className="text-xs text-muted-foreground">{replacing ? 'Pick one to replace it' : 'Pick as many as you like'}</span>
-            <button type="button" onClick={close} className={cn('rounded-md px-3 text-sm font-medium hover:bg-accent/20', TARGET, FOCUS_RING)}>
+          <div className="flex items-center justify-between border-t border-gray-200 px-3 py-2">
+            <span className="text-xs text-gray-600">{replacing ? 'Pick one to replace it' : 'Pick as many as you like'}</span>
+            <button type="button" onClick={close} className={cn('rounded-md px-3 text-sm font-medium hover:bg-gray-100', TARGET, FOCUS_RING)}>
               Done
             </button>
           </div>

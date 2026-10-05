@@ -24,7 +24,7 @@ export const viewLabel = (view: AudienceView) =>
 
 type Panel = 'main' | 'person' | 'custom'
 
-const ITEM = cn('flex w-full items-center gap-2 rounded-md px-3 text-start text-sm hover:bg-muted', TARGET, FOCUS_RING)
+const ITEM = cn('flex w-full items-center gap-2 rounded-md px-3 text-start text-sm hover:bg-gray-100', TARGET, FOCUS_RING)
 
 function MenuItem({ selected, onClick, children, hint }: { selected?: boolean; onClick(): void; children: React.ReactNode; hint?: string }) {
   return (
@@ -32,7 +32,7 @@ function MenuItem({ selected, onClick, children, hint }: { selected?: boolean; o
       <Check className={cn('size-4 shrink-0', selected ? 'opacity-100' : 'opacity-0')} aria-hidden />
       <span className="min-w-0 flex-1">
         <span className="block truncate">{children}</span>
-        {hint ? <span className="block truncate text-xs text-muted-foreground">{hint}</span> : null}
+        {hint ? <span className="block truncate text-xs text-gray-600">{hint}</span> : null}
       </span>
     </button>
   )
@@ -40,8 +40,8 @@ function MenuItem({ selected, onClick, children, hint }: { selected?: boolean; o
 
 function PanelHeader({ title, onBack }: { title: string; onBack(): void }) {
   return (
-    <div className="flex items-center gap-1 border-b px-2 py-1.5">
-      <button type="button" onClick={onBack} aria-label="Back" className={cn('inline-flex min-h-11 min-w-11 items-center justify-center rounded-md hover:bg-muted sm:min-h-9 sm:min-w-9', FOCUS_RING)}>
+    <div className="flex items-center gap-1 border-b border-gray-200 px-2 py-1.5">
+      <button type="button" onClick={onBack} aria-label="Back" className={cn('inline-flex min-h-11 min-w-11 items-center justify-center rounded-md hover:bg-gray-100 sm:min-h-9 sm:min-w-9', FOCUS_RING)}>
         <ArrowLeft className="size-4" aria-hidden />
       </button>
       <h4 className="text-sm font-semibold">{title}</h4>
@@ -92,30 +92,30 @@ function PersonSearch({ searchPeople, pickPerson, onDone, onBack }: { searchPeop
       <div className="space-y-2 p-3">
         <label className="relative block">
           <span className="sr-only">Search by name or email</span>
-          <Search className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+          <Search className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-gray-600" aria-hidden />
           <input
             autoFocus
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Search by name or email"
-            className={cn('w-full rounded-md border bg-background ps-9 pe-3 text-sm', TARGET, FOCUS_RING)}
+            className={cn('w-full rounded-md border border-gray-200 bg-white ps-9 pe-3 text-sm', TARGET, FOCUS_RING)}
           />
         </label>
-        <p className="text-xs text-muted-foreground">Previewing a specific person is recorded in the audit log.</p>
+        <p className="text-xs text-gray-600">Previewing a specific person is recorded in the audit log.</p>
         <div aria-live="polite" className="min-h-6 text-sm">
-          {shown.s === 'loading' ? <span className="inline-flex items-center gap-1.5 text-muted-foreground"><Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden /> Searching…</span> : null}
-          {shown.s === 'error' ? <span className="text-red-800 dark:text-red-200">Search failed. Try again.</span> : null}
-          {shown.s === 'ready' && shown.people.length === 0 ? <span className="text-muted-foreground">No one found.</span> : null}
-          {q.trim().length > 0 && q.trim().length < 2 ? <span className="text-muted-foreground">Keep typing…</span> : null}
-          {pickError ? <span className="text-red-800 dark:text-red-200">Could not load that person. Try again.</span> : null}
+          {shown.s === 'loading' ? <span className="inline-flex items-center gap-1.5 text-gray-600"><Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden /> Searching…</span> : null}
+          {shown.s === 'error' ? <span className="text-red-800">Search failed. Try again.</span> : null}
+          {shown.s === 'ready' && shown.people.length === 0 ? <span className="text-gray-600">No one found.</span> : null}
+          {q.trim().length > 0 && q.trim().length < 2 ? <span className="text-gray-600">Keep typing…</span> : null}
+          {pickError ? <span className="text-red-800">Could not load that person. Try again.</span> : null}
         </div>
-        <ul className="max-h-60 overflow-y-auto">
+        <ul className="max-h-60 space-y-0.5 overflow-y-auto">
           {shown.people.map((p) => (
             <li key={p.user_id}>
               <button type="button" disabled={picking !== null} onClick={() => pick(p.user_id)} className={cn(ITEM, 'disabled:opacity-60')}>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-medium">{p.display_name}</span>
-                  <span className="block truncate text-xs text-muted-foreground">{p.email}</span>
+                  <span className="block truncate text-xs text-gray-600">{p.email}</span>
                 </span>
                 {picking === p.user_id ? <Loader2 className="size-4 animate-spin motion-reduce:animate-none" aria-hidden /> : null}
               </button>
@@ -127,7 +127,7 @@ function PersonSearch({ searchPeople, pickPerson, onDone, onBack }: { searchPeop
   )
 }
 
-const SELECT = cn('w-full rounded-md border bg-background px-3 text-sm', TARGET, FOCUS_RING)
+const SELECT = cn('w-full rounded-md border border-gray-200 bg-white px-3 text-sm', TARGET, FOCUS_RING)
 
 function CustomPanel({ options, onApply, onBack }: { options: AudienceOptions | undefined; onApply(v: AudienceView): void; onBack(): void }) {
   const [level, setLevel] = React.useState('local')
@@ -135,7 +135,7 @@ function CustomPanel({ options, onApply, onBack }: { options: AudienceOptions | 
   const [role, setRole] = React.useState('')
   const [region, setRegion] = React.useState('')
   const [majlis, setMajlis] = React.useState('')
-  if (!options) return <div className="p-4 text-sm text-muted-foreground">Loading options…</div>
+  if (!options) return <div className="p-4 text-sm text-gray-600">Loading options…</div>
 
   const regions = Array.from(new Set(options.majlis.map((m) => m.region)))
   const apply = () => {
@@ -161,7 +161,7 @@ function CustomPanel({ options, onApply, onBack }: { options: AudienceOptions | 
   }
   const field = (label: string, control: React.ReactNode) => (
     <label className="block space-y-1">
-      <span className="text-xs font-medium text-muted-foreground">{label}</span>
+      <span className="text-xs font-medium text-gray-600">{label}</span>
       {control}
     </label>
   )
@@ -201,8 +201,8 @@ function CustomPanel({ options, onApply, onBack }: { options: AudienceOptions | 
             <option value="">No region</option>
             {options.regions.map((r) => <option key={r.name} value={r.name}>{r.name}</option>)}
           </select>
-        )) : <p className="text-xs text-muted-foreground">Region is taken from the Majlis.</p>}
-        <button type="button" onClick={apply} className={cn('w-full rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90', TARGET, PRESS, FOCUS_RING)}>
+        )) : <p className="text-xs text-gray-600">Region is taken from the Majlis.</p>}
+        <button type="button" onClick={apply} className={cn('w-full rounded-md bg-sky-700 px-4 text-sm font-medium text-white hover:bg-sky-800', TARGET, PRESS, FOCUS_RING)}>
           Preview as this viewer
         </button>
       </div>
@@ -226,9 +226,9 @@ export function PreviewMenu({ view, onChangeView, personas, canPickPerson, searc
       type="button"
       aria-haspopup="dialog"
       aria-expanded={open}
-      className={cn('inline-flex max-w-full items-center gap-2 rounded-md border bg-background px-3 text-sm font-medium hover:bg-muted', TARGET, PRESS, FOCUS_RING)}
+      className={cn('inline-flex max-w-full items-center gap-2 rounded-md border border-gray-200 bg-white px-3 text-sm font-medium hover:bg-gray-100', TARGET, PRESS, FOCUS_RING)}
     >
-      <span className="text-muted-foreground">Viewing:</span>
+      <span className="text-gray-600">Viewing:</span>
       <span className="truncate">{viewLabel(view)}</span>
       <ChevronDown className="size-4 shrink-0" aria-hidden />
     </button>
@@ -243,13 +243,13 @@ export function PreviewMenu({ view, onChangeView, personas, canPickPerson, searc
         <div className="max-h-[70dvh] space-y-1 overflow-y-auto p-2">
           <MenuItem selected={view.kind === 'author'} onClick={() => choose({ kind: 'author' })} hint="Every section, as you edit it">Everything (author view)</MenuItem>
           <MenuItem selected={view.kind === 'self'} onClick={() => choose({ kind: 'self' })} hint="Exactly what your own account sees">As me</MenuItem>
-          {personas.length > 0 ? <p className="px-3 pt-2 text-xs font-medium text-muted-foreground">Personas</p> : null}
+          {personas.length > 0 ? <p className="px-3 pt-2 text-xs font-medium text-gray-600">Personas</p> : null}
           {personas.map((p) => (
             <MenuItem key={p.id} selected={view.kind === 'persona' && view.label === p.label} onClick={() => choose({ kind: 'persona', label: p.label, attributes: p.attributes })}>
               {p.label}
             </MenuItem>
           ))}
-          <div className="my-1 h-px bg-border" />
+          <div className="my-1 h-px bg-gray-200" />
           {canPickPerson ? (
             <button type="button" onClick={() => setPanel('person')} className={ITEM}>
               <UserSearch className="size-4 shrink-0" aria-hidden />A specific person…

@@ -27,14 +27,14 @@ function fakeCount(r: Rule): CountState {
     if (Array.isArray(l) && l.length) n = Math.round(n * Math.min(1, l.length * (k === 'level' ? 0.4 : k === 'department' ? 0.06 : 0.1)))
   }
   if (r.mode === 'hide') n = 640 - n
-  return ready({ count: n, expected: { matching: Math.round(n / 10), total: 64, cycle_id: 7 } })
+  return ready({ count: n, expected: { matching: Math.min(64, Math.round(n / 10)), total: 64, cycle_id: 7 } })
 }
 
 function Section({ id, title, note, children }: { id: string; title: string; note?: string; children: React.ReactNode }) {
   return (
     <section id={id} className="space-y-2">
       <h2 className="text-sm font-semibold">{title}</h2>
-      {note ? <p className="text-xs text-muted-foreground">{note}</p> : null}
+      {note ? <p className="text-xs text-gray-600">{note}</p> : null}
       <div className="space-y-3">{children}</div>
     </section>
   )
@@ -63,7 +63,7 @@ function LiveDemo() {
   return (
     <div className="space-y-2">
       <PickerBody value={value} onChange={setValue} onDone={() => {}} onCancel={() => {}} onRemove={() => {}} options={MOCK_OPTIONS} authorDepartment="tabligh" count={count} isNew />
-      <pre className="overflow-x-auto rounded-md bg-muted p-2 text-xs" data-testid="live-json">{JSON.stringify(value)}</pre>
+      <pre className="overflow-x-auto rounded-md bg-gray-100 p-2 text-xs" data-testid="live-json">{JSON.stringify(value)}</pre>
     </div>
   )
 }
@@ -71,7 +71,7 @@ function LiveDemo() {
 function Header({ r, warnings = [], count = ready(), collapsed = false, label }: { r: Rule; warnings?: AudienceWarning[]; count?: CountState; collapsed?: boolean; label?: string }) {
   const [c, setC] = React.useState(collapsed)
   return (
-    <div className="overflow-hidden rounded-md border">
+    <div className="overflow-hidden rounded-md border border-gray-200">
       <AudienceHeader rule={r} label={label ?? describeRule(r, MOCK_OPTIONS)} count={count} onEdit={() => {}} onPreview={() => {}} onToggleCollapse={() => setC((x) => !x)} collapsed={c} blockCount={4} warnings={warnings} />
       {!c ? <p className="px-4 py-3 text-sm">As a local Nazim Tabligh in your Majlis, submit your monthly report to the regional Qaid by the 5th.</p> : null}
     </div>
@@ -85,7 +85,7 @@ function BarDemo({ initial, canPickPerson = true }: { initial: AudienceView; can
     { user_id: 2, display_name: 'Sample Person Two', email: 'two@example.invalid' },
   ]
   return (
-    <div className="overflow-hidden rounded-md border">
+    <div className="overflow-hidden rounded-md border border-gray-200">
       <AudienceBar
         sectionCount={5} view={view} onChangeView={setView} personas={MOCK_PERSONAS} canPickPerson={canPickPerson} options={MOCK_OPTIONS}
         searchPeople={async (q) => { await new Promise((r) => setTimeout(r, 250)); return people.filter((p) => p.display_name.toLowerCase().includes(q.toLowerCase()) || p.email.includes(q.toLowerCase())) }}
@@ -108,20 +108,14 @@ function SheetDemo({ open, setOpen }: { open: boolean; setOpen: (o: boolean) => 
 export default function AudiencePlayground() {
   if (!ENABLED) notFound()
   const params = useSearchParams()
-  const dark = params.get('theme') === 'dark'
   const only = params.get('only')
   const [sheetOpen, setSheetOpen] = React.useState(params.get('sheet') === '1')
-  // Tailwind v4 resolves --color-* on :root, so the dark class must sit on <html> (as in the real app) for portals too.
-  React.useEffect(() => {
-    document.documentElement.classList.toggle('dark', dark)
-    return () => document.documentElement.classList.remove('dark')
-  }, [dark])
   const noOptions: AudienceOptions | undefined = undefined
   const show = (id: string) => !only || only === id
 
   return (
     <div>
-      <div className="min-h-screen bg-background text-foreground">
+      <div className="min-h-screen bg-[#f8f8f8] text-gray-900">
         <div className="mx-auto max-w-3xl space-y-10 px-4 py-6">
           <h1 className="text-lg font-semibold">Audience UI playground (dev only, synthetic data)</h1>
 

@@ -20,8 +20,8 @@ export type AudienceHeaderProps = {
   warnings: AudienceWarning[]
 }
 
-const WARN_AMBER = 'text-amber-900 dark:text-amber-200'
-const WARN_RED = 'text-red-800 dark:text-red-200'
+const WARN_AMBER = 'text-amber-900'
+const WARN_RED = 'text-red-800'
 
 export function warningText(w: AudienceWarning): { text: string; tone: 'amber' | 'red' | 'slate' } {
   switch (w.kind) {
@@ -48,16 +48,16 @@ export function ColourBar({ rule, className }: { rule: Rule; className?: string 
 export function CountBadge({ count }: { count: CountState }) {
   if (count.state === 'idle') return null
   if (count.state === 'loading') {
-    return <span aria-label="Counting" className="inline-block h-6 w-12 animate-pulse rounded-full bg-muted motion-reduce:animate-none" />
+    return <span aria-label="Counting" className="inline-block h-6 w-12 animate-pulse rounded-full bg-gray-100 motion-reduce:animate-none" />
   }
   if (count.state === 'error' || !count.data) {
-    return <span className="rounded-full border px-2 py-0.5 text-xs text-muted-foreground">Count unavailable</span>
+    return <span className="rounded-full border border-gray-200 px-2 py-0.5 text-xs text-gray-600">Count unavailable</span>
   }
   const n = count.data.count
   return (
     <span
       aria-label={`About ${n} ${n === 1 ? 'person' : 'people'}`}
-      className="inline-flex items-center gap-1 rounded-full border bg-background px-2 py-0.5 text-xs font-medium tabular-nums text-foreground"
+      className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium tabular-nums text-gray-900"
     >
       <Users className="size-3" aria-hidden />≈{n}
     </span>
@@ -72,7 +72,7 @@ function HeaderButton({ icon: Icon, label, onClick, expanded }: { icon: typeof P
       aria-expanded={expanded}
       aria-label={label}
       className={cn(
-        'inline-flex items-center justify-center gap-1.5 rounded-md border bg-background px-2.5 text-sm font-medium hover:bg-muted',
+        'inline-flex items-center justify-center gap-1.5 rounded-md px-2.5 text-sm font-medium text-gray-600 hover:bg-gray-100 hover:text-gray-900',
         'min-h-11 min-w-11 sm:min-h-8 sm:min-w-0',
         PRESS, FOCUS_RING,
       )}
@@ -96,19 +96,19 @@ export function AudienceHeader({
   const fullLabel = `${prefix}: ${shownLabel}`
   return (
     <TooltipProvider delayDuration={400}>
-      <div className="flex items-stretch gap-3 rounded-t-md bg-muted/40 px-3 py-2 text-foreground">
+      <div className="flex items-stretch gap-3 border-b border-gray-100 bg-white px-3 py-1.5 text-gray-900">
         <ColourBar rule={rule} />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
             <Tooltip>
               <TooltipTrigger asChild>
-                <p className="flex min-w-0 max-w-full flex-1 basis-40 items-center gap-2 text-sm font-medium" title={fullLabel}>
-                  <Icon className={cn('size-4 shrink-0', TONE_STYLE[tone].text)} aria-hidden />
-                  <span className="shrink-0 text-muted-foreground">{prefix}:</span>
-                  <span className="truncate">{shownLabel}</span>
+                <p className="flex min-w-0 max-w-full flex-1 basis-40 items-start gap-2 text-sm font-medium" title={fullLabel}>
+                  <Icon className={cn('mt-0.5 size-4 shrink-0', TONE_STYLE[tone].text)} aria-hidden />
+                  <span className="shrink-0 text-gray-600">{prefix}:</span>
+                  <span className="line-clamp-2 min-w-0 sm:line-clamp-1">{shownLabel}</span>
                 </p>
               </TooltipTrigger>
-              <TooltipContent side="bottom" className="max-w-xs">{fullLabel}</TooltipContent>
+              <TooltipContent side="bottom" className="max-w-xs bg-white text-gray-900">{fullLabel}</TooltipContent>
             </Tooltip>
             <CountBadge count={count} />
             <div className="ms-auto flex items-center gap-1.5">
@@ -119,7 +119,7 @@ export function AudienceHeader({
                 onClick={onToggleCollapse}
                 aria-expanded={!collapsed}
                 aria-label={collapsed ? 'Expand section' : 'Collapse section'}
-                className={cn('inline-flex min-h-11 min-w-11 items-center justify-center rounded-md hover:bg-muted sm:min-h-8 sm:min-w-8', PRESS, FOCUS_RING)}
+                className={cn('inline-flex min-h-11 min-w-11 items-center justify-center rounded-md hover:bg-gray-100 sm:min-h-8 sm:min-w-8', PRESS, FOCUS_RING)}
               >
                 <ChevronDown className={cn('size-4 transition-transform duration-200 ease-out motion-reduce:transition-none', collapsed && '-rotate-90')} aria-hidden />
               </button>
@@ -131,14 +131,14 @@ export function AudienceHeader({
                 const { text, tone: t } = warningText(w)
                 const WIcon = t === 'red' ? TriangleAlert : CircleAlert
                 return (
-                  <p key={i} role={t === 'red' ? 'alert' : undefined} className={cn('flex items-center gap-1.5', t === 'amber' && WARN_AMBER, t === 'red' && WARN_RED, t === 'slate' && 'text-muted-foreground')}>
+                  <p key={i} role={t === 'red' ? 'alert' : undefined} className={cn('flex items-center gap-1.5', t === 'amber' && WARN_AMBER, t === 'red' && WARN_RED, t === 'slate' && 'text-gray-600')}>
                     <WIcon className="size-3.5 shrink-0" aria-hidden />
                     {text}
                   </p>
                 )
               })}
               {collapsed ? (
-                <p className="text-muted-foreground">
+                <p className="text-gray-600">
                   {blockCount} {blockCount === 1 ? 'block' : 'blocks'} hidden
                 </p>
               ) : null}
@@ -155,11 +155,11 @@ export function HiddenPlaceholder({ label, className }: { label: string; classNa
   return (
     <div
       role="note"
-      className={cn('flex min-h-11 items-center gap-2 rounded-md border border-dashed border-muted-foreground/50 px-3 py-2 text-sm text-muted-foreground', className)}
+      className={cn('flex min-h-11 items-center gap-2 rounded-md border border-dashed border-gray-500 px-3 py-2 text-sm text-gray-600', className)}
     >
       <EyeOff className="size-4 shrink-0" aria-hidden />
       <span className="min-w-0">
-        <span className="font-medium text-foreground">Hidden for this viewer</span>
+        <span className="font-medium text-gray-900">Hidden for this viewer</span>
         <span aria-hidden> · </span>
         <span className="sr-only">. </span>
         Visible to {label}
@@ -173,11 +173,11 @@ export function ReadOnlyBadge({ rule, label, className }: { rule: Rule; label: s
   const tone = levelTone(rule)
   const hide = isDescribable(rule) && rule.mode === 'hide'
   return (
-    <div className={cn('inline-flex max-w-full items-center gap-2 rounded-full border bg-muted/50 py-1 ps-2 pe-3 text-xs', className)}>
+    <div className={cn('inline-flex max-w-full items-center gap-2 rounded-full border border-gray-200 bg-gray-50 py-1 ps-2 pe-3 text-xs', className)}>
       <ColourBarDot tone={tone} />
       <span className="truncate" title={label}>
         <span className="font-medium">{hide ? 'Hidden from' : 'Visible to'}:</span> {label}
-        <span className="text-muted-foreground"> · you can see this because of your role</span>
+        <span className="text-gray-600"> · you can see this because of your role</span>
       </span>
     </div>
   )

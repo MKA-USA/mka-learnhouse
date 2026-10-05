@@ -10,6 +10,13 @@ const MAX_SHOWN = 3
 const KNOWN_KEYS = ['officeholder', 'level', 'department', 'role', 'region', 'majlis']
 const LIST_KEYS = ['level', 'department', 'role', 'region', 'majlis'] as const
 
+/** The level each role key implies (parser role keys). */
+export const ROLE_LEVEL: Record<string, string> = {
+  sadr: 'national', naib_sadr: 'national', mohtamim: 'national', national_staff: 'national',
+  regional_qaid: 'regional', regional_nazim_dept: 'regional', regional_motamid: 'regional',
+  nazim_dept: 'local', qaid: 'local', naib_qaid: 'local', motamid: 'local', nazim_atfal: 'local', murabbi_atfal: 'local',
+}
+
 const isStringList = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === 'string')
 
 /** Structural check only; full validation lives in evaluate.ts. */
@@ -62,8 +69,9 @@ function describeGroup(g: Group, o: DescribeOptions): string {
   if (roles.length) {
     const plurals = labels(roles, (k) => o.roles.find((r) => r.key === k)?.plural)
     head = joinList(plurals)
-    // "Regional Qaids" already says the level, so don't repeat it.
-    const redundant = plurals.every((pl) => levels.some((l) => pl.startsWith(`${l} `)))
+    // A role that implies the chosen level ("Regional Qaids" + Regional) doesn't need the level repeated.
+    const first = ROLE_LEVEL[roles[0]]
+    const redundant = first !== undefined && roles.every((r) => ROLE_LEVEL[r] === first) && levelsList.length === 1 && levelsList[0] === first
     if (levels.length && !redundant) {
       head += ` at the ${joinList(levels)} level`
     }

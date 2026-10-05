@@ -28,7 +28,7 @@ export type AudiencePickerProps = {
 
 const EMPTY_NOTE = 'Nobody currently matches this. Check the filters.'
 const UNKNOWN_CHIP =
-  'border-red-300 bg-red-50 text-red-900 dark:border-red-800 dark:bg-red-950/70 dark:text-red-100'
+  'border-red-300 bg-red-50 text-red-900'
 
 const plural = (n: number, one: string, many: string) => (n === 1 ? one : many)
 
@@ -37,25 +37,29 @@ export function CountLine({ count, options, rule }: { count: CountState; options
   let body: React.ReactNode = null
   if (count.state === 'loading') {
     body = (
-      <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+      <span className="inline-flex items-center gap-1.5 text-gray-600">
         <Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden /> Counting…
       </span>
     )
   } else if (count.state === 'error') {
-    body = <span className="text-muted-foreground">Count unavailable. You can keep editing.</span>
+    body = <span className="text-gray-600">Count unavailable. You can keep editing.</span>
   } else if (count.state === 'ready' && count.data) {
     const d = count.data
     const showExpected = d.expected && !hasRoleKey(rule)
     body = (
       <>
-        <span className="font-medium text-foreground">
+        <span className="font-medium text-gray-900">
           ≈ {d.count} {plural(d.count, 'person', 'people')} {plural(d.count, 'sees', 'see')} this
         </span>
-        {showExpected ? <span className="text-muted-foreground"> (of {d.expected!.total} expected)</span> : null}
         {d.unrecognized > 0 ? (
-          <span className="text-muted-foreground">
+          <span className="text-gray-600">
             {' · '}
             {d.unrecognized} unrecognized {plural(d.unrecognized, 'account', 'accounts')} not counted
+          </span>
+        ) : null}
+        {showExpected ? (
+          <span className="mt-0.5 block text-xs text-gray-600">
+            {d.expected!.matching} of {d.expected!.total} on this year&apos;s roster
           </span>
         ) : null}
       </>
@@ -73,12 +77,12 @@ export function CountLine({ count, options, rule }: { count: CountState; options
             <button
               type="button"
               aria-label="About this count"
-              className={cn('inline-flex min-h-11 min-w-11 items-center justify-center rounded-full text-muted-foreground hover:text-foreground sm:min-h-9 sm:min-w-9', FOCUS_RING)}
+              className={cn('inline-flex min-h-11 min-w-11 items-center justify-center rounded-full text-gray-600 hover:text-gray-900 sm:min-h-9 sm:min-w-9', FOCUS_RING)}
             >
               <Info className="size-4" aria-hidden />
             </button>
           </PopoverTrigger>
-          <PopoverContent className="w-72 text-sm leading-relaxed" side="top" align="end">
+          <PopoverContent className="w-72 border-gray-200 bg-white text-sm leading-relaxed text-gray-900" side="top" align="end">
             {options.copy.count_tooltip}
           </PopoverContent>
         </Popover>
@@ -90,7 +94,7 @@ export function CountLine({ count, options, rule }: { count: CountState; options
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-1.5 sm:flex-row sm:items-start sm:gap-3">
-      <div className="shrink-0 text-sm font-medium text-muted-foreground sm:w-28 sm:pt-2">{label}</div>
+      <div className="shrink-0 text-sm font-medium text-gray-600 sm:w-28 sm:pt-2">{label}</div>
       <div className="min-w-0 flex-1">{children}</div>
     </div>
   )
@@ -100,7 +104,7 @@ function Skeleton() {
   return (
     <div className="space-y-3 p-4" aria-busy="true" aria-label="Loading audience options">
       {[0, 1, 2].map((i) => (
-        <div key={i} className="h-9 animate-pulse rounded-full bg-muted motion-reduce:animate-none" style={{ width: `${70 - i * 15}%` }} />
+        <div key={i} className="h-9 animate-pulse rounded-full bg-gray-100 motion-reduce:animate-none" style={{ width: `${70 - i * 15}%` }} />
       ))}
     </div>
   )
@@ -169,7 +173,7 @@ export function PickerBody({
       role="group"
       aria-label="Who should see this section?"
       onKeyDown={onKeyDown}
-      className="w-full max-w-[40rem] rounded-xl border bg-background text-foreground shadow-sm"
+      className="w-full max-w-[40rem] rounded-xl border border-gray-200 bg-white text-gray-900 shadow-sm"
     >
       <div className="px-4 pt-4">
         <h3 className="text-base font-semibold leading-tight">Who should see this?</h3>
@@ -180,7 +184,7 @@ export function PickerBody({
       ) : (
         <div className="space-y-4 p-4">
           {damaged ? (
-            <div role="alert" className={cn('flex gap-2 rounded-lg border p-3 text-sm', UNKNOWN_CHIP)}>
+            <div role="alert" className={cn('flex gap-2 rounded-lg border border-gray-200 p-3 text-sm', UNKNOWN_CHIP)}>
               <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
               <div>
                 <p className="font-medium">This section&apos;s audience is damaged. Choose who should see it.</p>
@@ -190,11 +194,11 @@ export function PickerBody({
           ) : null}
 
           {readOnly ? (
-            <div role="status" className="flex gap-2 rounded-lg border bg-muted p-3 text-sm">
+            <div role="status" className="flex gap-2 rounded-lg border border-gray-200 bg-gray-100 p-3 text-sm">
               <Lock className="mt-0.5 size-4 shrink-0" aria-hidden />
               <div>
                 <p className="font-medium">Made with a newer editor</p>
-                <p className="mt-0.5 text-muted-foreground">
+                <p className="mt-0.5 text-gray-600">
                   You can look at this audience but not change it. Learners will not see this section until the editor is updated.
                 </p>
               </div>
@@ -203,7 +207,7 @@ export function PickerBody({
 
           {(isNew || damaged) && presets.length > 0 && !readOnly ? (
             <div>
-              <p className="mb-2 text-sm font-medium text-muted-foreground">Quick picks</p>
+              <p className="mb-2 text-sm font-medium text-gray-600">Quick picks</p>
               <div className="flex flex-wrap gap-2" role="group" aria-label="Quick picks">
                 {presets.map((p) => {
                   const active = !damaged && rule.mode === 'show' && sameGroups(rule, p.rule)
@@ -214,9 +218,9 @@ export function PickerBody({
                       aria-pressed={active}
                       onClick={() => emit(applyPreset(p, dopts))}
                       className={cn(
-                        'inline-flex items-center rounded-full border px-4 text-sm font-medium',
+                        'inline-flex items-center rounded-full border border-gray-200 px-4 text-sm font-medium',
                         TARGET, PRESS, FOCUS_RING,
-                        active ? 'border-primary bg-primary text-primary-foreground' : 'bg-background hover:bg-muted',
+                        active ? 'border-sky-700 bg-sky-700 text-white' : 'bg-white hover:bg-gray-100',
                       )}
                     >
                       {p.label}
@@ -224,7 +228,7 @@ export function PickerBody({
                   )
                 })}
               </div>
-              <p className="mt-3 text-sm font-medium text-muted-foreground">Or build it</p>
+              <p className="mt-3 text-sm font-medium text-gray-600">Or build it</p>
             </div>
           ) : null}
 
@@ -234,15 +238,15 @@ export function PickerBody({
             disabled={readOnly}
             aria-label="Show or hide"
             onValueChange={(v) => v && emit(setMode(rule, v as Rule['mode']))}
-            className="inline-flex w-full justify-stretch gap-0 rounded-full border bg-muted p-0.5 sm:w-auto"
+            className="grid w-full grid-cols-2 gap-0 rounded-full border border-gray-200 bg-gray-100 p-0.5 sm:w-72"
           >
             {(['show', 'hide'] as const).map((m) => (
               <ToggleGroupItem
                 key={m}
                 value={m}
                 className={cn(
-                  'min-h-11 flex-1 gap-1.5 whitespace-nowrap rounded-full px-4 text-sm font-medium sm:min-h-8',
-                  'data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm',
+                  'min-h-11 gap-1.5 whitespace-nowrap rounded-full px-4 text-sm font-medium sm:min-h-8',
+                  'data-[state=on]:bg-white data-[state=on]:text-gray-900 data-[state=on]:shadow-sm',
                   PRESS, FOCUS_RING,
                 )}
               >
@@ -266,11 +270,11 @@ export function PickerBody({
                         disabled={readOnly}
                         onClick={() => toggle('level')(l.key)}
                         className={cn(
-                          'inline-flex items-center rounded-full border px-3.5 text-sm font-medium disabled:opacity-60',
+                          'inline-flex items-center rounded-full border border-gray-200 px-3.5 text-sm font-medium disabled:opacity-60',
                           TARGET, PRESS, FOCUS_RING,
                           on
                             ? `${TONE_STYLE[l.key].chip} ring-1 ring-current`
-                            : 'border-dashed border-muted-foreground/50 text-muted-foreground hover:border-foreground/60 hover:text-foreground',
+                            : 'border-dashed border-gray-500 text-gray-600 hover:border-gray-600 hover:text-gray-900',
                         )}
                       >
                         {l.label}
@@ -286,15 +290,13 @@ export function PickerBody({
                         disabled={readOnly}
                         onClick={() => toggle('level')(k)}
                         aria-label={`Remove unknown level '${k}'`}
-                        className={cn('inline-flex items-center rounded-full border px-3.5 text-sm font-medium', UNKNOWN_CHIP, TARGET, FOCUS_RING)}
+                        className={cn('inline-flex items-center rounded-full border border-gray-200 px-3.5 text-sm font-medium', UNKNOWN_CHIP, TARGET, FOCUS_RING)}
                       >
                         Unknown: &apos;{k}&apos; ×
                       </button>
                     ))}
                 </div>
-                <span className="text-sm text-muted-foreground">
-                  {level.length === 0 ? 'officeholders at any level' : 'officeholders'}
-                </span>
+                <span className="text-sm text-gray-600">{level.length === 0 ? '(any level)' : 'officeholders'}</span>
               </div>
             </Row>
             <Row label="in department">
@@ -362,22 +364,22 @@ export function PickerBody({
                 type="button"
                 aria-expanded={false}
                 onClick={() => setMoreOpen(true)}
-                className={cn('rounded-md px-1 text-sm font-medium text-primary underline underline-offset-4 sm:ms-[7.75rem]', TARGET, FOCUS_RING)}
+                className={cn('rounded-md px-1 text-sm font-medium text-sky-800 underline underline-offset-4 sm:ms-[7.75rem]', TARGET, FOCUS_RING)}
               >
                 More filters: role, region, Majlis
               </button>
             )}
 
             {rule.groups.length > 1 ? (
-              <p className="flex gap-2 text-sm text-muted-foreground sm:ms-[7.75rem]">
+              <p className="flex gap-2 text-sm text-gray-600 sm:ms-[7.75rem]">
                 <CircleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
                 This section has {rule.groups.length} audiences. Only the first one can be edited here.
               </p>
             ) : null}
           </div>
 
-          <div className="rounded-lg border bg-muted/50 p-3">
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Reads as</p>
+          <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+            <p className="text-xs font-medium uppercase tracking-wide text-gray-600">Reads as</p>
             <p className="mt-0.5 text-[0.9375rem] font-medium leading-snug" data-testid="audience-reads-as">
               {reads}
             </p>
@@ -385,33 +387,33 @@ export function PickerBody({
               <CountLine count={count} options={dopts} rule={rule} />
             </div>
             {zero ? (
-              <p role="status" className="mt-1 flex gap-2 text-sm text-amber-900 dark:text-amber-200">
+              <p role="status" className="mt-1 flex gap-2 text-sm text-amber-900">
                 <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
                 {EMPTY_NOTE}
               </p>
             ) : null}
           </div>
 
-          <p className="flex gap-2 text-xs leading-relaxed text-muted-foreground" data-testid="audience-not-secret">
+          <p className="flex gap-2 text-xs leading-relaxed text-gray-600" data-testid="audience-not-secret">
             <Lock className="mt-0.5 size-3.5 shrink-0" aria-hidden />
             {dopts.copy.not_secret}
           </p>
         </div>
       )}
 
-      <div className="flex flex-col-reverse gap-2 border-t p-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col-reverse gap-2 border-t border-gray-200 p-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           {onRemove ? (
-            <Button type="button" variant="ghost" onClick={onRemove} className="h-11 w-full text-destructive hover:text-destructive sm:h-9 sm:w-auto">
+            <Button type="button" variant="ghost" onClick={onRemove} className="h-11 w-full text-red-700 hover:text-red-800 sm:h-9 sm:w-auto">
               Remove section
             </Button>
           ) : null}
         </div>
         <div className="flex gap-2">
-          <Button type="button" variant="outline" onClick={onCancel} className="h-11 flex-1 sm:h-9 sm:flex-none">
+          <Button type="button" variant="outline" onClick={onCancel} className="h-11 flex-1 border-gray-300 bg-white text-gray-800 hover:bg-gray-50 sm:h-9 sm:flex-none">
             Cancel
           </Button>
-          <Button type="button" onClick={onDone} disabled={damaged || !dopts} className="h-11 flex-1 sm:h-9 sm:flex-none">
+          <Button type="button" onClick={onDone} disabled={damaged || !dopts} className="h-11 flex-1 bg-sky-700 text-white hover:bg-sky-800 sm:h-9 sm:flex-none">
             Done
           </Button>
         </div>
