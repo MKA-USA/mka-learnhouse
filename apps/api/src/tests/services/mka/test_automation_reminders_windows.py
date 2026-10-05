@@ -251,3 +251,16 @@ async def test_the_overdue_period_is_configurable_and_the_monday_digest_goes_on(
     late = await go(db, utc(2027, 1, 4), org, dry_run=False, kind="all")  # a Monday, well past the overdue period
     assert late["reminder"] == {"ran": False, "reason": "not_a_reminder_day"}
     assert late["digest"]["ran"] is True and late["digest"]["sent"] >= 1  # supervisors still hear about it
+
+
+async def test_the_run_totals_say_why_the_run_stopped(db, org, world, transport, on, test_mode, monkeypatch):  # noqa: F811
+    monkeypatch.setenv("MKA_AUTOMATION_RUN_SEND_CAP", "2")
+    assert (await go(db, utc(2026, 11, 15), org, dry_run=False))["_all"]["stopped"] == "send_cap_reached"
+    monkeypatch.setenv("MKA_AUTOMATION_RUN_SEND_CAP", "400")
+    monkeypatch.setenv("MKA_AUTOMATION_MAX_CONSECUTIVE_FAILURES", "2")
+    transport.fail = True
+    rep = await go(db, utc(2026, 11, 15), org, dry_run=False)
+    assert rep["_all"]["stopped"] == "too_many_consecutive_failures"  # a failure stop is never reported as the cap
+    assert rep["_all"]["failed"] == 2 and rep["_all"]["sent"] == 0
+    transport.fail = False
+    assert (await go(db, utc(2026, 11, 15), org, dry_run=False))["_all"]["stopped"] is None

@@ -511,15 +511,21 @@ async def run_all(db: AsyncSession, *, dry_run: bool, kind: str, now: Optional[d
             reports.append({"org_id": org_id, "error": type(exc).__name__})
     totals = {"sent": 0, "would_send": 0, "skipped_recent": 0, "failed": 0, "remaining": 0}
     time_budget_hit = False
+    reasons: set = set()
     for report in reports:
         for part in ("reminder", "digest"):
             block = report.get(part) or {}
+            if block.get("stopped"):
+                reasons.add(block["stopped"])
             for key in totals:
                 totals[key] += int(block.get(key) or 0)
             time_budget_hit = time_budget_hit or bool(block.get("time_budget_hit"))
     return {
         "dry_run": dry_run, "kind": kind, "test_mode": cfg.status_snapshot()["test_mode"], **totals,
-        "time_budget_hit": time_budget_hit, "orgs": reports,
+        "time_budget_hit": time_budget_hit,
+        # WHY the run stopped early, for the caller (the workflow words its summary from this; a failure stop is not a cap)
+        "stopped": next((r for r in ("too_many_consecutive_failures", "time_budget_reached", "send_cap_reached") if r in reasons), None),
+        "orgs": reports,
     }
 
 
