@@ -27,7 +27,7 @@ def _no_google_only(monkeypatch):
     monkeypatch.setenv("MKA_GOOGLE_ONLY_DOMAINS", "")
 
 
-async def _seed_roster(db, org, world, *emails):
+async def _seed_roster(db, org, world, *emails):  # noqa: F811  (pytest fixture imported from another test module)
     for email in emails:
         db.add(expected(org.id, world.cycle.id, email, "tabligh", "national", None, None, "Role", email.split("@")[0]))
     await db.commit()
@@ -72,7 +72,7 @@ async def _change_email(db, user_id, new):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("a_email,role_email", PAIRS)
-async def test_email_change_to_a_role_address_never_matches_the_role_row(db, org, world, a_email, role_email):
+async def test_email_change_to_a_role_address_never_matches_the_role_row(db, org, world, a_email, role_email):  # noqa: F811  (pytest fixture imported from another test module)
     domain = a_email.split("@")[1]
     await _seed_roster(db, org, world, a_email, role_email)
     await add_user(db, org.id, 50, a_email, 4, signup="google")
@@ -113,7 +113,7 @@ async def test_email_change_to_a_role_address_never_matches_the_role_row(db, org
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("a_email,role_email", PAIRS)
-async def test_control_genuine_google_login_as_the_role_address_is_matched(db, org, world, a_email, role_email):
+async def test_control_genuine_google_login_as_the_role_address_is_matched(db, org, world, a_email, role_email):  # noqa: F811  (pytest fixture imported from another test module)
     await _seed_roster(db, org, world, role_email)
     await add_user(db, org.id, 51, role_email, 4, signup="google")
     await _login(db, 51, role_email.split("@")[1])
@@ -123,7 +123,7 @@ async def test_control_genuine_google_login_as_the_role_address_is_matched(db, o
 
 
 @pytest.mark.asyncio
-async def test_atfal_address_without_proof_stays_unrecognized_and_not_signed_in(db, org, world):
+async def test_atfal_address_without_proof_stays_unrecognized_and_not_signed_in(db, org, world):  # noqa: F811  (pytest fixture imported from another test module)
     await _seed_roster(db, org, world, ATFAL)
     # a password / invited account on an Atfal address: no Google login => no proof => no row, never matched
     await add_user(db, org.id, 52, ATFAL, 4, signup="email")

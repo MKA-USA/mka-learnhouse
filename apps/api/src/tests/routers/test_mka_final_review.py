@@ -5,7 +5,6 @@ from datetime import datetime
 import pytest
 from sqlmodel import select
 
-from src.db.mka_compliance import MkaComplianceCycleCourse, MkaComplianceExpected
 from src.db.mka_user_attributes import MkaUserAttributes
 from src.db.users import User
 from src.services.mka import attributes as attrs
@@ -25,7 +24,7 @@ NATIONAL = {"level": "national", "department": "aitmad", "role": "motamid"}
 # ---- M1: a roster row alone never grants scope `all` -------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_m1_token_written_roster_row_cannot_grant_all_to_an_unproven_account(db, org, world):
+async def test_m1_token_written_roster_row_cannot_grant_all_to_an_unproven_account(db, org, world):  # noqa: F811  (pytest fixture imported from another test module)
     await add_user(db, org.id, 60, "attacker.person@gmail.com", 4, signup="google")
     u = await db.get(User, 60)
     await attrs.refresh_attributes(db, u)           # a normal not_applicable row, no Workspace proof
@@ -42,7 +41,7 @@ async def test_m1_token_written_roster_row_cannot_grant_all_to_an_unproven_accou
 
 
 @pytest.mark.asyncio
-async def test_m1_proven_workspace_national_officer_still_gets_all(db, org, world):
+async def test_m1_proven_workspace_national_officer_still_gets_all(db, org, world):  # noqa: F811  (pytest fixture imported from another test module)
     await add_user(db, org.id, 61, "national.officer@ws.example.invalid", 4, signup="google")
     await add_attributes(db, 61, "national.officer@ws.example.invalid", level="national", department="aitmad", role="motamid")
     async with client_for(db, 61) as c:
@@ -52,7 +51,7 @@ async def test_m1_proven_workspace_national_officer_still_gets_all(db, org, worl
 # ---- M2: a rules-version bump must not invalidate identity proof or hide progress ------------------------------
 
 @pytest.mark.asyncio
-async def test_m2_rules_version_bump_keeps_matched_learners_and_their_attestations(db, org, world):
+async def test_m2_rules_version_bump_keeps_matched_learners_and_their_attestations(db, org, world):  # noqa: F811  (pytest fixture imported from another test module)
     async def snapshot():
         async with client_for(db, 1) as c:
             ov = (await c.get(f"{BASE}/overview", params=q(org))).json()["totals"]
@@ -91,7 +90,7 @@ def test_contact_check_recognises_national_motamid_as_department_head():
 # ---- L3: tests for the redundant defence-in-depth checks --------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_l3_proven_python_recheck_rejects_proof_for_another_domain(db, org, world):
+async def test_l3_proven_python_recheck_rejects_proof_for_another_domain(db, org, world):  # noqa: F811  (pytest fixture imported from another test module)
     """SQL only requires a non-null verified_hd; the Python re-check also binds it to the address's own domain."""
     row = await attrs.get_row(db, 31)
     row.verified_hd = "other.example.invalid"
@@ -103,7 +102,7 @@ async def test_l3_proven_python_recheck_rejects_proof_for_another_domain(db, org
 
 
 @pytest.mark.asyncio
-async def test_l3_own_scope_requires_the_upstream_update_check(db, org, world, monkeypatch):
+async def test_l3_own_scope_requires_the_upstream_update_check(db, org, world, monkeypatch):  # noqa: F811  (pytest fixture imported from another test module)
     from fastapi import HTTPException
     from src.services.mka import compliance_scope as scope_mod
 
@@ -116,7 +115,7 @@ async def test_l3_own_scope_requires_the_upstream_update_check(db, org, world, m
 
 
 @pytest.mark.asyncio
-async def test_l3_course_that_moved_org_is_not_served_from_the_old_org(db, org, other_org, world):
+async def test_l3_course_that_moved_org_is_not_served_from_the_old_org(db, org, other_org, world):  # noqa: F811  (pytest fixture imported from another test module)
     from src.db.courses.courses import Course
 
     course = (await db.execute(select(Course).where(Course.course_uuid == "course_tabligh"))).scalars().first()

@@ -7,8 +7,6 @@ import pytest
 from sqlmodel import select
 
 from src.db.mka_user_attributes import (
-    MkaRosterOverride,
-    MkaUserAttributes,
     MkaUserAttributesAudit,
 )
 from src.db.user_organizations import UserOrganization

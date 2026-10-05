@@ -31,7 +31,7 @@ async def token_with(db, org, rights, uuid):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("rights", [{}, {"courses": {"action_read": True}}, {"users": {"action_read": False}}])
-async def test_token_without_the_needed_rights_gets_403_everywhere(db, org, world, rights):
+async def test_token_without_the_needed_rights_gets_403_everywhere(db, org, world, rights):  # noqa: F811  (pytest fixture imported from another test module)
     async with await token_with(db, org, rights, "apitoken_none") as c:
         p = {"org_slug": org.slug}
         cid = world.cycle.id
@@ -44,7 +44,7 @@ async def test_token_without_the_needed_rights_gets_403_everywhere(db, org, worl
 
 
 @pytest.mark.asyncio
-async def test_read_only_token_cannot_import_or_delete_and_write_only_token_cannot_read(db, org, world):
+async def test_read_only_token_cannot_import_or_delete_and_write_only_token_cannot_read(db, org, world):  # noqa: F811  (pytest fixture imported from another test module)
     p = {"org_slug": org.slug}
     cid = world.cycle.id
     async with await token_with(db, org, {"users": {"action_read": True}}, "apitoken_ro") as c:
@@ -60,7 +60,7 @@ async def test_read_only_token_cannot_import_or_delete_and_write_only_token_cann
 # ---- M1 ---------------------------------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_person_with_two_roles_counts_once(db, org, world):
+async def test_person_with_two_roles_counts_once(db, org, world):  # noqa: F811  (pytest fixture imported from another test module)
     db.add(expected(org.id, world.cycle.id, "l1@example.invalid", "tabligh", "local", "Albany", "Northeast", "Qaid", "L One"))
     db.add(expected(org.id, world.cycle.id, "l1@example.invalid", "", "local", "Albany", "Northeast", "Majlis Sadr", "L One"))
     await db.commit()
@@ -85,7 +85,7 @@ async def test_person_with_two_roles_counts_once(db, org, world):
 # ---- M2 ---------------------------------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_unproven_account_with_a_roster_email_is_not_credited(db, org, world):
+async def test_unproven_account_with_a_roster_email_is_not_credited(db, org, world):  # noqa: F811  (pytest fixture imported from another test module)
     await add_user(db, org.id, 60, "ghost1@example.invalid", 4, signup="email")  # no attributes row / no proof
     await progress(db, org.id, 60, 101, [1001, 1002, 1003], "2026-11-03")
     async with client_for(db, 1) as c:
@@ -98,7 +98,7 @@ async def test_unproven_account_with_a_roster_email_is_not_credited(db, org, wor
 
 
 @pytest.mark.asyncio
-async def test_proven_user_who_changes_email_to_a_role_address_is_not_matched(db, org, world):
+async def test_proven_user_who_changes_email_to_a_role_address_is_not_matched(db, org, world):  # noqa: F811  (pytest fixture imported from another test module)
     """a@d proven; profile email changed to the role address (ghost1@) -> must NOT be that officeholder."""
     from src.db.users import User
     await add_user(db, org.id, 61, "a@example.invalid", 4)
@@ -118,7 +118,7 @@ async def test_proven_user_who_changes_email_to_a_role_address_is_not_matched(db
 # ---- M3 ---------------------------------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_default_cycle_ignores_a_future_cycle_and_scope_honours_cycle_id(db, org, world):
+async def test_default_cycle_ignores_a_future_cycle_and_scope_honours_cycle_id(db, org, world):  # noqa: F811  (pytest fixture imported from another test module)
     db.add(MkaComplianceCycle(org_id=org.id, label="2027-28", starts_on=date(2027, 11, 1), deadline_on=date(2027, 12, 1)))
     db.add(MkaComplianceCycle(org_id=org.id, label="2025-26", starts_on=date(2025, 11, 1), deadline_on=date(2025, 12, 1)))
     await db.commit()
@@ -133,7 +133,7 @@ async def test_default_cycle_ignores_a_future_cycle_and_scope_honours_cycle_id(d
 
 
 @pytest.mark.asyncio
-async def test_default_cycle_after_the_window_is_the_latest_started(db, org, world, monkeypatch):
+async def test_default_cycle_after_the_window_is_the_latest_started(db, org, world, monkeypatch):  # noqa: F811  (pytest fixture imported from another test module)
     monkeypatch.setattr(svc, "today", lambda: "2027-03-01")
     db.add(MkaComplianceCycle(org_id=org.id, label="2027-28", starts_on=date(2027, 11, 1), deadline_on=date(2027, 12, 1)))
     await db.commit()
@@ -144,7 +144,7 @@ async def test_default_cycle_after_the_window_is_the_latest_started(db, org, wor
 # ---- Lows -------------------------------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_plain_learner_scope_discloses_no_cycles(db, org, world):
+async def test_plain_learner_scope_discloses_no_cycles(db, org, world):  # noqa: F811  (pytest fixture imported from another test module)
     async with client_for(db, 2) as c:
         body = (await c.get(f"{BASE}/scope", params=q(org))).json()
     assert body == {"scope": "none", "cycle": None, "cycles": [], "courses": [], "departments": []}
@@ -165,7 +165,7 @@ def test_contact_question_matching_is_precise():
 
 
 @pytest.mark.asyncio
-async def test_output_labels_nulls_and_truncation_header(db, org, world, monkeypatch):
+async def test_output_labels_nulls_and_truncation_header(db, org, world, monkeypatch):  # noqa: F811  (pytest fixture imported from another test module)
     async with client_for(db, 1) as c:
         ov = (await c.get(f"{BASE}/overview", params=q(org))).json()
         lr = (await c.get(f"{BASE}/courses/course_general/learners", params=q(org, department="executive", page_size=200))).json()
@@ -182,7 +182,7 @@ async def test_output_labels_nulls_and_truncation_header(db, org, world, monkeyp
 
 
 @pytest.mark.asyncio
-async def test_duplicate_course_for_a_slot_is_rejected(db, org, world):
+async def test_duplicate_course_for_a_slot_is_rejected(db, org, world):  # noqa: F811  (pytest fixture imported from another test module)
     from src.tests.routers.mka_compliance_world import add_course
     await add_course(db, org.id, 104, "course_general2", "Second general", 1, 0, base=3000)
     async with client_for(db, 1) as c:

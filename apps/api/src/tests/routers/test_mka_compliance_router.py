@@ -273,7 +273,7 @@ async def test_course_summary_breakdowns(db, org, world):
     by_region = {r["region"]: r for r in s["by_region"]}
     assert by_region["Northeast"]["expected"] == 3 and by_region["Southwest"]["expected"] == 1 and by_region[None]["expected"] == 1
     assert {m["majlis"] for m in s["by_majlis"]} == {"Albany", "Boston", "Dallas", None}
-    assert {l["level"] for l in s["by_level"]} == {"local", "national"}
+    assert {lv["level"] for lv in s["by_level"]} == {"local", "national"}
     assert s["rag"] in ("amber", "red") and s["reasons"]
 
 
@@ -398,7 +398,7 @@ async def test_csv_is_scoped_filtered_and_injection_safe(db, org, world):
     assert r.headers["content-disposition"] == 'attachment; filename="chase-list-course_tabligh.csv"'
     lines = r.text.strip().split("\r\n")
     assert lines[0].lstrip("\ufeff").startswith("Department,Role,Level,Region,Majlis,Name,Mailbox,Status")
-    emails = [l for l in lines[1:]]
+    emails = [ln for ln in lines[1:]]
     body = "\r\n".join(lines[1:])
     # attested learner is not on the chase list; other departments never appear; the rest of this course does
     assert "l1@example.invalid" not in body
@@ -459,8 +459,8 @@ async def test_import_cycle_session_admin_idempotent(db, org, world):
     new = next(c for c in cycles if c.label == "2027-28")
     assert new.deadline_on.isoformat() == "2027-12-01" and new.starts_on.isoformat() == "2027-11-01"  # 30-day default
     links = (await db.execute(select(MkaComplianceCycleCourse).where(MkaComplianceCycleCourse.cycle_id == new.id))).scalars().all()
-    assert len(links) == 2 and all(l.org_id == org.id for l in links)
-    t = next(l for l in links if l.course_uuid == "course_tabligh")
+    assert len(links) == 2 and all(lk.org_id == org.id for lk in links)
+    t = next(lk for lk in links if lk.course_uuid == "course_tabligh")
     assert (t.department, t.signoff_assignment_id, t.contact_check_assignment_id) == ("tabligh", 5002, 5003)
 
 

@@ -147,7 +147,7 @@ async def test_l2_bad_row_does_not_abort_roster_import_or_500(db, org, admin_use
         {"email": "b.two@mkausa.org", "attributes": {"level": "national", "role": "sadr"}},
     ], source="companion")
     assert (res["applied"], res["failed"]) == (1, 1)
-    u = await _user(db, 22, "john.smith@mkausa.org", org=org)
+    await _user(db, 22, "john.smith@mkausa.org", org=org)
     async with _client(db, admin_user) as c:
         r = await c.put(f"{BASE}/users/22/override", params={"org_id": org.id}, json={"override": {"majlis": []}, "reason": "x"})
     assert r.status_code == 422
@@ -344,7 +344,6 @@ async def test_m5_token_rights_are_enforced(db, org, admin_user):
 
 @pytest.mark.asyncio
 async def test_m4_shared_user_override_details_are_redacted(db, org, other_org, admin_user):
-    from src.db.organization_config import OrganizationConfig
 
     admin = await db.get(User, 1)
     u = await _user(db, 50, "john.smith@mkausa.org", org=org)
@@ -369,7 +368,7 @@ async def test_m4_shared_user_override_details_are_redacted(db, org, other_org, 
 @pytest.mark.asyncio
 async def test_m7_filters_exclude_stale_rows(db, org):
     a = await _user(db, 60, "tabligh.albany@mkausa.org", org=org)
-    b = await _user(db, 61, "tabligh.boston@mkausa.org", org=org)
+    await _user(db, 61, "tabligh.boston@mkausa.org", org=org)
     await svc.recompute_users(db)
     assert (await svc.list_attributes(db, org.id, filters={"department": "tabligh"}))["total"] == 2
     row = await svc.get_row(db, 61)

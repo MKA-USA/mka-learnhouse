@@ -30,7 +30,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import distinct, func, or_
+from sqlalchemy import distinct, func
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 

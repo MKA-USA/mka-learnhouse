@@ -13,13 +13,12 @@ token's org. Every response is ``Cache-Control: private, no-store``.
 
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi import APIRouter, Depends, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.core.events.database import get_db_session
 from src.routers.mka_attributes import _resolve_admin
-from src.db.users import APITokenUser
 from src.security.auth import get_authenticated_user
 from src.services.mka import compliance as svc
 from src.services.mka import compliance_import as imp

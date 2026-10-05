@@ -40,7 +40,7 @@ async def _get(c, org, name, path, **extra):
 
 
 @pytest.mark.asyncio
-async def test_dump_happy_paths(db, org, world):
+async def test_dump_happy_paths(db, org, world):  # noqa: F811  (pytest fixture imported from another test module)
     async with client_for(db, 1) as c:  # org admin: scope all
         assert (await _get(c, org, "scope_all", "scope")).status_code == 200
         assert (await _get(c, org, "overview", "overview")).status_code == 200
@@ -59,7 +59,7 @@ async def test_dump_happy_paths(db, org, world):
 
 
 @pytest.mark.asyncio
-async def test_dump_error_shapes(db, org, world):
+async def test_dump_error_shapes(db, org, world):  # noqa: F811  (pytest fixture imported from another test module)
     async with client_for(db, 23) as c:
         assert (await _get(c, org, "err_403_overview_as_author", "overview")).status_code == 403
         assert (await _get(c, org, "err_404_out_of_scope_course", "courses/course_maal/summary")).status_code == 404
@@ -74,7 +74,7 @@ async def test_dump_error_shapes(db, org, world):
 
 
 @pytest.mark.asyncio
-async def test_dump_no_cycle(db, org, other_org, world):
+async def test_dump_no_cycle(db, org, other_org, world):  # noqa: F811  (pytest fixture imported from another test module)
     for model in (MkaComplianceCycleCourse, MkaComplianceExpected, MkaComplianceCycle):
         await db.execute(delete(model).where(model.org_id == other_org.id))
     await db.commit()
