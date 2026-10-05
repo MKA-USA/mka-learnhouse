@@ -27,6 +27,7 @@ import type { AudienceNodeOptions, AudienceNodeViewApi } from './AudienceNodeVie
 import { MkaErrorBoundary } from './MkaErrorBoundary'
 import { AudienceHeader, HiddenPlaceholder, ReadOnlyBadge } from './AudienceHeader'
 import { AudiencePicker } from './AudiencePicker'
+import { useIsNarrow } from './audience-ui'
 
 type Props = {
   nodeView: AudienceNodeViewApi
@@ -146,6 +147,7 @@ function AuthorHeader(p: ChromeProps) {
   const st = useAudienceStore(editor)
   const orgOptions = useAudienceOptions(scope.orgId).data
   const count = useAudienceCount(scope.orgId, scope.courseUuid, norm)
+  const narrow = useIsNarrow()
   const [open, setOpen] = useState(false)
   const [isNew, setIsNew] = useState(false)
   const startRule = useRef<Rule>(norm ?? DEFAULT_RULE)
@@ -198,53 +200,69 @@ function AuthorHeader(p: ChromeProps) {
     store.set({ collapsed: next })
   }
 
+  const picker = (
+    <AudiencePicker
+      value={norm ?? DEFAULT_RULE}
+      onChange={apply}
+      onDone={close}
+      onCancel={cancel}
+      onRemove={
+        id
+          ? () => {
+              editor.commands.unsetMkaAudience(id)
+              close()
+            }
+          : undefined
+      }
+      options={orgOptions}
+      authorDepartment={authorDepartment}
+      count={count}
+      isNew={isNew}
+    />
+  )
+
+  const header = (
+    <AudienceHeader
+      rule={norm ?? DEFAULT_RULE}
+      label={label}
+      count={count}
+      onEdit={
+        editableRule
+          ? () => {
+              startRule.current = norm ?? DEFAULT_RULE
+              setIsNew(false)
+              setOpen(true)
+            }
+          : undefined
+      }
+      onPreview={() => store.set({ view: { kind: 'self' } })}
+      onToggleCollapse={toggleCollapse}
+      collapsed={collapsed}
+      blockCount={node.childCount}
+      warnings={warnings}
+    />
+  )
+
+  // Phones: the picker is its own bottom sheet (seam C), so there is no popover to anchor.
+  if (narrow) {
+    return (
+      <>
+        {header}
+        {open ? picker : null}
+      </>
+    )
+  }
   return (
     <Popover open={open} onOpenChange={(o) => (o ? setOpen(true) : close())}>
       <PopoverAnchor asChild>
-        <div>
-          <AudienceHeader
-            rule={norm ?? DEFAULT_RULE}
-            label={label}
-            count={count}
-            onEdit={
-              editableRule
-                ? () => {
-                    startRule.current = norm ?? DEFAULT_RULE
-                    setIsNew(false)
-                    setOpen(true)
-                  }
-                : undefined
-            }
-            onPreview={() => store.set({ view: { kind: 'self' } })}
-            onToggleCollapse={toggleCollapse}
-            collapsed={collapsed}
-            blockCount={node.childCount}
-            warnings={warnings}
-          />
-        </div>
+        <div>{header}</div>
       </PopoverAnchor>
       <PopoverContent
         align="start"
-        className="w-[min(34rem,calc(100vw-2rem))] max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:top-auto max-sm:w-full"
+        collisionPadding={8}
+        className="max-h-(--radix-popover-content-available-height) w-[min(34rem,calc(100vw-2rem))] overflow-y-auto border-0 bg-transparent p-0 shadow-none"
       >
-        <AudiencePicker
-          value={norm ?? DEFAULT_RULE}
-          onChange={apply}
-          onDone={close}
-          onCancel={cancel}
-          onRemove={
-            id
-              ? () => {
-                  editor.commands.unsetMkaAudience(id)
-                  close()
-                }
-              : undefined
-          }
-          options={orgOptions}
-          authorDepartment={authorDepartment}
-          count={count}
-          isNew={isNew}
-        />
+        {picker}
       </PopoverContent>
     </Popover>
   )
