@@ -785,11 +785,11 @@ Not an upstream file (upstream has none). Added so every bun test run preloads `
 preload = ["./tests/setup/dom.mjs"]
 ```
 
-### Backend Turnstile enforcement + signup rate limit (G1/G3, 2026-10-05)
+### Backend Turnstile enforcement + signup rate limit (G1/G3, 2026-10-05, revised after PR #19 review)
 
-- **Reason**: Turnstile was enforced only in the Next signup proxy, so a direct `POST /api/v1/users/...` bypassed it, and upstream's `check_signup_rate_limit` was never called. Fork-only logic: `apps/api/src/services/security/mka_signup_guard.py` (FastAPI dependency `mka_signup_guard`: inert in SaaS mode and for authenticated callers; anonymous callers get the `MKA_SIGNUP_RATE_LIMIT_PER_HOUR` limiter then Turnstile), `apps/api/src/services/security/mka_turnstile.py` (siteverify via httpx, enforced only when both keys are set, fails open on Cloudflare errors), `apps/web/lib/mka-signup-proxy.ts` (headers the proxy forwards). Tests: `apps/api/src/tests/services/test_mka_turnstile.py`, `test_mka_signup_rate_limit.py`, `apps/web/tests/mka-signup-proxy.test.mjs`. Evaluation: `docs/superpowers/specs/2026-10-05-mka-signup-hardening-eval.md`.
-- **Why no extension point**: FastAPI has no per-route hook registry; a route-level `Depends` is the smallest change. Not hooked into `create_user` (OAuth also calls it).
-- **Single-use token**: outside SaaS the Next route no longer verifies; it forwards `X-Turnstile-Token` (plus `X-Forwarded-For` / `X-Real-IP` verbatim) and the API verifies once. SaaS mode: no extra headers, upstream verify block unchanged, API guard inert.
+- **Reason**: Turnstile was enforced only in the Next signup proxy, so a direct `POST /api/v1/users/...` bypassed it, and upstream's `check_signup_rate_limit` was never called. Fork-only logic: `apps/api/src/services/security/mka_signup_guard.py` (FastAPI dependency `mka_signup_guard`: inert in SaaS mode; exempts only API tokens, superadmins and ADMINs of the target org; guarded callers get Turnstile first, then the `MKA_SIGNUP_RATE_LIMIT_PER_HOUR` limiter, default 60, skipped for non-global client IPs), `apps/api/src/services/security/mka_turnstile.py` (siteverify via httpx, enforced only when both keys are set, fails open on Cloudflare errors), `apps/web/lib/mka-signup-proxy.ts` (forwarded headers, loopback API URL, connect-error fallback). Tests: `apps/api/src/tests/services/test_mka_turnstile.py`, `test_mka_signup_rate_limit.py`, `apps/web/tests/mka-signup-proxy.test.mjs`. Evaluation: `docs/superpowers/specs/2026-10-05-mka-signup-hardening-eval.md`.
+- **Why no extension point**: FastAPI has no per-route hook registry; a route-level `Depends` is the smallest change. Not hooked into `create_user` (OAuth also calls it). The Next route has no fetch hook; the fetch call is wrapped in one line.
+- **Single-use token / loopback**: outside SaaS the Next route no longer verifies; it forwards `X-Turnstile-Token` (plus `X-Forwarded-For` / `X-Real-IP` verbatim) and calls the API on loopback (`mkaSignupFetch`, public-URL fallback once on connection-establishment errors only). The API verifies once. SaaS mode: no extra headers, original URL, upstream verify block unchanged, API guard inert.
 - **Diff** (`git diff origin/dev..HEAD`, verbatim):
 
 ```diff
@@ -833,7 +833,7 @@ index a2ad932a..2e1dcd5b 100644
 
 ```diff
 diff --git a/apps/web/app/api/signup/route.ts b/apps/web/app/api/signup/route.ts
-index 8deab550..6e9ca68d 100644
+index 8deab550..b3c95d8f 100644
 --- a/apps/web/app/api/signup/route.ts
 +++ b/apps/web/app/api/signup/route.ts
 @@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
@@ -841,7 +841,7 @@ index 8deab550..6e9ca68d 100644
  import { isSaaSMode, isCustomDomainRequest } from '@lib/saas'
  import { verifyTurnstile, clientIpFromHeaders } from '@lib/turnstile'
 -import { isMkaTurnstileEnforced } from '@lib/mka-turnstile' // MKA fork
-+import { mkaSignupForwardHeaders } from '@lib/mka-signup-proxy' // MKA fork
++import { mkaSignupFetch, mkaSignupForwardHeaders } from '@lib/mka-signup-proxy' // MKA fork
  import { validateSignupEmail } from '@services/emails/disposableEmail'
  import { addContactWithLoops, sendLoopsEvent, LOOPS_SIGNED_USERS_GROUP } from '@services/emails/loops'
  
@@ -864,9 +864,12 @@ index 8deab550..6e9ca68d 100644
  
    if (saas) {
      // 1. Turnstile — allowed through automatically when no secret is set. Skipped
-@@ -155,7 +145,7 @@ export async function POST(request: NextRequest) {
+@@ -153,9 +143,9 @@ export async function POST(request: NextRequest) {
+ 
+   let backendRes: Response
    try {
-     backendRes = await fetch(url, {
+-    backendRes = await fetch(url, {
++    backendRes = await mkaSignupFetch(saas, base, url, { // MKA fork: non-SaaS calls the API on loopback
        method: 'POST',
 -      headers: { 'Content-Type': 'application/json' },
 +      headers: { 'Content-Type': 'application/json', ...mkaSignupForwardHeaders(saas, request.headers, turnstileToken) }, // MKA fork
@@ -875,4 +878,4 @@ index 8deab550..6e9ca68d 100644
      })
 ```
 
-- **Re-apply**: `grep -n "MKA fork" apps/api/src/routers/users.py apps/web/app/api/signup/route.ts` (4 lines in users.py: 1 import + 3 route params; in route.ts this change owns the `mka-signup-proxy` import, the "API verifies" comment and the fetch `headers` line; the other `MKA fork` lines there are the `mka_profile` hooks from section A).
+- **Re-apply**: `grep -n "MKA fork" apps/api/src/routers/users.py apps/web/app/api/signup/route.ts` (4 lines in users.py: 1 import + 3 route params; in route.ts this change owns the `mka-signup-proxy` import, the "API verifies" comment, the `mkaSignupFetch(...)` call line and the fetch `headers` line; the other `MKA fork` lines there are the `mka_profile` hooks from section A).

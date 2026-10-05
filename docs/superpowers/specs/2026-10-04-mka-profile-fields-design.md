@@ -240,7 +240,7 @@ Still open:
 
 ## 11. Known limitations & residual risks
 - **AMC ID squatting**: IDs are unverified and first-come unique; at signup or the gate a member can claim another member's unregistered ID. Exposure is now limited to that first-time entry (after it is stored members cannot change it), and admins can fix it from the Users table dialog. AMC ID is treated as admin-managed once set; Salesforce is expected to become the source of official details later.
-- **AMC enumeration**: the 409 at public signup reveals whether an AMC ID is registered. Inherent to unique IDs; bounded since 2026-10-05 by the anonymous signup rate limit (`MKA_SIGNUP_RATE_LIMIT_PER_HOUR`, §12).
+- **AMC enumeration**: the 409 at public signup reveals whether an AMC ID is registered. Inherent to unique IDs; bounded since 2026-10-05 by the signup rate limit (`MKA_SIGNUP_RATE_LIMIT_PER_HOUR`, §12).
 - **Cross-org edit (mitigated)**: the profile is one global row per user, so editing requires ADMIN of every org the target belongs to (superadmins unrestricted); for single-org MKA this is a no-op. Org MFA/auth-method policy is enforced on both admin endpoints via `enforce_org_mfa`.
 - **Maintainers cannot edit profiles** (ADMIN role only).
 - **Admin edit UI shipped** (Users table dialog, §6). Still sub-project 2: profile columns in the Users table and in the CSV export, and reporting.
@@ -278,18 +278,21 @@ Still open:
 | G3 `check_signup_rate_limit` unused | Real | Fixed: configurable fork limiter |
 | G7 AMC-ID 409 oracle | Mitigated by G3 | No other change |
 
-- Outside SaaS the Next signup route NO LONGER verifies the token: a Turnstile token is single-use, so it forwards it in `X-Turnstile-Token` and the API verifies it once (`apps/api/src/services/security/mka_turnstile.py`). It also forwards `X-Forwarded-For` / `X-Real-IP` verbatim so the API keys the limiter on the member's IP, not 127.0.0.1.
-- API rule = web rule: enforce only when BOTH `TURNSTILE_SECRET_KEY` and `NEXT_PUBLIC_TURNSTILE_SITE_KEY` are set (API process env; web and API share the container env). Missing/invalid token -> 403 with the same messages; Cloudflare errors fail OPEN.
-- Only ANONYMOUS callers are checked. Authenticated callers (session or API token: e2e client, admin tooling) are exempt from Turnstile and the limiter.
-- SaaS mode: the API guard is inert and the proxy adds no headers (upstream behavior).
+- Outside SaaS the Next signup route NO LONGER verifies the token: a Turnstile token is single-use, so it forwards it in `X-Turnstile-Token` and the API verifies it once (`apps/api/src/services/security/mka_turnstile.py`).
+- The route calls the API on LOOPBACK outside SaaS (`LEARNHOUSE_INTERNAL_API_URL`, else `http://127.0.0.1:${LEARNHOUSE_PORT:-9000}/api/v1/`). `getServerAPIUrl()` is the public URL on MKA, so the call used to leave the container and come back through the edge, and the API saw the edge hop as the client. It forwards `X-Forwarded-For` / `X-Real-IP` verbatim. On a connection-establishment error it falls back ONCE to the public URL; HTTP responses, resets and timeouts are never retried.
+- API rule = web rule: enforce only when BOTH `TURNSTILE_SECRET_KEY` and `NEXT_PUBLIC_TURNSTILE_SITE_KEY` are set (web and API share the container env). Missing/invalid token -> 403 with the same messages. Cloudflare network errors, HTTP >= 500, unreadable replies and `internal-error` fail OPEN.
+- Exempt (validated identities only): API tokens, superadmins, and ADMINs of the target org on `/users/{org_id}...` (org from the path). `POST /users/` exempts superadmins only. Everyone else (anonymous, members, maintainers, admins of another org) is guarded. The e2e client posts as the bootstrap org admin, so it stays exempt.
+- Order: Turnstile first, then the limiter; only Turnstile-passing requests consume the bucket. The limiter is skipped when the client IP is not globally routable (never one shared bucket) and fails open without Redis.
+- SaaS mode: the API guard is inert; the proxy adds no headers and calls the original URL (upstream behavior).
 
-| Env var (API) | Default | Effect |
+| Env var | Default | Effect |
 |---|---|---|
-| `MKA_SIGNUP_RATE_LIMIT_PER_HOUR` | `30` | Anonymous create-user attempts per client IP per hour (all attempts, incl. failed). `0` disables. Invalid/negative -> 30. Fails open without Redis. 429 "Too many sign-up attempts from your network. Please try again in about N minutes." |
+| `MKA_SIGNUP_RATE_LIMIT_PER_HOUR` (API) | `60` | Turnstile-passing create-user attempts per globally routable client IP per hour. `0` disables. Invalid/negative -> 60. 429 "Too many sign-up attempts from your network. Please try again in about N minutes." |
+| `LEARNHOUSE_INTERNAL_API_URL` (web, optional) | loopback on `LEARNHOUSE_PORT` | Override the loopback API base used by the signup route outside SaaS |
 
 **Residual gaps**
 - Google SSO account creation is not rate limited (G2 verdict).
 - Login / forgot / reset: Turnstile is still enforced only client-side via `/api/turnstile/verify` (needs the token threaded through upstream login/reset endpoints); backend limiters cover them (login 30/5 min/IP, reset 5/5 min/email).
-- A logged-in member could script account creation with their own session (authenticated callers are exempt).
+- On loopback the API sees `Host: 127.0.0.1:9000` (Node fetch cannot override Host). Host is only a last-resort fallback for email link/logo URLs (after Origin/Referer, `frontend_domain`, `LEARNHOUSE_MEDIA_URL`/`LEARNHOUSE_BACKEND_URL`, `LEARNHOUSE_DOMAIN`); check email links after deploy.
 - Limiter IP trust equals login's: forwarded headers are trusted only from a loopback/private peer; spoof resistance depends on the edge proxy (Traefik + container nginx) appending the real peer.
-- Unverified at runtime: widget rendering, real siteverify with a real token, the 403/429 paths in the browser, limiter behind the real proxy, Redis down, SaaS-mode regression.
+- Unverified at runtime: widget rendering, real siteverify with a real token, the 403/429 paths in the browser, per-IP Redis keys behind the real proxy, Redis down, SaaS-mode regression.
