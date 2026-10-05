@@ -81,6 +81,6 @@ def test_contact_check_recognises_national_motamid_as_department_head():
     assert idx["dept_head"] == {"aitmad": ["Head Person"]}
     assert svc.classify_question("Name of the National Motamid") == "dept_head"
     check = svc.self_check_for(roster[1], {"majlis": "Albany", "regional_qaid": None, "dept_head": "Someone Else"}, idx)
-    assert check["mismatch"] is True                                  # a wrong head is now flagged for Aitmad
+    assert check["mismatches"] == ["dept_head"]                                 # a wrong head is now flagged for Aitmad
     ok = svc.self_check_for(roster[1], {"majlis": "Albany", "regional_qaid": None, "dept_head": "Head Person"}, idx)
-    assert ok["mismatch"] is False
+    assert ok["mismatches"] == []
