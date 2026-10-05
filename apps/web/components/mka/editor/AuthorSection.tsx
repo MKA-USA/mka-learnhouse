@@ -69,11 +69,13 @@ export default function AuthorSection(p: AuthorSectionProps) {
   }
 
   const done = () => {
-    if (id) {
-      if (isNew) editor.commands.commitNewMkaAudience(id)
-      else editor.commands.commitEditMkaAudience(id, startRule.current)
-    }
+    // A NEW section needs no commit step: its insert/wrap is already one history step and the live previews were not
+    // history steps, so one Ctrl+Z removes it and redo restores it with the final rule. Only an EDIT needs folding
+    // into one step.
+    if (id && !isNew) editor.commands.commitEditMkaAudience(id, startRule.current)
     close()
+    // Keep typing where the author was (inside the section), not in the popover.
+    editor.commands.focus()
   }
 
   const cancel = () => {

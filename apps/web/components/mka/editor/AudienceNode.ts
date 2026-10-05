@@ -2,6 +2,9 @@
 import { Node } from '@tiptap/core'
 import { TextSelection } from '@tiptap/pm/state'
 import type { Transaction } from '@tiptap/pm/state'
+import { Slice } from '@tiptap/pm/model'
+import type { Node as PMNode } from '@tiptap/pm/model'
+import { ReplaceAroundStep } from '@tiptap/pm/transform'
 import toast from 'react-hot-toast'
 import { DEFAULT_RULE } from '../audience/types'
 import type { Rule } from '../audience/types'
@@ -20,8 +23,6 @@ declare module '@tiptap/core' {
       setMkaAudience: () => ReturnType
       /** `addToHistory: false` for live picker previews and reverts (only Done records a history step). */
       updateMkaAudienceRule: (id: string, rule: Rule, opts?: { addToHistory?: boolean }) => ReturnType
-      /** Done on a NEW section: one history-recorded insert/wrap carrying the final rule (a single Ctrl+Z removes it). */
-      commitNewMkaAudience: (id: string) => ReturnType
       /** Done on an EXISTING section: restore `opening` silently, then record the final rule as ONE step. */
       commitEditMkaAudience: (id: string, opening: Rule) => ReturnType
       /** Unwrap a section, keeping its content. */
@@ -156,38 +157,6 @@ export const MkaAudience = Node.create<AudienceNodeOptions>({
           return true
         },
 
-      commitNewMkaAudience:
-        (id) =>
-        ({ state, tr: shared, editor }) => {
-          const hit = findAudienceById(state.doc, id)
-          if (!hit) return false
-          shared.setMeta('preventDispatch', true) // we dispatch our own transactions below
-          const store = getAudienceStore(editor)
-          const { [id]: wasInserted, ...rest } = store.get().inserted
-          store.set({ inserted: rest })
-          const only = hit.node.childCount === 1 ? hit.node.child(0) : null
-          const emptyInserted = !!wasInserted && !!only && only.type.name === 'paragraph' && only.content.size === 0
-          const type = state.schema.nodes[AUDIENCE_NODE]
-          const attrs = { ...hit.node.attrs }
-          const size = hit.node.nodeSize
-          // 1) silently restore the pre-insert document (insert/wrap and the live previews were not undo steps) ...
-          const pre = state.tr.setMeta('addToHistory', false)
-          if (emptyInserted) pre.delete(hit.pos, hit.pos + size)
-          else pre.replaceWith(hit.pos, hit.pos + size, hit.node.content)
-          editor.view.dispatch(pre)
-          // 2) ... then record the section with its FINAL rule as one step, so one Ctrl+Z removes it entirely.
-          const tr = editor.state.tr
-          if (emptyInserted) {
-            tr.insert(hit.pos, type.create(attrs, state.schema.nodes.paragraph.create()))
-          } else {
-            const range = tr.doc.resolve(hit.pos).blockRange(tr.doc.resolve(hit.pos + hit.node.content.size))
-            if (!range) return false
-            tr.wrap(range, [{ type, attrs }])
-          }
-          editor.view.dispatch(tr)
-          return true
-        },
-
       commitEditMkaAudience:
         (id, opening) =>
         ({ state, tr: shared, editor }) => {
@@ -214,11 +183,9 @@ export const MkaAudience = Node.create<AudienceNodeOptions>({
           if (dispatch) {
             // Not an undo step: the cancel must not leave a Ctrl+Z that resurrects the cancelled section.
             tr.setMeta('addToHistory', false)
-            dispatch(
-              emptyInserted
-                ? tr.delete(hit.pos, hit.pos + hit.node.nodeSize)
-                : tr.replaceWith(hit.pos, hit.pos + hit.node.nodeSize, hit.node.content),
-            )
+            if (emptyInserted) tr.delete(hit.pos, hit.pos + hit.node.nodeSize)
+            else unwrapSection(tr, hit.pos, hit.node)
+            dispatch(tr)
           }
           return true
         },
@@ -228,7 +195,10 @@ export const MkaAudience = Node.create<AudienceNodeOptions>({
         ({ tr, state, dispatch }) => {
           const hit = findAudienceById(state.doc, id)
           if (!hit) return false
-          if (dispatch) dispatch(tr.replaceWith(hit.pos, hit.pos + hit.node.nodeSize, hit.node.content))
+          if (dispatch) {
+            unwrapSection(tr, hit.pos, hit.node)
+            dispatch(tr)
+          }
           return true
         },
     }
@@ -271,6 +241,20 @@ export const MkaAudience = Node.create<AudienceNodeOptions>({
     }
   },
 })
+
+/**
+ * Unwrap a section with a ReplaceAroundStep that keeps the inner content in place (the same step `tr.lift` makes).
+ * Replacing the node with its content would map as a deletion and destroy the undo history of earlier edits inside the
+ * wrapped blocks. `liftTarget` is not used: it refuses to lift out of an `isolating` node such as this one.
+ */
+function unwrapSection(tr: Transaction, pos: number, node: PMNode) {
+  const end = pos + node.nodeSize
+  try {
+    tr.step(new ReplaceAroundStep(pos, end, pos + 1, end - 1, Slice.empty, 0, true))
+  } catch {
+    tr.replaceWith(pos, end, node.content)
+  }
+}
 
 /** Cursor at the start of the first textblock inside the section starting at `pos`. */
 function selectionInside(tr: Transaction, pos: number) {
