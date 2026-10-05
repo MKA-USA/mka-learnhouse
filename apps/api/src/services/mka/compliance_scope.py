@@ -20,6 +20,7 @@ Security properties (each one has a test):
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date
 from typing import Optional
 
 from fastapi import HTTPException, Request
@@ -132,6 +133,23 @@ async def _own_course_ids(request: Request, uid: int, org_id: int, db: AsyncSess
     return frozenset(allowed)
 
 
+def token_may(token_user: APITokenUser, resource: str, action: str) -> None:
+    """H1: a token acts only within its configured rights (same contract as upstream's RBAC for tokens): empty
+    rights are refused, otherwise ``rights[resource][action]`` must be true. Reads need ``users.action_read``,
+    imports / deletes need ``organizations.action_update``."""
+    rights = token_user.rights
+    if not rights:
+        raise HTTPException(status_code=403, detail="API token has no permissions configured")
+    node = rights.get(resource) if isinstance(rights, dict) else getattr(rights, resource, None)
+    allowed = node.get(action) if isinstance(node, dict) else getattr(node, action, False)
+    if not allowed:
+        raise HTTPException(status_code=403, detail=f"API token lacks {resource}.{action}")
+
+
+TOKEN_READ = ("users", "action_read")
+TOKEN_WRITE = ("organizations", "action_update")
+
+
 async def resolve_scope(
     request: Request,
     current_user,
@@ -145,6 +163,7 @@ async def resolve_scope(
         if not org_slug:
             raise HTTPException(status_code=422, detail="org_slug is required for API-token access")
         token_user = _require_api_token(current_user)
+        token_may(token_user, *TOKEN_READ)
         org = await _resolve_org_slug(org_slug, token_user, db)  # 404 / 403 on other orgs, plan gate
         return Scope("all", org.id, "token")  # type: ignore[arg-type]
     if isinstance(current_user, SuperadminAPITokenUser):
@@ -189,8 +208,12 @@ async def resolve_scope(
 # cycle / course resolution (always org-scoped)
 # ---------------------------------------------------------------------------------------------------------
 
-async def get_cycle(db: AsyncSession, org_id: int, cycle_id: Optional[int]) -> Optional[MkaComplianceCycle]:
-    """The requested cycle (404 when it is not this org's) or the newest one (None when there is none)."""
+async def get_cycle(
+    db: AsyncSession, org_id: int, cycle_id: Optional[int], today: Optional[str] = None
+) -> Optional[MkaComplianceCycle]:
+    """The requested cycle (404 when it is not this org's), else the DEFAULT cycle: the one whose
+    [starts_on, deadline_on] window contains ``today``; else the most recent that has already started; else the
+    newest (so importing next year's cycle early never switches the default)."""
     if cycle_id is not None:
         cycle = (
             await db.execute(
@@ -200,14 +223,18 @@ async def get_cycle(db: AsyncSession, org_id: int, cycle_id: Optional[int]) -> O
         if cycle is None:
             raise HTTPException(status_code=404, detail="Cycle not found")
         return cycle
-    return (
-        await db.execute(
-            select(MkaComplianceCycle)
-            .where(MkaComplianceCycle.org_id == org_id)
-            .order_by(MkaComplianceCycle.starts_on.desc(), MkaComplianceCycle.id.desc())  # type: ignore[attr-defined]
-            .limit(1)
-        )
-    ).scalars().first()
+    cycles = await all_cycles(db, org_id)  # newest first
+    if not cycles:
+        return None
+    if today:
+        day = date.fromisoformat(today)
+        for c in cycles:
+            if c.starts_on <= day <= c.deadline_on:
+                return c
+        for c in cycles:
+            if c.starts_on <= day:
+                return c
+    return cycles[0]
 
 
 async def cycle_courses(db: AsyncSession, org_id: int, cycle_id: int) -> list[tuple[MkaComplianceCycleCourse, Course]]:

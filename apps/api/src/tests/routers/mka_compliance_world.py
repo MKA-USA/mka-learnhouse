@@ -56,7 +56,7 @@ async def add_attributes(db, uid, email, *, stale=False, email_seen=None, **eff)
     effective.update(eff)
     db.add(MkaUserAttributes(
         user_id=uid, email_seen=email_seen or email.lower(), derived={}, rules_version=attr_svc.get_rules().version,
-        stale=stale, effective=effective, eff_status=effective["status"], eff_level=effective["level"],
+        stale=stale, effective=effective, verified_hd=email.split("@")[-1].lower(), eff_status=effective["status"], eff_level=effective["level"],
         eff_department=effective["department"], eff_role=effective["role"],
     ))
     await db.commit()

@@ -62,7 +62,8 @@ def client_for(db, uid):
 async def token_client(db, org, world):
     full, prefix, hashed = generate_api_token()
     db.add(APIToken(name="prov", token_uuid="apitoken_c", token_prefix=prefix, token_hash=hashed,
-                    org_id=org.id, created_by_user_id=1, rights={},
+                    org_id=org.id, created_by_user_id=1,
+                    rights={"users": {"action_read": True}, "organizations": {"action_update": True}},
                     creation_date=str(datetime.now()), update_date=str(datetime.now())))
     await db.commit()
     app = _app(db)  # real auth path, no overrides
@@ -187,7 +188,7 @@ async def test_cross_tenant_reads(db, org, other_org, world):
         ov = (await c.get(f"{BASE}/overview", params=q(other_org))).json()
         assert ov["totals"]["expected"] == 3                       # only org 2's roster
         assert ov["totals"]["attested"] == 1                       # o2.l1 attested in org 2's course
-        assert {d["department"] for d in ov["departments"]} == {""}
+        assert {d["department"] for d in ov["departments"]} == {"executive"}
         # org 1's cycle id / course uuid are invisible to org 2
         assert (await c.get(f"{BASE}/overview", params=q(other_org, cycle_id=world.cycle.id))).status_code == 404
         for path in ("summary", "learners", "learners.csv", "trend"):
@@ -229,7 +230,7 @@ async def test_overview_totals_departments_cells_and_attention(db, org, world):
     assert ov["totals"] == {"expected": 10, "not_signed_in": 5, "not_started": 1, "in_progress": 1,
                             "completed": 1, "attested": 2, "overdue": 0}
     depts = {d["department"]: d for d in ov["departments"]}
-    assert set(depts) == {"tabligh", "maal", ""}
+    assert set(depts) == {"tabligh", "maal", "executive"}
     t = depts["tabligh"]  # l1 attested, l2 completed, ghost1/crossorg/head never signed in
     assert (t["expected"], t["attested"], t["completed"], t["not_signed_in"]) == (5, 1, 1, 3)
     assert t["attested_pct"] == 20.0 and t["expected_attested_pct"] == 50.0
@@ -237,7 +238,7 @@ async def test_overview_totals_departments_cells_and_attention(db, org, world):
     assert t["contact_mismatches"] == 2
     m = depts["maal"]  # l3 in progress, l4 not started, ghost2 never signed in
     assert (m["expected"], m["in_progress"], m["not_started"], m["not_signed_in"]) == (3, 1, 1, 1)
-    ex = depts[""]     # exec: general course only; ex attested, rq.ne never signed in
+    ex = depts["executive"]     # exec: general course only; ex attested, rq.ne never signed in
     assert (ex["expected"], ex["attested"], ex["not_signed_in"]) == (2, 1, 1)
     cells = {(x["department"], x["region"]): x for x in ov["cells"]}
     assert cells[("tabligh", "Northeast")]["expected"] == 3          # l1, l2, crossorg twin
@@ -245,7 +246,7 @@ async def test_overview_totals_departments_cells_and_attention(db, org, world):
     assert cells[("maal", "Northeast")]["expected"] == 2             # l3, l4
     assert sum(x["expected"] for x in ov["cells"]) == 10
     assert ov["attention"] and ov["attention"][0]["rag"] in ("red", "amber")
-    assert set(ov["attention"][0]) == {"department", "region", "rag", "score", "reasons", "expected", "attested",
+    assert set(ov["attention"][0]) == {"department", "department_name", "region", "rag", "score", "reasons", "expected", "attested",
                                        "attested_pct", "overdue", "not_signed_in", "not_started"}
     assert {c["rag"] for c in ov["cells"]} <= {"green", "amber", "red", "none"}
     assert all(a["rag"] in ("red", "amber") for a in ov["attention"])
@@ -265,13 +266,13 @@ async def test_course_summary_breakdowns(db, org, world):
     async with client_for(db, 1) as c:
         s = (await c.get(f"{BASE}/courses/course_tabligh/summary", params=q(org))).json()
     assert s["course"] == {"course_uuid": "course_tabligh", "name": "Tabligh 2026-27", "kind": "department",
-                           "department": "tabligh"}
+                           "department": "tabligh", "department_name": "Tabligh"}
     assert s["lessons_total"] == 2  # unpublished + assignment activities excluded
     assert s["totals"] == {"expected": 5, "not_signed_in": 3, "not_started": 0, "in_progress": 0,
                            "completed": 1, "attested": 1, "overdue": 0}
     by_region = {r["region"]: r for r in s["by_region"]}
-    assert by_region["Northeast"]["expected"] == 3 and by_region["Southwest"]["expected"] == 1 and by_region[""]["expected"] == 1
-    assert {m["majlis"] for m in s["by_majlis"]} == {"Albany", "Boston", "Dallas", ""}
+    assert by_region["Northeast"]["expected"] == 3 and by_region["Southwest"]["expected"] == 1 and by_region[None]["expected"] == 1
+    assert {m["majlis"] for m in s["by_majlis"]} == {"Albany", "Boston", "Dallas", None}
     assert {l["level"] for l in s["by_level"]} == {"local", "national"}
     assert s["rag"] in ("amber", "red") and s["reasons"]
 
@@ -396,7 +397,7 @@ async def test_csv_is_scoped_filtered_and_injection_safe(db, org, world):
     assert r.headers["cache-control"] == "private, no-store" and r.headers["x-content-type-options"] == "nosniff"
     assert r.headers["content-disposition"] == 'attachment; filename="chase-list-course_tabligh.csv"'
     lines = r.text.strip().split("\r\n")
-    assert lines[0].startswith("Department,Role,Level,Region,Majlis,Name,Mailbox,Status")
+    assert lines[0].lstrip("\ufeff").startswith("Department,Role,Level,Region,Majlis,Name,Mailbox,Status")
     emails = [l for l in lines[1:]]
     body = "\r\n".join(lines[1:])
     # attested learner is not on the chase list; other departments never appear; the rest of this course does
@@ -605,7 +606,9 @@ async def test_clear_expected_only_clears_that_cycle(db, org, other_org, world):
 @pytest.mark.asyncio
 async def test_token_can_import_for_its_own_org(token_client, org, other_org, db, world):
     p = {"org_slug": org.slug}
-    assert (await token_client.post(f"{BASE}/cycles", params=p, json=cycle_payload())).json()["ok"] == 2
+    first = await token_client.post(f"{BASE}/cycles", params=p, json=cycle_payload())
+    assert first.status_code == 200, first.text
+    assert first.json()["ok"] == 2
     cid = (await token_client.post(f"{BASE}/cycles", params=p, json=cycle_payload())).json()["cycle"]["id"]
     r = await token_client.post(f"{BASE}/expected/import", params=p, json={"cycle_id": cid, "rows": [row("tok@example.invalid")]})
     assert r.status_code == 200 and r.json()["created"] == 1

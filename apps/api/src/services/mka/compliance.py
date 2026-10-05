@@ -25,10 +25,12 @@ UNCONFIRMED: which roster rows count as the "regional Qaid" / "department head" 
 from __future__ import annotations
 
 import io
+import os
 from datetime import datetime, timezone
 from typing import Any, Optional
+from zoneinfo import ZoneInfo
 
-from sqlalchemy import distinct, func
+from sqlalchemy import distinct, func, or_
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -63,13 +65,13 @@ MAX_ATTENTION_ITEMS = 50
 # contact self-check. Lower-case substrings of ``role_title``; a roster with no match simply cannot produce a
 # mismatch for that field (never a false alarm).
 CONTACT_CHECK_RULES: dict[str, dict] = {
-    "regional_qaid": {"level": "regional", "role_keywords": ("qaid",)},
+    "regional_qaid": {"level": "regional", "role_keywords": ("regional qaid",)},
     "dept_head": {"level": "national", "role_keywords": ("mohtamim",)},
 }
 # How FORM questions are mapped to fields: lower-case substrings of ``questionText`` (provisioner wording:
 # "Name of your Regional Qaid" / "Name of the National Mohtamim <dept>").
 CONTACT_QUESTION_KEYWORDS: dict[str, tuple[str, ...]] = {
-    "regional_qaid": ("regional qaid", "qaid"),
+    "regional_qaid": ("regional qaid",),
     "dept_head": ("mohtamim", "department head"),
 }
 
@@ -80,9 +82,18 @@ SUBMITTED_STATES = (
 )
 
 
+# The cycle's calendar. A deadline is the END of that day in this zone (default America/New_York; override with
+# MKA_COMPLIANCE_TZ), so nobody turns overdue at 7pm Eastern on the deadline day.
+CYCLE_TIMEZONE = os.environ.get("MKA_COMPLIANCE_TZ", "America/New_York")
+
+
 def today() -> str:
-    """Server 'as of' day (UTC). Tests monkeypatch this."""
-    return datetime.now(timezone.utc).date().isoformat()
+    """'As of' day in the cycle timezone. Tests monkeypatch this."""
+    try:
+        zone = ZoneInfo(CYCLE_TIMEZONE)
+    except Exception:  # unknown zone name: fall back to UTC rather than fail
+        zone = timezone.utc
+    return datetime.now(zone).date().isoformat()
 
 
 def _day(value: Any) -> Optional[str]:
@@ -97,6 +108,11 @@ def _round1(x: float) -> float:
 # loading (set-based)
 # ---------------------------------------------------------------------------------------------------------
 
+# M2: an account only counts as the officeholder when its email is proven (Google signup or verified email).
+# Anything else is treated as not signed in, so an unverified account cannot be credited with (or attest for) them.
+_VERIFIED = or_(User.email_verified.is_(True), User.signup_method == "google")  # type: ignore[attr-defined]
+
+
 def _roster_users(org_id: int, cycle_id: int):
     """SELECT id of the users of THIS org whose email is on the cycle's roster."""
     roster_emails = select(MkaComplianceExpected.email).where(
@@ -105,7 +121,7 @@ def _roster_users(org_id: int, cycle_id: int):
     return (
         select(User.id)
         .join(UserOrganization, (UserOrganization.user_id == User.id) & (UserOrganization.org_id == org_id))
-        .where(func.lower(User.email).in_(roster_emails))
+        .where(func.lower(User.email).in_(roster_emails), _VERIFIED)
     )
 
 
@@ -130,7 +146,7 @@ async def load_user_map(db: AsyncSession, org_id: int, cycle_id: int) -> dict[st
         await db.execute(
             select(func.lower(User.email), User.id)
             .join(UserOrganization, (UserOrganization.user_id == User.id) & (UserOrganization.org_id == org_id))
-            .where(func.lower(User.email).in_(roster_emails))
+            .where(func.lower(User.email).in_(roster_emails), _VERIFIED)
             .order_by(User.id)
         )
     ).all()
@@ -428,6 +444,24 @@ async def load_dataset(
     return Dataset(cycle, roster, user_map, bundle, links, courses)
 
 
+def dedupe(rows: list[dict], key) -> list[dict]:
+    """M1: one record per distinct key (first roster row wins); the role titles of the merged rows are joined so
+    nothing is lost. Counts, percentages, RAG, lists, CSV and trend must all be per distinct person."""
+    seen: dict[Any, dict] = {}
+    for r in rows:
+        k = key(r)
+        if k not in seen:
+            seen[k] = {**r, "role_titles": [r["role_title"]] if r["role_title"] else []}
+            continue
+        first = seen[k]
+        if r["role_title"] and r["role_title"] not in first["role_titles"]:
+            first["role_titles"].append(r["role_title"])
+    out = list(seen.values())
+    for r in out:
+        r["role_title"] = " / ".join(r["role_titles"])
+    return out
+
+
 def person_records(ds: Dataset, as_of: str, cfg: Optional[dict] = None) -> list[dict]:
     """One scored record per roster row across ALL cycle courses (general + the row's department course)."""
     general = next((cc for cc in ds.links if cc.kind == "general"), None)
@@ -481,7 +515,7 @@ def course_records(ds: Dataset, link: MkaComplianceCycleCourse, as_of: str, cfg:
         scored["trailrun_status"] = prog.get("trailrun_status") if prog else None
         scored["contact_check"] = _contact_view(link, answers, sc)
         out.append(scored)
-    return out
+    return dedupe(out, lambda r: r["email"])
 
 
 def _contact_view(link, answers, sc) -> dict:
@@ -522,13 +556,34 @@ def _totals(rows: list[dict], ds: Dataset, as_of: str, cfg: Optional[dict]):
     return agg, att
 
 
-def _breakdown(rows: list[dict], field_name: str, ds: Dataset, as_of: str, cfg: Optional[dict]) -> list[dict]:
+def _breakdown(rows: list[dict], field_name: str, ds: Dataset, as_of: str, cfg: Optional[dict], keep_empty: bool = False) -> list[dict]:
     out = []
     for key, group in sorted(cs.group_by(rows, field_name).items()):
         agg = cs.aggregate(key, group, ds.cycle_dict)
         att = cs.attention(agg, ds.cycle_dict, as_of, cfg)
-        out.append({field_name: key, **public_group(agg, att)})
+        out.append({field_name: key if (key or keep_empty) else None, **public_group(agg, att)})
     return out
+
+
+EXECUTIVE_SLUG = "executive"
+EXECUTIVE_NAME = "National leadership"
+
+
+def dept_out(slug: str) -> str:
+    """API value for a department: '' (no department: executives) is reported as the stable slug 'executive'."""
+    return slug or EXECUTIVE_SLUG
+
+
+def dept_in(slug: Optional[str]) -> str:
+    return "" if (slug or "").lower() == EXECUTIVE_SLUG else (slug or "")
+
+
+def dept_name(slug: str) -> str:
+    if not slug:
+        return EXECUTIVE_NAME
+    from src.services.mka import attributes as attrs  # local: keeps the scoring path import-light
+
+    return attrs.get_rules().department_names.get(slug) or slug.replace("_", " ").title()
 
 
 def cycle_view(cycle: Optional[MkaComplianceCycle]) -> Optional[dict]:
@@ -541,7 +596,10 @@ def cycle_view(cycle: Optional[MkaComplianceCycle]) -> Optional[dict]:
 
 
 def course_view(link: MkaComplianceCycleCourse, course: Course) -> dict:
-    return {"course_uuid": link.course_uuid, "name": course.name, "kind": link.kind, "department": link.department}
+    return {
+        "course_uuid": link.course_uuid, "name": course.name, "kind": link.kind, "department": link.department,
+        "department_name": dept_name(link.department) if link.department else None,
+    }
 
 
 ATTENTION_KEYS = ("rag", "score", "reasons", "expected", "attested", "attested_pct", "overdue", "not_signed_in", "not_started")
@@ -555,22 +613,27 @@ def build_overview(ds: Optional[Dataset], cycle: Optional[MkaComplianceCycle], a
     if ds is None or cycle is None:
         return {"cycle": cycle_view(cycle), "as_of": as_of, "totals": dict(EMPTY_TOTALS),
                 "departments": [], "cells": [], "attention": []}
-    rows = person_records(ds, as_of, cfg)
+    all_rows = person_records(ds, as_of, cfg)
+    rows = dedupe(all_rows, lambda r: r["email"])                      # totals: distinct people
+    by_dept_rows = dedupe(all_rows, lambda r: (r["email"], r["department_slug"]))  # a person in 2 departments counts in each
+    by_cell_rows = dedupe(all_rows, lambda r: (r["email"], r["department_slug"], r["region"]))
     agg, att = _totals(rows, ds, as_of, cfg)
     totals = {k: public_group(agg, att)[k] for k in EMPTY_TOTALS}
-    departments = _breakdown(rows, "department_slug", ds, as_of, cfg)
+    departments = _breakdown(by_dept_rows, "department_slug", ds, as_of, cfg, keep_empty=True)
     for d in departments:
-        d["department"] = d.pop("department_slug")
+        d["department_name"] = dept_name(d["department_slug"])
+        d["department"] = dept_out(d.pop("department_slug"))
     cells = []
-    for key, cell_agg in cs.cross_tab(rows, "department_slug", "region", ds.cycle_dict).items():
+    for key, cell_agg in cs.cross_tab(by_cell_rows, "department_slug", "region", ds.cycle_dict).items():
         dept, region = key.split(cs.CELL_SEP, 1)
-        cells.append({"department": dept, "region": region, **public_group(cell_agg, cs.attention(cell_agg, ds.cycle_dict, as_of, cfg))})
-    cells.sort(key=lambda c: (c["department"], c["region"]))
+        cells.append({"department": dept_out(dept), "department_name": dept_name(dept), "region": region or None,
+                      **public_group(cell_agg, cs.attention(cell_agg, ds.cycle_dict, as_of, cfg))})
+    cells.sort(key=lambda c: (c["department"], c["region"] or ""))
     ranked = []
     for d in departments:
-        ranked.append({"department": d["department"], "region": None, **{k: d[k] for k in ATTENTION_KEYS}})
+        ranked.append({"department": d["department"], "department_name": d["department_name"], "region": None, **{k: d[k] for k in ATTENTION_KEYS}})
     for c in cells:
-        ranked.append({"department": c["department"], "region": c["region"], **{k: c[k] for k in ATTENTION_KEYS}})
+        ranked.append({"department": c["department"], "department_name": c["department_name"], "region": c["region"], **{k: c[k] for k in ATTENTION_KEYS}})
     ranked = [r for r in ranked if r["rag"] in ("red", "amber")]
     ranked.sort(key=lambda r: (-cs.rag_severity(r["rag"]), -r["score"], -r["expected"], r["department"], r["region"] or ""))
     return {
@@ -635,6 +698,8 @@ def filter_rows(
 ) -> list[dict]:
     statuses, stages = _csv_list(status), _csv_list(stage)
     regions, majlises, levels, depts = _csv_list(region), _csv_list(majlis), _csv_list(level), _csv_list(department)
+    if depts and EXECUTIVE_SLUG in depts:
+        depts = (depts - {EXECUTIVE_SLUG}) | {""}
     needle = (q or "").strip().lower()
     out = []
     for r in rows:
@@ -662,8 +727,10 @@ def filter_rows(
 
 def learner_item(r: dict) -> dict:
     return {
-        "email": r["email"], "role_title": r["role_title"], "person_name": r["person_name"],
-        "department": r["department_slug"], "level": r["level"], "majlis": r["majlis"], "region": r["region"],
+        "id": r["roster_id"], "email": r["email"], "role_title": r["role_title"] or None, "role_titles": r["role_titles"],
+        "person_name": r["person_name"], "department": dept_out(r["department_slug"]),
+        "department_name": dept_name(r["department_slug"]), "level": r["level"],
+        "majlis": r["majlis"] or None, "region": r["region"] or None,
         "signed_in": r["signed_in"], "status": r["status"], "stage": r["stage"], "overdue": r["overdue"],
         "lessons_done": r["lessons_done"], "lessons_total": r["lessons_total"],
         "last_activity_at": r["last_activity_at"], "attested_at": r["attested_at"],
@@ -705,10 +772,11 @@ def build_chase_csv(ds: Dataset, link: MkaComplianceCycleCourse, as_of: str, *, 
     rows.sort(key=chase_order)
     truncated = len(rows) > MAX_CSV_ROWS
     out = io.StringIO()
+    out.write("\ufeff")  # UTF-8 BOM so Excel reads non-ASCII names correctly
     out.write(",".join(CHASE_HEADERS) + "\r\n")
     for r in rows[:MAX_CSV_ROWS]:
         cells = [
-            r["department_slug"], r["role_title"], r["level"], r["region"], r["majlis"], r["person_name"], r["email"],
+            dept_name(r["department_slug"]), r["role_title"], r["level"], r["region"], r["majlis"], r["person_name"], r["email"],
             r["status"], r["lessons_done"], r["lessons_total"], r["due_on"], r["days_overdue"], r["last_activity_at"],
         ]
         out.write(",".join(cs.csv_cell(c) for c in cells) + "\r\n")

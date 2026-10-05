@@ -19,6 +19,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.core.events.database import get_db_session
 from src.routers.mka_attributes import _resolve_admin
+from src.db.users import APITokenUser
 from src.security.auth import get_authenticated_user
 from src.services.mka import compliance as svc
 from src.services.mka import compliance_import as imp
@@ -59,12 +60,22 @@ def _filename(course_uuid: str) -> str:
     return f"chase-list-{safe}.csv"
 
 
+async def _admin(current_user, org_id, org_slug, db):
+    """Org admin session or org token that may update the org (H1)."""
+    admin = await _resolve_admin(current_user, org_id, org_slug, db, allow_token=True)
+    if isinstance(current_user, APITokenUser):
+        scope_svc.token_may(current_user, *scope_svc.TOKEN_WRITE)
+    return admin
+
+
 async def _viewer_context(
     request: Request, response: Response, current_user, org_id, org_slug, cycle_id, db: AsyncSession
 ):
     _private(response)
     scope = await scope_svc.resolve_scope(request, current_user, org_id, org_slug, db)
-    cycle = await scope_svc.get_cycle(db, scope.org_id, cycle_id)
+    if scope.kind == "none":  # spec: everyone else gets nothing (no cycle labels / deadlines either)
+        return scope, None
+    cycle = await scope_svc.get_cycle(db, scope.org_id, cycle_id, svc.today())
     return scope, cycle
 
 
@@ -83,7 +94,7 @@ async def api_upsert_cycle(
 ) -> dict:
     """Upsert a cycle (by label) and its courses; idempotent; per-course errors, one bad course never aborts."""
     _private(response)
-    admin = await _resolve_admin(current_user, org_id, org_slug, db_session)
+    admin = await _admin(current_user, org_id, org_slug, db_session)
     return await imp.upsert_cycle(db_session, admin.org_id, body.model_dump(exclude_none=False))
 
 
@@ -99,7 +110,7 @@ async def api_import_expected(
     """Upsert expected-roster rows (<= 2000 per request), keyed by (cycle, email, department, level, role_title).
     One bad row never aborts the batch; each failure is returned with its row index."""
     _private(response)
-    admin = await _resolve_admin(current_user, org_id, org_slug, db_session)
+    admin = await _admin(current_user, org_id, org_slug, db_session)
     cycle = await imp.require_cycle(db_session, admin.org_id, cycle_id=body.cycle_id, label=body.cycle)
     return await imp.import_expected(db_session, admin.org_id, cycle, body.rows, dry_run=body.dry_run)
 
@@ -115,7 +126,7 @@ async def api_clear_expected(
 ) -> dict:
     """Clear the expected roster of one cycle (for a re-import)."""
     _private(response)
-    admin = await _resolve_admin(current_user, org_id, org_slug, db_session)
+    admin = await _admin(current_user, org_id, org_slug, db_session)
     cycle = await imp.require_cycle(db_session, admin.org_id, cycle_id=cycle_id, label=None)
     return {"cycle_id": cycle.id, "deleted": await imp.clear_expected(db_session, admin.org_id, cycle)}
 
@@ -142,7 +153,9 @@ async def api_scope(
     return {
         "scope": scope.kind,
         "cycle": svc.cycle_view(cycle),
-        "cycles": [svc.cycle_view(c) for c in await scope_svc.all_cycles(db_session, scope.org_id)],
+        "cycles": [] if scope.kind == "none" else [
+            svc.cycle_view(c) for c in await scope_svc.all_cycles(db_session, scope.org_id)
+        ],
         "courses": [svc.course_view(cc, course) for cc, course in rows],
         "departments": sorted({cc.department for cc, _ in rows if cc.department}),
     }
@@ -263,6 +276,7 @@ async def api_course_learners_csv(
         "X-Content-Type-Options": "nosniff",
     }
     if truncated:
+        headers["X-Truncated"] = "true"  # header only: a marker row would corrupt the chase list
         headers["X-Row-Limit"] = str(svc.MAX_CSV_ROWS)
     return Response(content=text, media_type="text/csv; charset=utf-8", headers=headers)
 

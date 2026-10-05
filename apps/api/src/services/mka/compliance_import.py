@@ -17,6 +17,7 @@ from datetime import date, timedelta
 from typing import Any, Optional
 
 from fastapi import HTTPException
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import delete, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -35,6 +36,15 @@ KINDS = ("general", "department")
 # starts_on is not part of the provisioner file; when a NEW cycle arrives without one we assume a 30-day
 # cycle ending at the deadline (UNCONFIRMED) and keep whatever is stored on later imports.
 DEFAULT_CYCLE_LENGTH_DAYS = 30
+
+
+async def _commit(db: AsyncSession) -> None:
+    """A concurrent import hitting the same unique key is a 409, not a 500 (the transaction is atomic)."""
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail="Conflicting concurrent import; retry")
 
 
 def _parse_date(value: Any, field: str) -> date:
@@ -187,6 +197,13 @@ async def upsert_cycle(db: AsyncSession, org_id: int, payload: dict) -> dict:
                     raise ValueError(f"{key} assignment not found in this course")
                 resolved[column] = assignment.id
 
+            clash = next(
+                (o for o in existing.values()
+                 if o.course_id != course.id and o.kind == kind and (o.department or None) == department),
+                None,
+            )
+            if clash is not None:
+                raise ValueError(f"the cycle already has a {kind} course for {department or 'general'}")
             link = existing.get(course.id)  # type: ignore[arg-type]
             if link is None:
                 link = MkaComplianceCycleCourse(
@@ -207,7 +224,7 @@ async def upsert_cycle(db: AsyncSession, org_id: int, payload: dict) -> dict:
             res["ok"] = True
         except ValueError as exc:
             res["error"] = str(exc)
-    await db.commit()
+    await _commit(db)
     return {
         "cycle": {
             "id": cycle.id, "label": cycle.label,
@@ -324,7 +341,7 @@ async def import_expected(
         }
         unmatched = sorted({c["department"] for c in seen.values() if c["department"] and c["department"] not in have})
     if not dry_run:
-        await db.commit()
+        await _commit(db)
     return {
         "cycle_id": cycle.id, "received": len(rows), "created": created, "updated": updated,
         "unchanged": unchanged, "failed": len(errors), "errors": errors, "dry_run": dry_run,
