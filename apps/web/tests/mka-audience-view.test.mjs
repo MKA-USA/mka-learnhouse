@@ -159,7 +159,7 @@ describe("learner (default mock viewer: local Nazim Tabligh)", () => {
 
 describe("learner notes", () => {
   test("unrecognized viewer: tailored-by-role note appears once", async () => {
-    const { container } = await mount(content, { search: "?mka_viewer=unrecognized-account" });
+    const { container } = await mount(content, { search: "?mka_viewer=unrecognized" });
     await settle();
     expect(container.querySelectorAll('[data-testid="mka-note-unrecognized"]').length).toBe(1);
     expect(container.textContent).toContain("We couldn't recognise your role");
@@ -263,7 +263,7 @@ describe("inline fields", () => {
     expect(m.container.textContent).toContain("In Albany go.");
     await act(async () => m.root.unmount()); m.container.remove(); current = null;
 
-    m = await mount(fieldDoc, { search: "?mka_viewer=unrecognized-account" });
+    m = await mount(fieldDoc, { search: "?mka_viewer=unrecognized" });
     await settle();
     expect(m.container.textContent).toContain("In your Majlis go.");
     await act(async () => m.root.unmount()); m.container.remove(); current = null;
@@ -749,6 +749,77 @@ describe("runtime flag (C): authoring entry points appear when runtime-config.js
       expect(m.editor()).toBe(editorBefore);
     } finally {
       delete window.__RUNTIME_CONFIG__;
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------
+// Explorer findings F1 (slash click), F2 (focus return), F4 (hide-all warning), F5 (mock viewer ids)
+// ---------------------------------------------------------------------------------------------------------
+describe("explorer findings", () => {
+  const sections = (e) => e.getJSON().content.filter((n) => n.type === "mkaAudience");
+  const escape = async () => {
+    await act(async () => { document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true })); });
+    await settle();
+  };
+
+  test("F1: the editor regaining focus right after a NEW section opens its picker does not cancel the section", async () => {
+    // Mouse path of the slash menu: the click blurs the editor, the command inserts the section and focuses the
+    // editor again. Radix saw that focus move as "focus outside the popover" and dismissed (= cancelled) the picker.
+    const m = await mount(doc(para("Hello"), para("")), { editable: true, flag: "1" });
+    await settle();
+    await act(async () => { m.editor().commands.setTextSelection(8); m.editor().commands.setMkaAudience(); });
+    await settle();
+    expect(document.body.querySelector('[aria-label="Who should see this section?"]')).not.toBeNull();
+    await act(async () => { m.editor().view.dom.focus(); });
+    await act(async () => { m.editor().view.dom.dispatchEvent(new FocusEvent("focusin", { bubbles: true })); });
+    await settle();
+    expect(sections(m.editor()).length).toBe(1);
+    expect(document.body.querySelector('[aria-label="Who should see this section?"]')).not.toBeNull();
+  });
+
+  test("F2: after Escape on an EXISTING section focus returns to its Edit button", async () => {
+    const m = await mount(doc(section("a", "x", rule("local"))), { editable: true, flag: "1" });
+    await settle();
+    const edit = () => [...m.container.querySelectorAll("button")].find((b) => b.textContent.trim() === "Edit");
+    await act(async () => { edit().click(); });
+    await settle();
+    await escape();
+    await settle();
+    // booleans only: a failing expect on DOM nodes makes bun diff the whole happy-dom tree (minutes)
+    expect(document.activeElement === edit()).toBe(true);
+  });
+
+  test("F2: after Escape on a NEW section focus goes to the editor, not <body>", async () => {
+    const m = await mount(doc(para("Hello"), para("World")), { editable: true, flag: "1" });
+    await settle();
+    await act(async () => { m.editor().commands.setTextSelection(2); m.editor().commands.setMkaAudience(); });
+    await settle();
+    await escape();
+    await settle();
+    expect(document.activeElement === document.body).toBe(false);
+    expect(m.editor().view.dom.contains(document.activeElement) || m.editor().view.dom === document.activeElement).toBe(true);
+  });
+
+  test("F4: a Hide-from rule that excludes every officeholder warns in the header", async () => {
+    const hideAll = { v: 1, mode: "hide", groups: [{}] };
+    const m = await mount(doc(section("a", "x", hideAll)), { editable: true, flag: "1" });
+    await settle();
+    expect(m.container.textContent).toContain("Only people who aren't officeholders will see this.");
+  });
+
+  test("F5: an unknown ?mka_viewer= is the UNRECOGNIZED viewer (with a console warning), not silently Local Nazim", async () => {
+    const warn = console.warn;
+    const warned = [];
+    console.warn = (...a) => warned.push(a.join(" "));
+    try {
+      const m = await mount(content, { search: "?mka_viewer=typo-persona" });
+      await settle();
+      expect(m.container.innerHTML).not.toContain("LOCAL-ONLY-TEXT");
+      expect(m.container.textContent).toContain("We couldn't recognise your role");
+      expect(warned.some((w) => w.includes("typo-persona") && w.includes("unrecognized"))).toBe(true);
+    } finally {
+      console.warn = warn;
     }
   });
 });

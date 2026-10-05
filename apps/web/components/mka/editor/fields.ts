@@ -20,3 +20,10 @@ export const FIELD_LABELS: Record<ViewerFieldKey, string> = {
 
 export const isField = (v: unknown): v is ViewerFieldKey => (VIEWER_FIELDS as readonly string[]).includes(v as string)
 
+/** Words an author might type while looking for "show this to some people only". Title stays "Audience section". */
+export const AUDIENCE_KEYWORDS = [
+  'audience', 'visible', 'visibility', 'show', 'show only', 'show only to', 'show to', 'hide', 'hide from', 'only',
+  'who', 'see', 'restrict', 'restricted', 'target', 'targeted', 'targeting', 'who can see', 'who sees', 'role', 'roles', 'officeholder',
+  'officeholders', 'office holder', 'level', 'department', 'region', 'majlis', 'conditional', 'condition', 'permission',
+  'private', 'limit', 'section',
+]

@@ -92,3 +92,5 @@ export type AudienceWarning =
   | { kind: 'unknown_values'; values: string[] }
   | { kind: 'invalid' }
   | { kind: 'newer_version' }
+  /** A "Hide from" rule that excludes every officeholder: only non-officeholders will see the section. */
+  | { kind: 'only_non_officeholders' }

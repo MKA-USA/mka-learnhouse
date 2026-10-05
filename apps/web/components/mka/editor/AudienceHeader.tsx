@@ -5,6 +5,7 @@ import { ChevronDown, CircleAlert, Eye, EyeOff, Pencil, ScanEye, TriangleAlert, 
 import { cn } from '@/lib/utils'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@components/ui/tooltip'
 import { isDescribable, levelTone } from '../audience/describe'
+import { ONLY_NON_OFFICEHOLDERS_NOTE } from '../audience/rule-edit'
 import type { AudienceWarning, CountState, Rule } from '../audience/types'
 import { FOCUS_RING, HATCH_STYLE, PRESS, TONE_STYLE } from './audience-ui'
 
@@ -31,6 +32,7 @@ export function warningText(w: AudienceWarning): { text: string; tone: 'amber' |
     case 'only_unclassified': return { text: "Only accounts we couldn't classify.", tone: 'amber' }
     case 'unknown_values': return { text: w.values.map((v) => `Unknown: '${v}'`).join(', '), tone: 'red' }
     case 'invalid': return { text: "This section's audience is damaged. Choose who should see it.", tone: 'red' }
+    case 'only_non_officeholders': return { text: ONLY_NON_OFFICEHOLDERS_NOTE, tone: 'amber' }
     case 'newer_version': return { text: 'Made with a newer editor', tone: 'slate' }
   }
 }
