@@ -118,7 +118,9 @@ reset endpoints. Not small; left documented. Backend limiters exist (login
   entry that is not a proxy hop IS the client; if it is unparseable or not a
   globally routable unicast address (e.g. CGNAT `100.64.0.0/10`, multicast),
   the result is `unknown` and the walk never continues left into
-  client-controlled entries. Oversized headers (> 4096 chars) give `unknown`.
+  client-controlled entries. Oversized headers (> 4096 chars) keep only their
+  right-hand 4096 chars (partial first entry dropped): the walk stops at the
+  edge-appended entry, so padding cannot push the limiter into a skip.
   A public direct peer is used as-is. `unknown` skips the limiter: no key is
   ever created for an empty/unknown/non-global IP.
 - Canonicalization before keying: `%zone` ids stripped, IPv4-mapped IPv6
