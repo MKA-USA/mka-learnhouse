@@ -7,7 +7,7 @@
 import React, { useCallback, useEffect, useMemo, useRef } from 'react'
 import type { Editor } from '@tiptap/react'
 import { useEditorProvider } from '@components/Contexts/Editor/EditorContext'
-import useAdminStatus from '@components/Hooks/useAdminStatus'
+import { useLHSession } from '@components/Contexts/LHSessionContext'
 import {
   fetchPreviewPerson,
   searchPreviewPeople,
@@ -16,7 +16,7 @@ import {
   useAudienceScope,
   useMkaViewer,
 } from '@services/mka/attributes'
-import { mkaAudienceEnabled } from '@services/mka/flags'
+import { mkaAudienceEnabled, mkaAudienceMock } from '@services/mka/flags'
 import type { AudienceView } from '../audience/types'
 import { AudienceBar } from './AudienceBar'
 import { MkaErrorBoundary } from './MkaErrorBoundary'
@@ -44,7 +44,15 @@ function Inner({ editor, options }: Props) {
   const st = useAudienceStore(editor)
   const orgOptions = useAudienceOptions(scope.orgId).data
   const auth = useAttributesAuth()
-  const { isAdmin } = (useAdminStatus() ?? {}) as { isAdmin?: boolean }
+  // UI hint only (the API enforces org admin/maintainer on the preview-people routes). Null-safe: the fork
+  // must not throw where no session provider exists.
+  const session = useLHSession() as any
+  const canPickPerson =
+    (mkaAudienceMock() && me.canViewAll) ||
+    session?.data?.user?.is_superadmin === true ||
+    ((session?.data?.roles ?? []) as any[]).some(
+      (r) => r?.org?.id === scope.orgId && r?.role?.rights?.dashboard?.action_access === true,
+    )
   const people = useRef(new Map<number, string>())
 
   const previewing = st.view.kind !== 'author'
@@ -111,7 +119,7 @@ function Inner({ editor, options }: Props) {
           view={st.view}
           onChangeView={onChangeView}
           personas={orgOptions?.personas ?? []}
-          canPickPerson={isAdmin === true}
+          canPickPerson={canPickPerson}
           searchPeople={async (q) => (await searchPeople(q)) as any}
           pickPerson={pickPerson}
           options={orgOptions}

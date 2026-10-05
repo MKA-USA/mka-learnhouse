@@ -41,6 +41,10 @@ export const MkaViewerField = Node.create<{ activity?: any; courseUuid?: string 
     return ['span', { 'data-mka-field': node.attrs.field, 'data-fallback': node.attrs.fallback }, String(node.attrs.fallback ?? '')]
   },
 
+  renderText({ node }) {
+    return String(node.attrs.fallback ?? '')
+  },
+
   addNodeView() {
     return ReactNodeViewRenderer(ViewerField as any, { as: 'span', className: 'mka-viewer-field' })
   },
@@ -48,10 +52,12 @@ export const MkaViewerField = Node.create<{ activity?: any; courseUuid?: string 
   addInputRules() {
     return [
       nodeInputRule({
-        find: /\{\{my_(majlis|region|department|role|role_title|level)\}\}$/,
+        // No capture group: nodeInputRule would otherwise replace only the group, leaving the braces behind.
+        find: /\{\{my_(?:majlis|region|department|role_title|role|level)\}\}$/,
         type: this.type,
         getAttributes: (match) => {
-          const field = (match[1] === 'role' ? 'role_title' : match[1]) as ViewerFieldKey
+          const name = match[0].slice('{{my_'.length, -2)
+          const field = (name === 'role' ? 'role_title' : name) as ViewerFieldKey
           return { field, fallback: FIELD_FALLBACKS[field] }
         },
       }),

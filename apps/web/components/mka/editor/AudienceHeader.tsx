@@ -17,7 +17,7 @@ export type AudienceHeaderProps = {
 
 export function AudienceHeader({ label, count, onEdit, onPreview, onToggleCollapse, collapsed, blockCount, warnings }: AudienceHeaderProps) {
   return (
-    <div data-testid="mka-audience-header" className="flex items-center gap-2 border-l-4 border-slate-400 px-2 py-1 text-xs">
+    <div data-testid="mka-audience-header" className="flex items-center gap-2 border-s-4 border-slate-400 px-2 py-1 text-xs">
       <span>Visible to: {label}</span>
       {count.state === 'ready' && count.data && <span>≈{count.data.count}</span>}
       {warnings.map((w) => (

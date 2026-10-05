@@ -13,6 +13,7 @@ import { getAPIUrl } from '@services/config/config'
 import { RequestBodyWithAuthHeader } from '@services/utils/ts/requests'
 import { useLHSession } from '@components/Contexts/LHSessionContext'
 import { useOrg } from '@components/Contexts/OrgContext'
+import { mkaAudienceMock } from './flags'
 import type {
   AudienceCount,
   AudienceOptions,
@@ -23,12 +24,9 @@ import type {
   Rule,
 } from '@components/mka/audience/types'
 
-/**
- * Dev/screenshot mock layer. Inlined at build time by Next (NEXT_PUBLIC_*), and
- * hard-disabled in production builds, so it can never serve fixtures to real users.
- */
-export const MKA_AUDIENCE_MOCK =
-  process.env.NEXT_PUBLIC_MKA_AUDIENCE_MOCK === '1' && process.env.NODE_ENV !== 'production'
+// Dev/screenshot mock layer: NEXT_PUBLIC_MKA_AUDIENCE_MOCK=1, hard-disabled in production builds (flags.ts).
+// Read at call time (Next still inlines NEXT_PUBLIC_* inside functions) so tests can flip it.
+const MOCK = mkaAudienceMock
 
 export class AttributesApiError extends Error {
   status: number
@@ -58,7 +56,7 @@ export interface AttributesAuth {
 export function useAttributesAuth(): AttributesAuth {
   const session = useLHSession() as { status?: string; data?: { tokens?: { access_token?: string } } } | null
   const token = session?.data?.tokens?.access_token
-  if (MKA_AUDIENCE_MOCK) return { token, resolved: true, signedIn: true }
+  if (MOCK()) return { token, resolved: true, signedIn: true }
   return { token, resolved: !!session && session.status !== 'loading', signedIn: !!token }
 }
 
@@ -72,13 +70,13 @@ const mock = () => import('./attributes.mock')
 
 // ---- fetchers (mock-aware) ------------------------------------------------------------------
 export async function fetchMe(token: string | undefined, courseUuid: string | null): Promise<MkaMeResponse> {
-  if (MKA_AUDIENCE_MOCK) return (await mock()).mockMe()
+  if (MOCK()) return (await mock()).mockMe()
   const qs = courseUuid ? `?course_uuid=${encodeURIComponent(courseUuid)}` : ''
   return request<MkaMeResponse>('GET', `me${qs}`, null, token)
 }
 
 export async function fetchAudienceOptions(token: string | undefined, orgId: number): Promise<AudienceOptions> {
-  if (MKA_AUDIENCE_MOCK) return (await mock()).mockOptions()
+  if (MOCK()) return (await mock()).mockOptions()
   return request<AudienceOptions>('GET', `options?org_id=${orgId}`, null, token)
 }
 
@@ -86,14 +84,14 @@ export async function fetchAudienceCount(
   token: string | undefined,
   body: { org_id: number; course_uuid?: string | null; rule: unknown },
 ): Promise<AudienceCount> {
-  if (MKA_AUDIENCE_MOCK) return (await mock()).mockCount(body.rule)
+  if (MOCK()) return (await mock()).mockCount(body.rule)
   const payload: Record<string, unknown> = { org_id: body.org_id, rule: body.rule }
   if (body.course_uuid) payload.course_uuid = body.course_uuid
   return request<AudienceCount>('POST', 'audience/count', payload, token)
 }
 
 export async function fetchCounterparts(token: string | undefined): Promise<Counterparts> {
-  if (MKA_AUDIENCE_MOCK) return (await mock()).mockCounterparts()
+  if (MOCK()) return (await mock()).mockCounterparts()
   return request<Counterparts>('GET', 'me/counterparts', null, token)
 }
 
@@ -104,7 +102,7 @@ export async function searchPreviewPeople(
   orgId: number,
   q: string,
 ): Promise<{ people: PreviewPerson[] }> {
-  if (MKA_AUDIENCE_MOCK) return (await mock()).mockPeople(q)
+  if (MOCK()) return (await mock()).mockPeople(q)
   return request('GET', `preview-people?org_id=${orgId}&q=${encodeURIComponent(q)}`, null, token)
 }
 
@@ -114,7 +112,7 @@ export async function fetchPreviewPerson(
   orgId: number,
   userId: number,
 ): Promise<{ attributes: MkaViewerAttributes }> {
-  if (MKA_AUDIENCE_MOCK) return (await mock()).mockPerson(userId)
+  if (MOCK()) return (await mock()).mockPerson(userId)
   return request('POST', `preview-people/${userId}?org_id=${orgId}`, null, token)
 }
 

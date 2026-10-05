@@ -31,6 +31,12 @@ type Args = {
   component: any
 }
 
+const registry = new WeakMap<HTMLElement, AudienceNodeView>()
+
+/** Node view instance behind a section's DOM element (used by tests to drive modes without React). */
+export const audienceNodeViewFor = (dom: Element | null): AudienceNodeView | undefined =>
+  dom ? registry.get(dom as HTMLElement) : undefined
+
 /** Modes that put the section's content on the page. */
 const SHOWS_CONTENT: ReadonlySet<SectionMode> = new Set(['content', 'chrome'])
 
@@ -55,6 +61,7 @@ export class AudienceNodeView implements NodeView, AudienceNodeViewApi {
     this.contentDOM = document.createElement('div')
     this.contentDOM.setAttribute('data-mka-content', '')
     this.dom.append(this.chromeHost, this.slot)
+    registry.set(this.dom, this)
 
     // Authoring editors start with the content visible so a failure to mount React can never hide an
     // author's own work; every other editor starts hidden until the controller has evaluated the rule.
@@ -84,7 +91,7 @@ export class AudienceNodeView implements NodeView, AudienceNodeViewApi {
     const invisible = mode === 'hidden' || mode === 'loading'
     this.dom.style.display = invisible ? 'none' : ''
     this.dom.setAttribute('data-mode', mode)
-    this.slot.className = mode === 'chrome' ? 'border-l-4 border-slate-300 pl-3 dark:border-slate-600' : ''
+    this.slot.className = mode === 'chrome' ? 'border-s-4 border-slate-300 ps-3 dark:border-slate-600' : ''
     if (mode === 'chrome' || mode === 'placeholder') {
       this.dom.setAttribute('role', 'region')
       if (extra?.label) this.dom.setAttribute('aria-label', `Section visible to ${extra.label}`)
