@@ -1,0 +1,26 @@
+{
+  "body": {
+    "candidates": 4,
+    "cooldown_days": 3,
+    "disabled": 0,
+    "dry_run": false,
+    "enabled": true,
+    "failed": 0,
+    "newly_quarantined": 0,
+    "preview_digest": null,
+    "quarantined": 0,
+    "remaining": 0,
+    "sent": 4,
+    "skipped_attested": 1,
+    "skipped_cooldown": 0,
+    "skipped_excluded": 0,
+    "skipped_recent": 0,
+    "stopped": null,
+    "suppressed": 0,
+    "test_mode": true,
+    "time_budget_hit": false,
+    "would_send": 0
+  },
+  "path": "courses/course_tabligh/remind?dry_run=false",
+  "status": 200
+}

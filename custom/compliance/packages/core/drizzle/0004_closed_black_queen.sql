@@ -1,0 +1,1 @@
+ALTER TABLE "directory_override" ADD COLUMN "appointed_on" text;

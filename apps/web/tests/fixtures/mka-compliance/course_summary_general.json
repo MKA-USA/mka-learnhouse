@@ -1,0 +1,310 @@
+{
+  "body": {
+    "as_of": "2026-11-16",
+    "attested_pct": 20.0,
+    "by_level": [
+      {
+        "attested": 1,
+        "attested_pct": 16.7,
+        "completed": 1,
+        "completed_pct": 33.3,
+        "contact_mismatches": 0,
+        "expected": 6,
+        "expected_attested_pct": 50.0,
+        "in_progress": 1,
+        "last_activity_at": "2026-11-10",
+        "level": "local",
+        "median_days_to_complete": 4.5,
+        "not_signed_in": 2,
+        "not_started": 1,
+        "overdue": 0,
+        "rag": "red",
+        "reasons": [
+          "2 of 6 never signed in",
+          "1 of 6 haven't started",
+          "attested 17% vs 50% expected"
+        ],
+        "score": 26.7,
+        "started_pct": 50.0,
+        "summary": "2 of 6 never signed in; 1 of 6 haven't started; attested 17% vs 50% expected"
+      },
+      {
+        "attested": 1,
+        "attested_pct": 50.0,
+        "completed": 0,
+        "completed_pct": 50.0,
+        "contact_mismatches": 0,
+        "expected": 2,
+        "expected_attested_pct": 50.0,
+        "in_progress": 0,
+        "last_activity_at": "2026-11-12",
+        "level": "national",
+        "median_days_to_complete": 3,
+        "not_signed_in": 1,
+        "not_started": 0,
+        "overdue": 0,
+        "rag": "amber",
+        "reasons": [
+          "1 of 2 never signed in"
+        ],
+        "score": 10.0,
+        "started_pct": 50.0,
+        "summary": "1 of 2 never signed in"
+      },
+      {
+        "attested": 0,
+        "attested_pct": 0.0,
+        "completed": 0,
+        "completed_pct": 0.0,
+        "contact_mismatches": 0,
+        "expected": 2,
+        "expected_attested_pct": 50.0,
+        "in_progress": 0,
+        "last_activity_at": null,
+        "level": "regional",
+        "median_days_to_complete": null,
+        "not_signed_in": 2,
+        "not_started": 0,
+        "overdue": 0,
+        "rag": "red",
+        "reasons": [
+          "2 of 2 never signed in",
+          "attested 0% vs 50% expected"
+        ],
+        "score": 50.0,
+        "started_pct": 0.0,
+        "summary": "2 of 2 never signed in; attested 0% vs 50% expected"
+      }
+    ],
+    "by_majlis": [
+      {
+        "attested": 1,
+        "attested_pct": 25.0,
+        "completed": 0,
+        "completed_pct": 25.0,
+        "contact_mismatches": 0,
+        "expected": 4,
+        "expected_attested_pct": 50.0,
+        "in_progress": 0,
+        "last_activity_at": "2026-11-12",
+        "majlis": null,
+        "median_days_to_complete": 3,
+        "not_signed_in": 3,
+        "not_started": 0,
+        "overdue": 0,
+        "rag": "red",
+        "reasons": [
+          "3 of 4 never signed in",
+          "attested 25% vs 50% expected"
+        ],
+        "score": 30.0,
+        "started_pct": 25.0,
+        "summary": "3 of 4 never signed in; attested 25% vs 50% expected"
+      },
+      {
+        "attested": 1,
+        "attested_pct": 33.3,
+        "completed": 0,
+        "completed_pct": 33.3,
+        "contact_mismatches": 0,
+        "expected": 3,
+        "expected_attested_pct": 50.0,
+        "in_progress": 1,
+        "last_activity_at": "2026-11-10",
+        "majlis": "Albany",
+        "median_days_to_complete": 2,
+        "not_signed_in": 1,
+        "not_started": 0,
+        "overdue": 0,
+        "rag": "amber",
+        "reasons": [
+          "1 of 3 never signed in",
+          "attested 33% vs 50% expected"
+        ],
+        "score": 16.7,
+        "started_pct": 66.7,
+        "summary": "1 of 3 never signed in; attested 33% vs 50% expected"
+      },
+      {
+        "attested": 0,
+        "attested_pct": 0.0,
+        "completed": 1,
+        "completed_pct": 100.0,
+        "contact_mismatches": 0,
+        "expected": 1,
+        "expected_attested_pct": 50.0,
+        "in_progress": 0,
+        "last_activity_at": "2026-11-08",
+        "majlis": "Boston",
+        "median_days_to_complete": 7,
+        "not_signed_in": 0,
+        "not_started": 0,
+        "overdue": 0,
+        "rag": "red",
+        "reasons": [
+          "attested 0% vs 50% expected"
+        ],
+        "score": 30.0,
+        "started_pct": 100.0,
+        "summary": "attested 0% vs 50% expected"
+      },
+      {
+        "attested": 0,
+        "attested_pct": 0.0,
+        "completed": 0,
+        "completed_pct": 0.0,
+        "contact_mismatches": 0,
+        "expected": 1,
+        "expected_attested_pct": 50.0,
+        "in_progress": 0,
+        "last_activity_at": null,
+        "majlis": "Dallas",
+        "median_days_to_complete": null,
+        "not_signed_in": 1,
+        "not_started": 0,
+        "overdue": 0,
+        "rag": "red",
+        "reasons": [
+          "1 of 1 never signed in",
+          "attested 0% vs 50% expected"
+        ],
+        "score": 50.0,
+        "started_pct": 0.0,
+        "summary": "1 of 1 never signed in; attested 0% vs 50% expected"
+      },
+      {
+        "attested": 0,
+        "attested_pct": 0.0,
+        "completed": 0,
+        "completed_pct": 0.0,
+        "contact_mismatches": 0,
+        "expected": 1,
+        "expected_attested_pct": 50.0,
+        "in_progress": 0,
+        "last_activity_at": null,
+        "majlis": "Syracuse",
+        "median_days_to_complete": null,
+        "not_signed_in": 0,
+        "not_started": 1,
+        "overdue": 0,
+        "rag": "red",
+        "reasons": [
+          "1 of 1 haven't started",
+          "attested 0% vs 50% expected"
+        ],
+        "score": 30.0,
+        "started_pct": 0.0,
+        "summary": "1 of 1 haven't started; attested 0% vs 50% expected"
+      }
+    ],
+    "by_region": [
+      {
+        "attested": 1,
+        "attested_pct": 50.0,
+        "completed": 0,
+        "completed_pct": 50.0,
+        "contact_mismatches": 0,
+        "expected": 2,
+        "expected_attested_pct": 50.0,
+        "in_progress": 0,
+        "last_activity_at": "2026-11-12",
+        "median_days_to_complete": 3,
+        "not_signed_in": 1,
+        "not_started": 0,
+        "overdue": 0,
+        "rag": "amber",
+        "reasons": [
+          "1 of 2 never signed in"
+        ],
+        "region": null,
+        "score": 10.0,
+        "started_pct": 50.0,
+        "summary": "1 of 2 never signed in"
+      },
+      {
+        "attested": 1,
+        "attested_pct": 16.7,
+        "completed": 1,
+        "completed_pct": 33.3,
+        "contact_mismatches": 0,
+        "expected": 6,
+        "expected_attested_pct": 50.0,
+        "in_progress": 1,
+        "last_activity_at": "2026-11-10",
+        "median_days_to_complete": 4.5,
+        "not_signed_in": 2,
+        "not_started": 1,
+        "overdue": 0,
+        "rag": "red",
+        "reasons": [
+          "2 of 6 never signed in",
+          "1 of 6 haven't started",
+          "attested 17% vs 50% expected"
+        ],
+        "region": "Northeast",
+        "score": 26.7,
+        "started_pct": 50.0,
+        "summary": "2 of 6 never signed in; 1 of 6 haven't started; attested 17% vs 50% expected"
+      },
+      {
+        "attested": 0,
+        "attested_pct": 0.0,
+        "completed": 0,
+        "completed_pct": 0.0,
+        "contact_mismatches": 0,
+        "expected": 2,
+        "expected_attested_pct": 50.0,
+        "in_progress": 0,
+        "last_activity_at": null,
+        "median_days_to_complete": null,
+        "not_signed_in": 2,
+        "not_started": 0,
+        "overdue": 0,
+        "rag": "red",
+        "reasons": [
+          "2 of 2 never signed in",
+          "attested 0% vs 50% expected"
+        ],
+        "region": "Southwest",
+        "score": 50.0,
+        "started_pct": 0.0,
+        "summary": "2 of 2 never signed in; attested 0% vs 50% expected"
+      }
+    ],
+    "completed_pct": 30.0,
+    "course": {
+      "course_uuid": "course_general",
+      "department": null,
+      "department_name": null,
+      "kind": "general",
+      "name": "General 2026-27"
+    },
+    "cycle": {
+      "deadline_on": "2026-12-01",
+      "id": 1,
+      "label": "2026-27",
+      "starts_on": "2026-11-01"
+    },
+    "expected_attested_pct": 50.0,
+    "lessons_total": 3,
+    "rag": "red",
+    "reasons": [
+      "5 of 10 never signed in",
+      "1 of 10 haven't started",
+      "attested 20% vs 50% expected"
+    ],
+    "score": 28.0,
+    "summary": "5 of 10 never signed in; 1 of 10 haven't started; attested 20% vs 50% expected",
+    "totals": {
+      "attested": 2,
+      "completed": 1,
+      "expected": 10,
+      "in_progress": 1,
+      "not_signed_in": 5,
+      "not_started": 1,
+      "overdue": 0
+    }
+  },
+  "path": "courses/course_general/summary",
+  "status": 200
+}

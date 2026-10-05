@@ -1,0 +1,7 @@
+{
+  "body": {
+    "detail": "Organization-wide compliance access required"
+  },
+  "path": "overview",
+  "status": 403
+}

@@ -1,0 +1,26 @@
+{
+  "body": {
+    "candidates": 4,
+    "cooldown_days": 3,
+    "disabled": 0,
+    "dry_run": true,
+    "enabled": true,
+    "failed": 0,
+    "newly_quarantined": 0,
+    "preview_digest": "73c0b58cb71b7d7cf68a2df28f0e3821ed1d02f6",
+    "quarantined": 0,
+    "remaining": 0,
+    "sent": 0,
+    "skipped_attested": 1,
+    "skipped_cooldown": 0,
+    "skipped_excluded": 0,
+    "skipped_recent": 0,
+    "stopped": null,
+    "suppressed": 0,
+    "test_mode": true,
+    "time_budget_hit": false,
+    "would_send": 4
+  },
+  "path": "courses/course_tabligh/remind?dry_run=true",
+  "status": 200
+}

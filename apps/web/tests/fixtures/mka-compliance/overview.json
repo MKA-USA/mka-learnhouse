@@ -1,0 +1,464 @@
+{
+  "body": {
+    "as_of": "2026-11-16",
+    "attention": [
+      {
+        "attested": 0,
+        "attested_pct": 0.0,
+        "department": "executive",
+        "department_name": "National leadership",
+        "expected": 1,
+        "not_signed_in": 1,
+        "not_started": 0,
+        "overdue": 0,
+        "rag": "red",
+        "reasons": [
+          "1 of 1 never signed in",
+          "attested 0% vs 50% expected"
+        ],
+        "region": "Northeast",
+        "score": 50.0
+      },
+      {
+        "attested": 0,
+        "attested_pct": 0.0,
+        "department": "maal",
+        "department_name": "Maal",
+        "expected": 1,
+        "not_signed_in": 1,
+        "not_started": 0,
+        "overdue": 0,
+        "rag": "red",
+        "reasons": [
+          "1 of 1 never signed in",
+          "attested 0% vs 50% expected"
+        ],
+        "region": "Southwest",
+        "score": 50.0
+      },
+      {
+        "attested": 0,
+        "attested_pct": 0.0,
+        "department": "tabligh",
+        "department_name": "Tabligh",
+        "expected": 1,
+        "not_signed_in": 1,
+        "not_started": 0,
+        "overdue": 0,
+        "rag": "red",
+        "reasons": [
+          "1 of 1 never signed in",
+          "attested 0% vs 50% expected"
+        ],
+        "region": null,
+        "score": 50.0
+      },
+      {
+        "attested": 0,
+        "attested_pct": 0.0,
+        "department": "tabligh",
+        "department_name": "Tabligh",
+        "expected": 1,
+        "not_signed_in": 1,
+        "not_started": 0,
+        "overdue": 0,
+        "rag": "red",
+        "reasons": [
+          "1 of 1 never signed in",
+          "attested 0% vs 50% expected"
+        ],
+        "region": "Southwest",
+        "score": 50.0
+      },
+      {
+        "attested": 1,
+        "attested_pct": 20.0,
+        "department": "tabligh",
+        "department_name": "Tabligh",
+        "expected": 5,
+        "not_signed_in": 3,
+        "not_started": 0,
+        "overdue": 0,
+        "rag": "red",
+        "reasons": [
+          "3 of 5 never signed in",
+          "attested 20% vs 50% expected",
+          "2 contact self-check mismatches"
+        ],
+        "region": null,
+        "score": 45.0
+      },
+      {
+        "attested": 0,
+        "attested_pct": 0.0,
+        "department": "maal",
+        "department_name": "Maal",
+        "expected": 3,
+        "not_signed_in": 1,
+        "not_started": 1,
+        "overdue": 0,
+        "rag": "red",
+        "reasons": [
+          "1 of 3 never signed in",
+          "1 of 3 haven't started",
+          "attested 0% vs 50% expected"
+        ],
+        "region": null,
+        "score": 36.7
+      },
+      {
+        "attested": 1,
+        "attested_pct": 33.3,
+        "department": "tabligh",
+        "department_name": "Tabligh",
+        "expected": 3,
+        "not_signed_in": 1,
+        "not_started": 0,
+        "overdue": 0,
+        "rag": "red",
+        "reasons": [
+          "1 of 3 never signed in",
+          "attested 33% vs 50% expected",
+          "2 contact self-check mismatches"
+        ],
+        "region": "Northeast",
+        "score": 31.7
+      },
+      {
+        "attested": 0,
+        "attested_pct": 0.0,
+        "department": "maal",
+        "department_name": "Maal",
+        "expected": 2,
+        "not_signed_in": 0,
+        "not_started": 1,
+        "overdue": 0,
+        "rag": "red",
+        "reasons": [
+          "1 of 2 haven't started",
+          "attested 0% vs 50% expected"
+        ],
+        "region": "Northeast",
+        "score": 30.0
+      },
+      {
+        "attested": 1,
+        "attested_pct": 50.0,
+        "department": "executive",
+        "department_name": "National leadership",
+        "expected": 2,
+        "not_signed_in": 1,
+        "not_started": 0,
+        "overdue": 0,
+        "rag": "amber",
+        "reasons": [
+          "1 of 2 never signed in"
+        ],
+        "region": null,
+        "score": 10.0
+      }
+    ],
+    "cells": [
+      {
+        "attested": 1,
+        "attested_pct": 100.0,
+        "completed": 0,
+        "completed_pct": 100.0,
+        "contact_mismatches": 0,
+        "department": "executive",
+        "department_name": "National leadership",
+        "expected": 1,
+        "expected_attested_pct": 50.0,
+        "in_progress": 0,
+        "last_activity_at": "2026-11-12",
+        "median_days_to_complete": 3,
+        "not_signed_in": 0,
+        "not_started": 0,
+        "overdue": 0,
+        "rag": "green",
+        "reasons": [],
+        "region": null,
+        "score": 0.0,
+        "started_pct": 100.0,
+        "summary": "On track"
+      },
+      {
+        "attested": 0,
+        "attested_pct": 0.0,
+        "completed": 0,
+        "completed_pct": 0.0,
+        "contact_mismatches": 0,
+        "department": "executive",
+        "department_name": "National leadership",
+        "expected": 1,
+        "expected_attested_pct": 50.0,
+        "in_progress": 0,
+        "last_activity_at": null,
+        "median_days_to_complete": null,
+        "not_signed_in": 1,
+        "not_started": 0,
+        "overdue": 0,
+        "rag": "red",
+        "reasons": [
+          "1 of 1 never signed in",
+          "attested 0% vs 50% expected"
+        ],
+        "region": "Northeast",
+        "score": 50.0,
+        "started_pct": 0.0,
+        "summary": "1 of 1 never signed in; attested 0% vs 50% expected"
+      },
+      {
+        "attested": 0,
+        "attested_pct": 0.0,
+        "completed": 0,
+        "completed_pct": 0.0,
+        "contact_mismatches": 0,
+        "department": "maal",
+        "department_name": "Maal",
+        "expected": 2,
+        "expected_attested_pct": 50.0,
+        "in_progress": 1,
+        "last_activity_at": "2026-11-10",
+        "median_days_to_complete": null,
+        "not_signed_in": 0,
+        "not_started": 1,
+        "overdue": 0,
+        "rag": "red",
+        "reasons": [
+          "1 of 2 haven't started",
+          "attested 0% vs 50% expected"
+        ],
+        "region": "Northeast",
+        "score": 30.0,
+        "started_pct": 50.0,
+        "summary": "1 of 2 haven't started; attested 0% vs 50% expected"
+      },
+      {
+        "attested": 0,
+        "attested_pct": 0.0,
+        "completed": 0,
+        "completed_pct": 0.0,
+        "contact_mismatches": 0,
+        "department": "maal",
+        "department_name": "Maal",
+        "expected": 1,
+        "expected_attested_pct": 50.0,
+        "in_progress": 0,
+        "last_activity_at": null,
+        "median_days_to_complete": null,
+        "not_signed_in": 1,
+        "not_started": 0,
+        "overdue": 0,
+        "rag": "red",
+        "reasons": [
+          "1 of 1 never signed in",
+          "attested 0% vs 50% expected"
+        ],
+        "region": "Southwest",
+        "score": 50.0,
+        "started_pct": 0.0,
+        "summary": "1 of 1 never signed in; attested 0% vs 50% expected"
+      },
+      {
+        "attested": 0,
+        "attested_pct": 0.0,
+        "completed": 0,
+        "completed_pct": 0.0,
+        "contact_mismatches": 0,
+        "department": "tabligh",
+        "department_name": "Tabligh",
+        "expected": 1,
+        "expected_attested_pct": 50.0,
+        "in_progress": 0,
+        "last_activity_at": null,
+        "median_days_to_complete": null,
+        "not_signed_in": 1,
+        "not_started": 0,
+        "overdue": 0,
+        "rag": "red",
+        "reasons": [
+          "1 of 1 never signed in",
+          "attested 0% vs 50% expected"
+        ],
+        "region": null,
+        "score": 50.0,
+        "started_pct": 0.0,
+        "summary": "1 of 1 never signed in; attested 0% vs 50% expected"
+      },
+      {
+        "attested": 1,
+        "attested_pct": 33.3,
+        "completed": 1,
+        "completed_pct": 66.7,
+        "contact_mismatches": 2,
+        "department": "tabligh",
+        "department_name": "Tabligh",
+        "expected": 3,
+        "expected_attested_pct": 50.0,
+        "in_progress": 0,
+        "last_activity_at": "2026-11-09",
+        "median_days_to_complete": 6.0,
+        "not_signed_in": 1,
+        "not_started": 0,
+        "overdue": 0,
+        "rag": "red",
+        "reasons": [
+          "1 of 3 never signed in",
+          "attested 33% vs 50% expected",
+          "2 contact self-check mismatches"
+        ],
+        "region": "Northeast",
+        "score": 31.7,
+        "started_pct": 66.7,
+        "summary": "1 of 3 never signed in; attested 33% vs 50% expected; 2 contact self-check mismatches"
+      },
+      {
+        "attested": 0,
+        "attested_pct": 0.0,
+        "completed": 0,
+        "completed_pct": 0.0,
+        "contact_mismatches": 0,
+        "department": "tabligh",
+        "department_name": "Tabligh",
+        "expected": 1,
+        "expected_attested_pct": 50.0,
+        "in_progress": 0,
+        "last_activity_at": null,
+        "median_days_to_complete": null,
+        "not_signed_in": 1,
+        "not_started": 0,
+        "overdue": 0,
+        "rag": "red",
+        "reasons": [
+          "1 of 1 never signed in",
+          "attested 0% vs 50% expected"
+        ],
+        "region": "Southwest",
+        "score": 50.0,
+        "started_pct": 0.0,
+        "summary": "1 of 1 never signed in; attested 0% vs 50% expected"
+      }
+    ],
+    "cycle": {
+      "deadline_on": "2026-12-01",
+      "id": 1,
+      "label": "2026-27",
+      "starts_on": "2026-11-01"
+    },
+    "departments": [
+      {
+        "attested": 1,
+        "attested_pct": 50.0,
+        "completed": 0,
+        "completed_pct": 50.0,
+        "contact_mismatches": 0,
+        "department": "executive",
+        "department_name": "National leadership",
+        "expected": 2,
+        "expected_attested_pct": 50.0,
+        "in_progress": 0,
+        "last_activity_at": "2026-11-12",
+        "median_days_to_complete": 3,
+        "not_signed_in": 1,
+        "not_started": 0,
+        "overdue": 0,
+        "rag": "amber",
+        "reasons": [
+          "1 of 2 never signed in"
+        ],
+        "score": 10.0,
+        "started_pct": 50.0,
+        "summary": "1 of 2 never signed in"
+      },
+      {
+        "attested": 0,
+        "attested_pct": 0.0,
+        "completed": 0,
+        "completed_pct": 0.0,
+        "contact_mismatches": 0,
+        "department": "maal",
+        "department_name": "Maal",
+        "expected": 3,
+        "expected_attested_pct": 50.0,
+        "in_progress": 1,
+        "last_activity_at": "2026-11-10",
+        "median_days_to_complete": null,
+        "not_signed_in": 1,
+        "not_started": 1,
+        "overdue": 0,
+        "rag": "red",
+        "reasons": [
+          "1 of 3 never signed in",
+          "1 of 3 haven't started",
+          "attested 0% vs 50% expected"
+        ],
+        "score": 36.7,
+        "started_pct": 33.3,
+        "summary": "1 of 3 never signed in; 1 of 3 haven't started; attested 0% vs 50% expected"
+      },
+      {
+        "attested": 1,
+        "attested_pct": 20.0,
+        "completed": 1,
+        "completed_pct": 40.0,
+        "contact_mismatches": 2,
+        "department": "tabligh",
+        "department_name": "Tabligh",
+        "expected": 5,
+        "expected_attested_pct": 50.0,
+        "in_progress": 0,
+        "last_activity_at": "2026-11-09",
+        "median_days_to_complete": 6.0,
+        "not_signed_in": 3,
+        "not_started": 0,
+        "overdue": 0,
+        "rag": "red",
+        "reasons": [
+          "3 of 5 never signed in",
+          "attested 20% vs 50% expected",
+          "2 contact self-check mismatches"
+        ],
+        "score": 45.0,
+        "started_pct": 40.0,
+        "summary": "3 of 5 never signed in; attested 20% vs 50% expected; 2 contact self-check mismatches"
+      }
+    ],
+    "totals": {
+      "attested": 2,
+      "completed": 1,
+      "expected": 10,
+      "in_progress": 1,
+      "not_signed_in": 5,
+      "not_started": 1,
+      "overdue": 0
+    },
+    "totals_detail": {
+      "attested": 2,
+      "attested_pct": 20.0,
+      "completed": 1,
+      "completed_pct": 30.0,
+      "contact_mismatches": 2,
+      "expected": 10,
+      "expected_attested_pct": 50.0,
+      "in_progress": 1,
+      "last_activity_at": "2026-11-12",
+      "median_days_to_complete": 4,
+      "not_signed_in": 5,
+      "not_started": 1,
+      "overdue": 0,
+      "rag": "red",
+      "reasons": [
+        "5 of 10 never signed in",
+        "1 of 10 haven't started",
+        "attested 20% vs 50% expected",
+        "2 contact self-check mismatches"
+      ],
+      "score": 37.0,
+      "started_pct": 40.0,
+      "summary": "5 of 10 never signed in; 1 of 10 haven't started; attested 20% vs 50% expected; 2 contact self-check mismatches"
+    }
+  },
+  "path": "overview",
+  "status": 200
+}

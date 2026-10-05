@@ -1,0 +1,7 @@
+{
+  "body": {
+    "detail": "org_id (or org_slug) is required"
+  },
+  "path": "scope",
+  "status": 422
+}

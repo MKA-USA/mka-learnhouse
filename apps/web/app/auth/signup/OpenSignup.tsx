@@ -18,6 +18,8 @@ import { PasswordStrengthIndicator, validatePasswordStrength } from '@components
 import TurnstileWidget, { useTurnstileRequired, type TurnstileWidgetHandle } from '@components/Auth/TurnstileWidget'
 import { useLHAnalytics, AnalyticsEvent } from '@services/analytics'
 import { getAllowedAuthMethods } from '@services/auth/authMethods'
+import MkaProfileFields from '@components/mka/MkaProfileFields' // MKA fork
+import { emptyMkaProfile, validateMkaProfile, mkaValuesToBody, applyMkaServerErrors } from '@services/mka/profile' // MKA fork
 import CustomSignupFields, {
   initialCustomFieldValues,
   validateCustomFields,
@@ -55,6 +57,10 @@ const validate = (values: any, t: any, customFields: SignupFieldItem[]) => {
   if (Object.keys(customFieldErrors).length > 0) {
     errors.custom_fields = customFieldErrors
   }
+
+  // MKA fork
+  const mkaErrors = validateMkaProfile(values.mka_profile)
+  if (Object.keys(mkaErrors).length > 0) errors.mka_profile = mkaErrors
 
   return errors
 }
@@ -105,6 +111,7 @@ function OpenSignUpComponent({ org: propOrg }: OpenSignUpComponentProps = {}) {
       first_name: '',
       last_name: '',
       custom_fields: initialCustomFieldValues(customFields),
+      mka_profile: { ...emptyMkaProfile }, // MKA fork
       turnstileToken: null as string | null,
     },
     validate: (values) => validate(values, t, customFields),
@@ -115,7 +122,9 @@ function OpenSignUpComponent({ org: propOrg }: OpenSignUpComponentProps = {}) {
       setIsSubmitting(true)
       track(AnalyticsEvent.SignupSubmitted, { invite_code_present: false, has_bio: !!values.bio })
       try {
-        let res = await signup(values)
+        // MKA fork: send the API-shaped profile (empty optionals -> null)
+        const body = { ...values, mka_profile: mkaValuesToBody(values.mka_profile) }
+        let res = await signup(body)
         let message = await res.json().catch(() => ({}))
         if (res.status == 200) {
           track(AnalyticsEvent.SignupSucceeded, { email_verified: message.email_verified })
@@ -128,6 +137,7 @@ function OpenSignUpComponent({ org: propOrg }: OpenSignUpComponentProps = {}) {
           // gave us nothing readable.
           track(AnalyticsEvent.SignupFailed, { status_code: res.status })
           setError(getErrorMessage(message?.detail, t('common.something_went_wrong')))
+          applyMkaServerErrors(res.status, message?.detail, formik.setFieldError) // MKA fork
           // Turnstile tokens are single-use — fetch a fresh one for the retry.
           turnstileRef.current?.reset()
         }
@@ -371,6 +381,16 @@ function OpenSignUpComponent({ org: propOrg }: OpenSignUpComponentProps = {}) {
           </FormField>
 
           <CustomSignupFields fields={customFields} formik={formik} />
+          {/* MKA fork */}
+          <MkaProfileFields
+            idPrefix="signup"
+            values={formik.values.mka_profile}
+            errors={formik.touched.mka_profile || formik.submitCount > 0 ? formik.errors.mka_profile : undefined}
+            onChange={(field, value) => {
+              formik.setFieldValue(`mka_profile.${field}`, value)
+              formik.setFieldTouched('mka_profile', true, false)
+            }}
+          />
 
           <TurnstileWidget
             ref={turnstileRef}

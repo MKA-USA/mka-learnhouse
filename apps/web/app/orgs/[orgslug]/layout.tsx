@@ -7,6 +7,7 @@ import Toast from '@components/Objects/StyledElements/Toast/Toast'
 import '@styles/globals.css'
 import Footer from '@components/Footer/Footer'
 import CompleteSignupFields from '@components/Auth/CompleteSignupFields'
+import MkaProfileGate from '@components/mka/MkaProfileGate' // MKA fork
 import { getOrganizationContextInfo } from '@services/organizations/orgs'
 import { getOrgFaviconMediaDirectory } from '@services/media/media'
 
@@ -45,6 +46,7 @@ export default async function RootLayout(props: {
         <OrgLanguageSync />
         <NextTopLoader color="#2e2e2e" initialPosition={0.3} height={4} easing={'ease'} speed={500} showSpinner={false} />
         <Toast />
+        <MkaProfileGate /> {/* MKA fork */}
         <CompleteSignupFields />
         {props.children}
         <Footer />
