@@ -308,12 +308,16 @@ async def test_recompute_google_only_and_counts(db, org):
 
 
 @pytest.mark.asyncio
-async def test_recompute_include_non_google_and_dry_run(db):
-    await _user(db, 33, "tabligh.albany@mkausa.org", "password")
-    dry = await svc.recompute_users(db, google_only=False, dry_run=True)
+async def test_recompute_dry_run_and_no_unverified_switch(db):
+    await _user(db, 33, "tabligh.albany@mkausa.org", "google")
+    await _user(db, 36, "tabligh.boston@mkausa.org", "password")        # never gets a row
+    dry = await svc.recompute_users(db, dry_run=True)
     assert dry["created"] == 1 and await svc.get_row(db, 33) is None
-    real = await svc.recompute_users(db, google_only=False)
+    real = await svc.recompute_users(db)
     assert real["created"] == 1 and await svc.get_row(db, 33) is not None
+    assert await svc.get_row(db, 36) is None
+    import inspect
+    assert "google_only" not in inspect.signature(svc.recompute_users).parameters
 
 
 @pytest.mark.asyncio

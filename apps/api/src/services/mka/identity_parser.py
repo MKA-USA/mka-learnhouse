@@ -181,6 +181,8 @@ def _make(
 def _parse(email: Any, rules: IdentityRules) -> MkaAttributes:
     if not isinstance(email, str):
         return _unrecognized()
+    if not email.strip().isascii():  # before lower(): KELVIN SIGN etc. lowercase INTO ascii
+        return _unrecognized()
     e = email.strip().lower()
     if not e or any(ch.isspace() for ch in e) or e.count("@") != 1:
         return _unrecognized()

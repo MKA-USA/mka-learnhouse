@@ -132,7 +132,7 @@ async def test_token_without_org_slug_is_422(token_client):
 async def test_token_never_sees_other_orgs_users(token_client, org):
     r = await token_client.get(f"{BASE}/users", params={"org_slug": org.slug, "page_size": 200})
     assert 99 not in {i["user_id"] for i in r.json()["items"]}
-    assert (await token_client.get(f"{BASE}/users/99", params={"org_slug": org.slug})).status_code == 404
+    assert (await token_client.get(f"{BASE}/users/99", params={"org_slug": org.slug})).status_code == 403
 
 
 @pytest.mark.asyncio
@@ -150,10 +150,14 @@ async def test_token_roster_upsert_import_delete_then_list(token_client, org, db
     r = await token_client.put(f"{BASE}/roster/John.Smith@mkausa.org", params=p,
                                json={"attributes": {"level": "national", "role": "naib_sadr"}, "note": "from roster"})
     assert r.status_code == 200 and r.json()["source"] == "companion" and r.json()["updated_by"] is None
-    got = (await token_client.get(f"{BASE}/users/14", params=p)).json()
+    async def one():
+        return (await token_client.get(f"{BASE}/users", params={**p, "q": "john.smith"})).json()["items"][0]
+
+    got = await one()
     assert got["effective"]["role"] == "naib_sadr" and got["derived"]["status"] == "unrecognized"
     assert got["stored_effective"]["source"] == "roster"
-    audit = (await token_client.get(f"{BASE}/users/14/audit", params=p)).json()["items"]
+    assert got["redacted"] is True and got["override_reason"] is None     # tokens never see admin notes
+    audit = await svc.list_audit(db, 14)
     assert audit[0]["action"] == "roster_apply" and audit[0]["actor_user_id"] is None
 
     imp = await token_client.post(f"{BASE}/roster/import", params=p, json={"rows": [
@@ -166,7 +170,7 @@ async def test_token_roster_upsert_import_delete_then_list(token_client, org, db
 
     assert (await token_client.delete(f"{BASE}/roster/john.smith@mkausa.org", params=p)).status_code == 200
     assert (await token_client.delete(f"{BASE}/roster/john.smith@mkausa.org", params=p)).status_code == 404
-    got = (await token_client.get(f"{BASE}/users/14", params=p)).json()
+    got = await one()
     assert got["effective"]["status"] == "unrecognized"
 
 
@@ -182,11 +186,24 @@ async def test_token_roster_validation_422(token_client, org):
 
 
 @pytest.mark.asyncio
-async def test_token_recompute_and_review_queue(token_client, org):
+async def test_token_limited_to_list_and_roster_routes(token_client, org):
     p = {"org_slug": org.slug}
-    r = await token_client.post(f"{BASE}/recompute", params=p, json={})
-    assert r.status_code == 200 and r.json()["unchanged"] == 8 and r.json()["changed"] == 0
-    q = (await token_client.get(f"{BASE}/review-queue", params=p)).json()
+    assert (await token_client.post(f"{BASE}/recompute", params=p, json={})).status_code == 403
+    assert (await token_client.get(f"{BASE}/review-queue", params=p)).status_code == 403
+    assert (await token_client.get(f"{BASE}/users/14", params=p)).status_code == 403
+    assert (await token_client.get(f"{BASE}/users/14/audit", params=p)).status_code == 403
+    assert (await token_client.get(f"{BASE}/users", params=p)).status_code == 200
+    assert (await token_client.get(f"{BASE}/roster", params=p)).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_session_admin_recompute_and_review_queue(db, org, seeded, admin_user):
+    p = {"org_id": org.id}
+    async with _session_client(db, admin_user) as c:
+        r = await c.post(f"{BASE}/recompute", params=p, json={})
+        assert r.status_code == 200 and r.json()["unchanged"] == 8 and r.json()["changed"] == 0
+        assert (await c.post(f"{BASE}/recompute", params=p, json={"include_non_google": True})).status_code == 422
+        q = (await c.get(f"{BASE}/review-queue", params=p)).json()
     assert {i["user_id"] for i in q["unclassified"]["items"]} == {14}
     assert q["mismatch"]["total"] == 0
 
@@ -372,3 +389,8 @@ async def test_user_profile_endpoints_unchanged_when_no_attributes(db, org, admi
     async with _session_client(db, regular_user) as c:
         r = await c.get("/api/v1/mka/profile/me")
     assert r.json() == {"complete": False}
+
+
+@pytest.fixture(autouse=True)
+def _google_only_domains(monkeypatch):
+    monkeypatch.setenv("MKA_GOOGLE_ONLY_DOMAINS", "mkausa.org,atfalusa.org")

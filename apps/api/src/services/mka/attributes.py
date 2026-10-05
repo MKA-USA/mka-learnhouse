@@ -15,7 +15,8 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Iterable, Optional
 
-from sqlalchemy import delete, func, update
+from sqlalchemy import and_, delete, func, or_, update
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -34,6 +35,7 @@ from src.services.mka.identity_parser import (
     load_rules,
     parse_identity,
 )
+from src.services.auth.mka_google_only import is_google_only_email, take_verified_hd
 from src.services.users.mka_profile import MAJLIS_TO_REGION
 
 logger = logging.getLogger(__name__)
@@ -73,6 +75,18 @@ def validate_layer(layer: Any, rules: IdentityRules) -> dict:
         raise ValueError(f"Unknown attribute(s): {', '.join(sorted(map(str, unknown)))}")
     out: dict[str, Any] = dict(layer)
 
+    # Type-check BEFORE any membership test: unhashable values ({"majlis": []}) must be a
+    # clean validation error, never a TypeError/500 (and never abort a roster import).
+    for key in ("status", "level", "department", "role", "majlis", "region", "role_title"):
+        if key in out and out[key] is not None and not isinstance(out[key], str):
+            raise ValueError(f"{key} must be a string or null")
+    if "is_officeholder" in out and out["is_officeholder"] is not None and not isinstance(out["is_officeholder"], bool):
+        raise ValueError("is_officeholder must be true, false or null")
+    if out.get("status") == "not_applicable" and (
+        out.get("is_officeholder") is True or out.get("level") or out.get("role") or out.get("department")
+    ):
+        raise ValueError("A not_applicable status cannot carry an officeholder role")
+
     if "status" in out and out["status"] not in STATUSES:
         raise ValueError("Invalid status")
     if "level" in out and out["level"] is not None and out["level"] not in LEVELS:
@@ -111,6 +125,7 @@ def compute_effective(
     explicit_status = False
     explicit_holder = False
     explicit_title = False
+    sets_role_or_level = False
     for layer, name in ((roster, "roster"), (override, "admin")):
         if not layer:
             continue
@@ -122,6 +137,7 @@ def compute_effective(
             explicit_status |= k == "status"
             explicit_holder |= k == "is_officeholder"
             explicit_title |= k == "role_title"
+            sets_role_or_level |= k in ("role", "level") and v is not None
         # Setting a Majlis without a region derives the region from the canonical map.
         if layer.get("majlis") and "region" not in layer:
             eff["region"] = MAJLIS_TO_REGION.get(layer["majlis"])
@@ -130,10 +146,13 @@ def compute_effective(
 
     if applied_source:
         eff["source"] = applied_source
-        if not explicit_status:
+        # SAFEST RULE: a layer promotes an account to a matched officeholder ONLY when it
+        # sets a role or a level (i.e. says what the person holds). A partial layer such as
+        # {"majlis": "Albany"} never changes status / is_officeholder implicitly.
+        if not explicit_status and sets_role_or_level:
             eff["status"] = "matched"
-        if not explicit_holder:
-            eff["is_officeholder"] = True if eff["status"] in ("matched", "partial") else eff["is_officeholder"]
+        if not explicit_holder and sets_role_or_level:
+            eff["is_officeholder"] = True
         eff["flags"] = [f for f in eff["flags"] if f not in _PRESERVE_FLAGS_DROP]
         eff["flags"].append(f"{applied_source}_override")
     return eff
@@ -199,14 +218,27 @@ STALE_PUBLIC: dict = {
 }
 
 
+def _domain(email: Optional[str]) -> str:
+    e = normalize_email(email)
+    return e.rsplit("@", 1)[1] if "@" in e else ""
+
+
 def is_stale(row: MkaUserAttributes, user: User, rules: Optional[IdentityRules] = None) -> bool:
-    """Fail-closed freshness check for a stored row (see ``read_effective``)."""
+    """Fail-closed freshness check for a stored row (see ``read_effective``).
+
+    An officeholder-capable row (derived status other than not_applicable) is only
+    trusted when Workspace ownership of its email domain was PROVEN (``verified_hd``
+    equals the domain of ``email_seen``) or an admin override exists."""
     rules = rules or get_rules()
     if row.stale:
         return True
     if row.email_seen != normalize_email(user.email):
         return True
-    if user.signup_method != "google" and row.override is None:
+    if (
+        row.override is None
+        and (row.derived or {}).get("status") != "not_applicable"
+        and (row.verified_hd or "") != _domain(row.email_seen)
+    ):
         return True
     if _version_tuple(row.rules_version) < _version_tuple(rules.version):
         return True
@@ -255,19 +287,17 @@ async def get_roster_row(db: AsyncSession, org_id: int, email: str) -> Optional[
 
 
 async def roster_for_user(db: AsyncSession, user_id: int, email: str) -> Optional[MkaRosterOverride]:
-    """Roster row that applies to a user: only rows of orgs the USER belongs to count.
-    If several of the user's orgs have a row for the email, the lowest org_id wins
-    (deterministic; the winning org is recorded as ``roster_org_id`` in the effective
-    value and therefore in the audit snapshot)."""
-    return (
-        await db.execute(
-            select(MkaRosterOverride)
-            .join(UserOrganization, UserOrganization.org_id == MkaRosterOverride.org_id)
-            .where(UserOrganization.user_id == user_id, MkaRosterOverride.email == normalize_email(email))
-            .order_by(MkaRosterOverride.org_id)  # type: ignore[arg-type]
-            .limit(1)
-        )
-    ).scalars().first()
+    """Roster row that applies to a user: only the row of the ONE org the user belongs to.
+
+    A user in several orgs gets NO roster layer (None): a roster row written by one org
+    must never decide what a shared account appears as (cross-tenant injection via a
+    pre-seeded roster + later membership). Admin overrides (guarded by 409) remain."""
+    orgs = (
+        await db.execute(select(UserOrganization.org_id).where(UserOrganization.user_id == user_id))
+    ).scalars().all()
+    if len(set(orgs)) != 1:
+        return None
+    return await get_roster_row(db, orgs[0], email)
 
 
 def _effective(derived: dict, roster_row: Optional[MkaRosterOverride], override: Optional[dict], rules: IdentityRules) -> dict:
@@ -311,6 +341,13 @@ def _apply_effective_columns(row: MkaUserAttributes, eff: dict) -> None:
     row.eff_region = eff.get("region")
 
 
+BLANK_DERIVED = {
+    "status": "unrecognized", "is_officeholder": None, "level": None, "department": None,
+    "role": None, "role_title": None, "majlis": None, "region": None, "source": "parser",
+    "flags": ["unverified_domain"],
+}
+
+
 async def refresh_attributes(
     db: AsyncSession,
     user: User,
@@ -318,31 +355,44 @@ async def refresh_attributes(
     action: str = "derive",
     actor_user_id: Optional[int] = None,
     rules: Optional[IdentityRules] = None,
-    allow_unverified: bool = False,
+    proof_hd: Optional[str] = None,
 ) -> tuple[Optional[MkaUserAttributes], bool]:
     """Derive + store attributes for ``user``. Idempotent. Does NOT commit.
 
-    Returns ``(row, changed)`` (``row`` may be None when skipped for an unverified
-    account). An audit row is written only when the derived
-    value changed (or the row is new, or the roster layer changed the effective
-    result); an unchanged recompute writes nothing.
+    TRUST BOUNDARY. Officeholder attributes are derived from an email only when
+    Workspace ownership of its domain is proven, by ANY of:
+      * ``proof_hd`` == the email domain (the verified ``hd`` claim of THIS Google login),
+      * the row already records that proof (``verified_hd`` from an earlier login),
+      * the account signed up with Google AND its domain is in MKA_GOOGLE_ONLY_DOMAINS
+        (upstream then enforced ``hd`` at every Google login).
+    Without proof the derived value is BLANK (unrecognized), never a parse of the address.
+    An account that is not a Google signup and has no proof gets no row at all.
+
+    Returns ``(row, changed)``; ``row`` may be None when skipped. An audit row is written
+    only when the derived value changed (or the row is new, or the roster layer changed
+    the effective result); an unchanged recompute writes nothing.
     """
-    # Trust boundary: derive only for accounts whose email Google verified
-    # (signup_method == 'google'). Anything else keeps whatever it has (usually
-    # nothing) unless an operator explicitly opts in (backfill --include-non-google).
-    if not allow_unverified and user.signup_method != "google":
-        return await get_row(db, user.id), False
     rules = rules or get_rules()
     email = normalize_email(user.email)
-    derived = parse_identity(email, rules).to_dict()
+    domain = _domain(email)
+    row = await get_row(db, user.id)
+    proven = bool(domain) and (
+        (proof_hd or "").strip().lower() == domain
+        or (row is not None and (row.verified_hd or "") == domain)
+        or (user.signup_method == "google" and is_google_only_email(email))
+    )
+    if not proven and user.signup_method != "google" and (proof_hd is None):
+        return row, False
+    parsed = parse_identity(email, rules).to_dict()
+    derived = parsed if (proven or parsed["status"] == "not_applicable") else dict(BLANK_DERIVED)
+    verified_hd = domain if proven else None
     roster_row = await roster_for_user(db, user.id, email)
 
-    row = await get_row(db, user.id)
     if row is None:
         eff = _effective(derived, roster_row, None, rules)
         row = MkaUserAttributes(
             user_id=user.id, email_seen=email, derived=derived, rules_version=rules.version,
-            derived_at=_now(),
+            derived_at=_now(), verified_hd=verified_hd,
         )
         row.stale = False
         _apply_effective_columns(row, eff)
@@ -355,10 +405,11 @@ async def refresh_attributes(
     eff_changed = row.effective != eff
     version_changed = row.rules_version != rules.version
     email_changed = row.email_seen != email
+    proof_changed = row.verified_hd != verified_hd
     if row.stale:
         row.stale = False
         db.add(row)
-    if not (derived_changed or eff_changed or version_changed or email_changed):
+    if not (derived_changed or eff_changed or version_changed or email_changed or proof_changed):
         return row, False
 
     before = _snapshot(row)
@@ -367,6 +418,7 @@ async def refresh_attributes(
         row.derived_at = _now()
     row.rules_version = rules.version
     row.email_seen = email
+    row.verified_hd = verified_hd
     if eff_changed:
         _apply_effective_columns(row, eff)
     db.add(row)
@@ -374,7 +426,20 @@ async def refresh_attributes(
         _add_audit(db, user.id, action, before, _snapshot(row), actor_user_id=actor_user_id)
     elif eff_changed:
         _add_audit(db, user.id, "roster_apply", before, _snapshot(row), actor_user_id=actor_user_id)
-    return row, derived_changed or eff_changed
+    return row, derived_changed or eff_changed or proof_changed
+
+
+async def _safe_rollback(db_session: AsyncSession, user: User) -> None:
+    """Roll back, then reload ``user``: a rollback expires the caller's instance and the
+    session minting that follows would otherwise raise MissingGreenlet (login 500)."""
+    try:
+        await db_session.rollback()
+    except Exception:  # noqa: BLE001
+        logger.exception("MKA hook: rollback failed (ignored)")
+    try:
+        await db_session.refresh(user)
+    except Exception:  # noqa: BLE001
+        logger.exception("MKA hook: user refresh failed (ignored)")
 
 
 async def _mark_stale(db_session: AsyncSession, user: User) -> None:
@@ -387,24 +452,26 @@ async def _mark_stale(db_session: AsyncSession, user: User) -> None:
         await db_session.commit()
     except Exception:  # noqa: BLE001
         logger.exception("MKA attribute stale-mark failed (ignored)")
-        try:
-            await db_session.rollback()
-        except Exception:  # noqa: BLE001
-            pass
+        await _safe_rollback(db_session, user)
 
 
 async def mka_refresh_on_login(db_session: AsyncSession, user: User, amr: Optional[str]) -> None:
     """Login hook (spec A2/A5). Google sign-ins only; FAIL-OPEN: nothing here may
-    ever block or break a login, so every error is logged and swallowed. The work
-    runs in a SAVEPOINT so a failure cannot poison the caller's transaction."""
+    ever block or break a login. The work runs in a SAVEPOINT; if the final commit fails
+    the session is rolled back AND ``user`` reloaded so the caller keeps a usable user.
+    The Workspace ``hd`` proof of this very login is read from the fork's request-scoped
+    record (set by ``require_workspace_hd`` in the Google path)."""
     if amr != AUTH_METHOD_GOOGLE:
         return
     try:
-        # SAVEPOINT: a failure rolls back only our work. We deliberately do NOT call
-        # session.rollback() on this path: that would expire the caller's `user`
-        # object and break the session minting that follows (MissingGreenlet).
+        proof = take_verified_hd(user.email)
+        # SAVEPOINT: a failure rolls back only our work (no session.rollback() here).
         async with db_session.begin_nested():
-            await refresh_attributes(db_session, user, action="derive")
+            await refresh_attributes(db_session, user, action="derive", proof_hd=proof)
+    except IntegrityError:
+        # Concurrent first login inserted the row: theirs is fresh; do not mark it stale.
+        logger.info("MKA attribute refresh lost an insert race on login (ignored)")
+        return
     except Exception:  # noqa: BLE001 - fail-open for LOGIN by design
         logger.exception("MKA attribute refresh failed on login (ignored)")
         await _mark_stale(db_session, user)  # ...but reads fail closed until a refresh succeeds
@@ -413,25 +480,23 @@ async def mka_refresh_on_login(db_session: AsyncSession, user: User, amr: Option
         await db_session.commit()
     except Exception:  # noqa: BLE001
         logger.exception("MKA attribute commit failed on login (ignored)")
-        try:
-            await db_session.rollback()
-        except Exception:  # noqa: BLE001
-            logger.exception("MKA attribute refresh: rollback failed (ignored)")
+        await _safe_rollback(db_session, user)
 
 
 async def recompute_users(
     db: AsyncSession,
     *,
     org_id: Optional[int] = None,
-    google_only: bool = True,
     actor_user_id: Optional[int] = None,
     dry_run: bool = False,
     batch_size: int = 500,
 ) -> dict:
     """Recompute attributes for existing users (backfill / rules bump).
 
-    ``google_only`` restricts to ``signup_method == 'google'``: an account made by
-    password signup must not pick up officeholder attributes from its address.
+    Processes Google signups and any user that already has a row (e.g. an invited account
+    that later signed in with Google). Derivation is proof-gated inside ``refresh_attributes``
+    (a recompute can never CREATE proof, only reuse what a Google login recorded), so there
+    is deliberately no "include unverified accounts" switch.
     Commits per batch (unless ``dry_run``, which rolls back at the end).
     """
     rules = get_rules()
@@ -445,8 +510,12 @@ async def recompute_users(
                     select(UserOrganization.user_id).where(UserOrganization.org_id == org_id)
                 )
             )
-        if google_only:
-            stmt = stmt.where(User.signup_method == "google")
+        stmt = stmt.where(
+            or_(
+                User.signup_method == "google",
+                User.id.in_(select(MkaUserAttributes.user_id)),  # type: ignore[attr-defined]
+            )
+        )
         users = (await db.execute(stmt)).scalars().all()
         if not users:
             break
@@ -455,7 +524,6 @@ async def recompute_users(
             existed = await get_row(db, u.id) is not None
             _, changed = await refresh_attributes(
                 db, u, action="recompute", actor_user_id=actor_user_id, rules=rules,
-                allow_unverified=not google_only,
             )
             counts["processed"] += 1
             if not existed:
@@ -493,7 +561,7 @@ async def set_override(
         # Unverified (non-Google) account: the one deliberate exception. The row is
         # created with a BLANK derived value (never parsed from the unverified email);
         # only the admin override gives it attributes.
-        blank = parse_identity("", rules).to_dict()
+        blank = dict(BLANK_DERIVED)
         row = MkaUserAttributes(
             user_id=user.id, email_seen=normalize_email(user.email), derived=blank,
             rules_version=rules.version, derived_at=_now(),
@@ -660,7 +728,7 @@ async def import_roster(
             results.append({"index": i, "email": normalize_email(r.get("email")), "ok": True})
             applied_emails.append(normalize_email(r.get("email")))
             ok += 1
-        except (ValueError, CrossOrgConflict) as exc:
+        except (ValueError, TypeError, CrossOrgConflict) as exc:
             results.append({"index": i, "email": normalize_email(r.get("email")), "ok": False, "error": str(exc)})
     if dry_run:
         await db.rollback()
@@ -684,7 +752,9 @@ LIST_FILTERS = {
 MAX_PAGE_SIZE = 200
 
 
-def _admin_view(user: User, row: MkaUserAttributes) -> dict:
+def _admin_view(user: User, row: MkaUserAttributes, redact: bool = False) -> dict:
+    """``redact`` hides override content/reasons/actors: used for API tokens and for users
+    shared with other orgs (another org's admin notes are not this org's business)."""
     _read = read_effective_from_row(row, user)
     return {
         "user_id": user.id,
@@ -699,10 +769,11 @@ def _admin_view(user: User, row: MkaUserAttributes) -> dict:
         "stale": _read[1],
         "stored_effective": row.effective,
         "derived": row.derived,
-        "override": row.override,
-        "override_reason": row.override_reason,
-        "override_by": row.override_by,
-        "override_at": row.override_at.isoformat() if row.override_at else None,
+        "override": None if redact else row.override,
+        "override_reason": None if redact else row.override_reason,
+        "override_by": None if redact else row.override_by,
+        "override_at": None if redact or not row.override_at else row.override_at.isoformat(),
+        "redacted": redact,
         "rules_version": row.rules_version,
         "derived_at": row.derived_at.isoformat() if row.derived_at else None,
     }
@@ -718,23 +789,49 @@ async def list_attributes(
     mismatch: Optional[bool] = None,
     page: int = 1,
     page_size: int = 50,
+    redact: bool = False,
 ) -> dict:
-    """Org-scoped, filtered, paginated list (effective + derived + override)."""
+    """Org-scoped, filtered, paginated list (effective + derived + override).
+
+    The ``eff_*`` columns are a cache that ignores freshness, so every attribute filter
+    also applies the fail-closed rule in SQL: a stale row (flag, email drift, other rules
+    version, or an officeholder-capable row without proven domain ownership and without an
+    override) never matches level/department/region/majlis, and matches ``status`` only as
+    "unrecognized" (which is what it reads as)."""
     page = max(1, page)
     page_size = max(1, min(page_size, MAX_PAGE_SIZE))
     conds = [UserOrganization.org_id == org_id]
+    stale_sql = or_(
+        MkaUserAttributes.stale.is_(True),
+        MkaUserAttributes.email_seen != func.lower(User.email),
+        MkaUserAttributes.rules_version != get_rules().version,
+        and_(
+            MkaUserAttributes.override.is_(None),
+            MkaUserAttributes.verified_hd.is_(None),
+            MkaUserAttributes.eff_status != "not_applicable",
+        ),
+    )
+    fresh_sql = ~stale_sql
     for key, value in (filters or {}).items():
         if value is None or key not in LIST_FILTERS:
             continue
-        if isinstance(value, (list, tuple, set)):  # e.g. status in (unrecognized, ambiguous, partial)
-            conds.append(LIST_FILTERS[key].in_(list(value)))  # type: ignore[attr-defined]
+        values = list(value) if isinstance(value, (list, tuple, set)) else [value]
+        if key == "status":
+            conds.append(
+                or_(
+                    and_(fresh_sql, LIST_FILTERS[key].in_(values)),  # type: ignore[attr-defined]
+                    and_(stale_sql, "unrecognized" in values),
+                )
+            )
         else:
-            conds.append(LIST_FILTERS[key] == value)
+            conds.append(fresh_sql)
+            conds.append(LIST_FILTERS[key].in_(values))  # type: ignore[attr-defined]
     if mismatch is True:
         # Self-reported Majlis (mka_user_profile) disagrees with the derived/effective one.
         from src.db.mka_user_profile import MkaUserProfile
 
         conds.append(MkaUserAttributes.eff_majlis.is_not(None))  # type: ignore[union-attr]
+        conds.append(fresh_sql)
         conds.append(
             MkaUserAttributes.user_id.in_(  # type: ignore[attr-defined]
                 select(MkaUserProfile.user_id).where(MkaUserProfile.majlis != MkaUserAttributes.eff_majlis)
@@ -758,6 +855,7 @@ async def list_attributes(
         await db.execute(
             select(func.count())
             .select_from(MkaUserAttributes)
+            .join(User, User.id == MkaUserAttributes.user_id)  # type: ignore[arg-type]
             .join(UserOrganization, UserOrganization.user_id == MkaUserAttributes.user_id)
             .where(*conds)
         )
@@ -765,8 +863,18 @@ async def list_attributes(
     rows = (
         await db.execute(base.order_by(User.id).offset((page - 1) * page_size).limit(page_size))  # type: ignore[arg-type]
     ).all()
+    ids = [u.id for u, _ in rows]
+    shared = set()
+    if ids:
+        shared = set(
+            (await db.execute(
+                select(UserOrganization.user_id).where(
+                    UserOrganization.user_id.in_(ids), UserOrganization.org_id != org_id  # type: ignore[attr-defined]
+                )
+            )).scalars().all()
+        )
     return {
-        "items": [_admin_view(u, a) for u, a in rows],
+        "items": [_admin_view(u, a, redact or u.id in shared) for u, a in rows],
         "total": total,
         "page": page,
         "page_size": page_size,
@@ -774,9 +882,23 @@ async def list_attributes(
     }
 
 
-async def get_admin_view(db: AsyncSession, user: User) -> Optional[dict]:
+async def is_shared_with_other_orgs(db: AsyncSession, user_id: int, org_id: int) -> bool:
+    return (
+        await db.execute(
+            select(UserOrganization.org_id).where(
+                UserOrganization.user_id == user_id, UserOrganization.org_id != org_id
+            ).limit(1)
+        )
+    ).first() is not None
+
+
+async def get_admin_view(db: AsyncSession, user: User, org_id: Optional[int] = None, redact: bool = False) -> Optional[dict]:
     row = await get_row(db, user.id)
-    return _admin_view(user, row) if row else None
+    if row is None:
+        return None
+    if org_id is not None and not redact:
+        redact = await is_shared_with_other_orgs(db, user.id, org_id)
+    return _admin_view(user, row, redact)
 
 
 async def list_audit(db: AsyncSession, user_id: int, limit: int = 100) -> list[dict]:

@@ -338,11 +338,14 @@ def test_parser_swallows_internal_errors():
     assert parse_identity("tabligh.albany@mkausa.org", broken).status == "unrecognized"
 
 
-def test_unicode_digits_and_lookalikes_do_not_match():
-    # Cyrillic 'а' in "albany" and fullwidth '@' must not resolve.
-    assert parse_identity("tabligh.аlbany@mkausa.org", RULES).status == "partial"
-    assert parse_identity("tabligh.albany＠mkausa.org", RULES).status == "unrecognized"
-    assert parse_identity("tаbligh.albany@mkausa.org", RULES).status == "unrecognized"
+def test_non_ascii_never_matches():
+    cyr = "\u0430"
+    assert parse_identity(f"tabligh.{cyr}lbany@mkausa.org", RULES).status == "unrecognized"
+    assert parse_identity("tabligh.albany\uff20mkausa.org", RULES).status == "unrecognized"
+    assert parse_identity(f"t{cyr}bligh.albany@mkausa.org", RULES).status == "unrecognized"
+    # KELVIN SIGN lowercases INTO ascii: must still be rejected
+    assert parse_identity("qaid.albany@m\u212ausa.org", RULES).status == "unrecognized"
+    assert parse_identity("qaid.albany@mkausa.org", RULES).status == "matched"
 
 
 # --- rules file integrity -------------------------------------------------------------------------

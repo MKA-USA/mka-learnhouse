@@ -75,7 +75,6 @@ class RecomputeIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     dry_run: bool = False
-    include_non_google: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -92,10 +91,15 @@ class _Admin:
 
 
 async def _resolve_admin(
-    current_user, org_id: Optional[int], org_slug: Optional[str], db_session: AsyncSession
+    current_user, org_id: Optional[int], org_slug: Optional[str], db_session: AsyncSession,
+    allow_token: bool = False,
 ) -> _Admin:
-    # API token: identical to upstream /admin/{org_slug}/... authentication.
+    # API token: identical to upstream /admin/{org_slug}/... authentication (no per-token
+    # rights check there either). Tokens are limited to the routes the companion service
+    # needs (list + roster); every other admin route passes allow_token=False.
     if isinstance(current_user, APITokenUser):
+        if not allow_token:
+            raise HTTPException(status_code=403, detail="Not available to API tokens")
         if not org_slug:
             raise HTTPException(status_code=422, detail="org_slug is required for API-token access")
         token_user = _require_api_token(current_user)
@@ -209,7 +213,7 @@ async def api_list_users(
     db_session: AsyncSession = Depends(get_db_session),
 ) -> dict:
     """Effective + derived + override per user, filtered and paginated. Org-scoped."""
-    admin = await _resolve_admin(current_user, org_id, org_slug, db_session)
+    admin = await _resolve_admin(current_user, org_id, org_slug, db_session, allow_token=True)
     return await svc.list_attributes(
         db_session,
         admin.org_id,
@@ -218,6 +222,7 @@ async def api_list_users(
             "region": region, "majlis": majlis,
         },
         q=q, has_override=has_override, mismatch=mismatch, page=page, page_size=page_size,
+        redact=isinstance(current_user, APITokenUser),
     )
 
 
@@ -252,7 +257,7 @@ async def api_get_user(
 ) -> dict:
     admin = await _resolve_admin(current_user, org_id, org_slug, db_session)
     user = await _target_user(admin, user_id, db_session)
-    view = await svc.get_admin_view(db_session, user)
+    view = await svc.get_admin_view(db_session, user, admin.org_id)
     if view is None:
         raise HTTPException(status_code=404, detail="No attributes derived for this user yet")
     return view
@@ -269,6 +274,9 @@ async def api_get_user_audit(
 ) -> dict:
     admin = await _resolve_admin(current_user, org_id, org_slug, db_session)
     await _target_user(admin, user_id, db_session)
+    if await svc.is_shared_with_other_orgs(db_session, user_id, admin.org_id):
+        # The audit trail is global: another org's admin notes are not visible from here.
+        raise HTTPException(status_code=403, detail="Audit history is not available for users shared across organizations")
     return {"items": await svc.list_audit(db_session, user_id, limit)}
 
 
@@ -305,7 +313,7 @@ async def api_put_override(
         raise _bad_request(exc)
     except svc.CrossOrgConflict as exc:
         raise HTTPException(status_code=409, detail=str(exc))
-    return await svc.get_admin_view(db_session, user)  # type: ignore[return-value]
+    return await svc.get_admin_view(db_session, user, admin.org_id)  # type: ignore[return-value]
 
 
 @router.delete("/users/{user_id}/override")
@@ -322,7 +330,7 @@ async def api_delete_override(
         await svc.clear_override(db_session, user, admin.actor_user_id, reason, admin.org_id)  # type: ignore[arg-type]
     except svc.CrossOrgConflict as exc:
         raise HTTPException(status_code=409, detail=str(exc))
-    view = await svc.get_admin_view(db_session, user)
+    view = await svc.get_admin_view(db_session, user, admin.org_id)
     if view is None:
         raise HTTPException(status_code=404, detail="No attributes derived for this user yet")
     return view
@@ -349,7 +357,7 @@ async def api_list_roster(
     current_user=Depends(get_authenticated_user),
     db_session: AsyncSession = Depends(get_db_session),
 ) -> dict:
-    admin = await _resolve_admin(current_user, org_id, org_slug, db_session)
+    admin = await _resolve_admin(current_user, org_id, org_slug, db_session, allow_token=True)
     rows = (
         await db_session.execute(
             select(MkaRosterOverride).where(MkaRosterOverride.org_id == admin.org_id).order_by(MkaRosterOverride.email)  # type: ignore[arg-type]
@@ -369,7 +377,7 @@ async def api_import_roster(
 ) -> dict:
     """Bulk roster upsert (<= 1000 rows). One bad row never aborts the batch: each row
     gets ``ok`` / ``error``. ``dry_run`` validates without writing."""
-    admin = await _resolve_admin(current_user, org_id, org_slug, db_session)
+    admin = await _resolve_admin(current_user, org_id, org_slug, db_session, allow_token=True)
     return await svc.import_roster(
         db_session, admin.org_id,
         [r.model_dump() for r in body.rows],
@@ -386,7 +394,7 @@ async def api_put_roster(
     current_user=Depends(get_authenticated_user),
     db_session: AsyncSession = Depends(get_db_session),
 ) -> dict:
-    admin = await _resolve_admin(current_user, org_id, org_slug, db_session)
+    admin = await _resolve_admin(current_user, org_id, org_slug, db_session, allow_token=True)
     try:
         row = await svc.upsert_roster(
             db_session, admin.org_id, email, body.attributes, source=admin.source, note=body.note,
@@ -407,7 +415,7 @@ async def api_delete_roster(
     current_user=Depends(get_authenticated_user),
     db_session: AsyncSession = Depends(get_db_session),
 ) -> dict:
-    admin = await _resolve_admin(current_user, org_id, org_slug, db_session)
+    admin = await _resolve_admin(current_user, org_id, org_slug, db_session, allow_token=True)
     try:
         deleted = await svc.delete_roster(db_session, admin.org_id, email, admin.actor_user_id)
     except svc.CrossOrgConflict as exc:
@@ -433,6 +441,6 @@ async def api_recompute(
     audit rows only where the derived value changed). Overrides are never touched."""
     admin = await _resolve_admin(current_user, org_id, org_slug, db_session)
     return await svc.recompute_users(
-        db_session, org_id=admin.org_id, google_only=not body.include_non_google,
+        db_session, org_id=admin.org_id,
         actor_user_id=admin.actor_user_id, dry_run=body.dry_run,
     )

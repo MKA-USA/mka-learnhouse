@@ -67,6 +67,7 @@ def upgrade() -> None:
             sa.Column("override_reason", sa.Text(), nullable=True),
             sa.Column("override_by", sa.Integer(), nullable=True),
             sa.Column("override_at", sa.DateTime(timezone=True), nullable=True),
+            sa.Column("verified_hd", sa.String(), nullable=True),
             sa.Column("stale", sa.Boolean(), nullable=False, server_default=sa.false()),
             sa.Column("effective", _JSON, nullable=False),
             sa.Column("eff_status", sa.String(), nullable=True),

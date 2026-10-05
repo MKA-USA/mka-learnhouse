@@ -160,13 +160,6 @@ async def test_google_user_does_get_attributes(db):
 
 
 @pytest.mark.asyncio
-async def test_explicit_operator_opt_in_derives_for_non_google(db):
-    u = await _user(db, 403, SPOOF, signup="password")
-    row, _ = await svc.refresh_attributes(db, u, allow_unverified=True)
-    assert row.eff_department == "atfal"
-
-
-@pytest.mark.asyncio
 async def test_admin_override_on_unverified_account_uses_blank_derived(db, org):
     admin = await _user(db, 1, "admin@test.com")
     u = await _user(db, 404, SPOOF, signup="password", org=org)
@@ -267,20 +260,18 @@ async def test_roster_row_of_a_never_changes_user_only_in_b(db, org, other_org):
 
 
 @pytest.mark.asyncio
-async def test_multi_org_user_uses_lowest_org_id_and_records_it(db, org, other_org):
+async def test_roster_is_ignored_for_multi_org_users(db, org, other_org):
+    """H1: a roster row (even pre-seeded before the user joined) never applies to a shared account."""
     a_user, _ = await _two_orgs(db, org, other_org)
     oa, ob = org.id, other_org.id
-    db.add(UserOrganization(user_id=501, org_id=ob, role_id=4, creation_date="x", update_date="x"))
+    await svc.recompute_users(db)
+    await svc.upsert_roster(db, ob, "john.smith@mkausa.org", {"level": "national", "role": "sadr"}, source="admin")  # B pre-seeds
+    db.add(UserOrganization(user_id=501, org_id=ob, role_id=4, creation_date="x", update_date="x"))   # then attaches the user
     await db.commit()
-    now = datetime.now()
-    # inserted directly: the 409 guard (below) refuses to write rosters for multi-org users
-    db.add(MkaRosterOverride(org_id=ob, email="john.smith@mkausa.org", source="admin", updated_at=now,
-                             attributes={"level": "regional", "region": "Gulf", "role": "regional_qaid"}))
-    db.add(MkaRosterOverride(org_id=oa, email="john.smith@mkausa.org", source="admin", updated_at=now,
-                             attributes={"level": "national", "role": "sadr"}))
-    await db.commit()
+    await svc.recompute_users(db)
     row, _ = await svc.refresh_attributes(db, a_user, action="recompute")
-    assert row.effective["role"] == "sadr" and row.effective["roster_org_id"] == min(oa, ob)
+    assert row.eff_role is None and row.eff_status == "unrecognized"
+    await svc.upsert_roster(db, oa, "jane.doe@mkausa.org", {"level": "national", "role": "sadr"}, source="admin")
 
 
 @pytest.mark.asyncio
@@ -301,17 +292,17 @@ async def test_per_user_routes_404_for_user_only_in_other_org(db, org, other_org
     await _two_orgs(db, org, other_org)
     await svc.recompute_users(db)
     p = {"org_slug": org.slug}
-    for path in ("users/502", "users/502/audit"):
-        assert (await token_a.get(f"{BASE}/{path}", params=p)).status_code == 404
+    for path in ("users/502", "users/502/audit"):          # tokens may not use per-user routes at all
+        assert (await token_a.get(f"{BASE}/{path}", params=p)).status_code == 403
     ids = {i["user_id"] for i in (await token_a.get(f"{BASE}/users", params=p)).json()["items"]}
     assert 502 not in ids and 501 in ids
-    q = (await token_a.get(f"{BASE}/review-queue", params=p)).json()
-    assert 502 not in {i["user_id"] for i in q["unclassified"]["items"]}
+    assert (await token_a.get(f"{BASE}/review-queue", params=p)).status_code == 403
     # session admin of A: override/get on B's user -> 404
     async with _client(db, admin_user) as c:
         assert (await c.put(f"{BASE}/users/502/override", params={"org_id": org.id},
                             json={"override": {"level": "local"}, "reason": "x"})).status_code == 404
         assert (await c.get(f"{BASE}/users/502", params={"org_id": org.id})).status_code == 404
+        assert (await c.get(f"{BASE}/users/502/audit", params={"org_id": org.id})).status_code == 404
         assert (await c.get(f"{BASE}/roster", params={"org_id": other_org.id})).status_code == 403
 
 
@@ -331,12 +322,15 @@ async def test_fresh_row_reads_normally_and_email_drift_reads_unrecognized(db, o
 
 
 @pytest.mark.asyncio
-async def test_non_google_row_is_stale_unless_overridden(db, org):
+async def test_row_without_proven_domain_is_stale_unless_overridden(db, org):
     admin = await _user(db, 1, "admin@test.com")
     u = await _user(db, 602, "tabligh.albany@mkausa.org", org=org)
-    await svc.refresh_attributes(db, u)
+    row, _ = await svc.refresh_attributes(db, u)
     await db.commit()
-    u.signup_method = "password"
+    assert (await svc.read_effective(db, u))[1] is False
+    row.verified_hd = None
+    db.add(row)
+    await db.commit()
     assert (await svc.read_effective(db, u))[1] is True
     await svc.set_override(db, u, {"level": "local", "department": "tabligh"}, "ok", admin.id)
     attrs, stale = await svc.read_effective(db, u)
@@ -482,3 +476,8 @@ async def test_roster_write_refused_when_membership_races(db, org, other_org):
         with pytest.raises(svc.CrossOrgConflict):
             await svc.upsert_roster(db, oa, "john.smith@mkausa.org", {"level": "national"}, source="admin")
     assert await _roster_rows(db) == {}
+
+
+@pytest.fixture(autouse=True)
+def _google_only_domains(monkeypatch):
+    monkeypatch.setenv("MKA_GOOGLE_ONLY_DOMAINS", "mkausa.org,atfalusa.org")

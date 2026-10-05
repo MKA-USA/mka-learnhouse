@@ -64,6 +64,9 @@ class MkaUserAttributes(SQLModel, table=True):
     override_at: Optional[datetime] = Field(
         default=None, sa_column=Column(DateTime(timezone=True), nullable=True)
     )
+    # Domain whose Workspace ownership was proven (hd claim at a Google login, or Google-only
+    # config). Officeholder-capable rows without it read as stale (fail closed).
+    verified_hd: Optional[str] = Field(default=None, sa_column=Column(String, nullable=True))
     # True when the last login refresh failed: reads fail closed until a refresh succeeds.
     stale: bool = Field(default=False, sa_column=Column(Boolean, nullable=False, server_default=false(), default=False))
     # Denormalised effective attributes (see module docstring).
