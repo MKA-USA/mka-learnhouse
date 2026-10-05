@@ -59,3 +59,9 @@ async def api_status(
         "send_log": {"total": sum(send_status.values()), "by_status": send_status, "test_mode_rows": int(test_rows)},
         "events": {"total": sum(event_status.values()), "by_status": event_status},
     }
+
+
+# --- seam C: reminders ---
+from src.routers.mka_automation_reminders import router as _reminders_router  # noqa: E402
+
+router.include_router(_reminders_router)
