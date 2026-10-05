@@ -1,0 +1,765 @@
+{
+ "mission": "break-picker-keyboard",
+ "ok": false,
+ "detail": "budget exhausted",
+ "steps": 40,
+ "modelCalls": 42,
+ "wallMs": 96381,
+ "modelMs": 66702.7619160001,
+ "trace": [
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(4) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(1) > div:nth-child(3) > button:nth-child(2)",
+   "label": "button \"Preview\""
+  },
+  {
+   "t": "press",
+   "key": "Escape"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > button:nth-child(2)",
+   "label": "button \"Viewing: As me\" [collapsed, closed]"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(11) > div:nth-child(1) > div:nth-child(1) > button:nth-child(6)",
+   "label": "button \"Regional Qaid · Northeast\""
+  },
+  {
+   "t": "press",
+   "key": "Tab"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > button:nth-child(2)",
+   "label": "button \"Viewing: Regional Qaid · Northeast\" [collapsed, closed]"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(11) > div:nth-child(1) > div:nth-child(1) > button:nth-child(12)",
+   "label": "button \"Custom…\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(11) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > label:nth-child(4) > select:nth-child(2)",
+   "label": "select \"No Majlis Baltimore Central Jersey Harrisburg North Jersey Philadelphi\""
+  },
+  {
+   "t": "press",
+   "key": "Escape"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > button:nth-child(2)",
+   "label": "button \"Viewing: Regional Qaid · Northeast\" [collapsed, closed]"
+  },
+  {
+   "t": "press",
+   "key": " "
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > button:nth-child(2)",
+   "label": "button \"Viewing: Everything (author view)\" [collapsed, closed]"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(11) > div:nth-child(1) > div:nth-child(1) > button:nth-child(12)",
+   "label": "button \"Custom…\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(3) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(3) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(1) > div:nth-child(3) > button:nth-child(1)",
+   "label": "button \"Edit\""
+  },
+  {
+   "t": "press",
+   "key": "Escape"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2)",
+   "label": "editor \"rich-text editor (document body)\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(5) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(1) > div:nth-child(3) > button:nth-child(1)",
+   "label": "button \"Edit\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(11) > div:nth-child(1) > div:nth-child(1) > div:nth-child(3) > div:nth-child(2) > button:nth-child(1)",
+   "label": "button \"Cancel\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(3) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(1) > div:nth-child(3) > button:nth-child(1)",
+   "label": "button \"Edit\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(11) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(2) > div:nth-child(2) > div:nth-child(2) > div:nth-child(1) > button:nth-child(1)",
+   "label": "button \"Department: Any department. Choose…\" [collapsed, closed]"
+  },
+  {
+   "t": "press",
+   "key": "Escape"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(3) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(3) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(1) > div:nth-child(3) > button:nth-child(1)",
+   "label": "button \"Edit\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(4) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(1) > div:nth-child(3) > button:nth-child(3)",
+   "label": "button \"Collapse section\" [expanded]"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(3) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(1) > div:nth-child(3) > button:nth-child(1)",
+   "label": "button \"Edit\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(11) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(2) > div:nth-child(2) > div:nth-child(2) > div:nth-child(1) > button:nth-child(1)",
+   "label": "button \"Department: Any department. Choose…\" [collapsed, closed]"
+  },
+  {
+   "t": "type",
+   "text": "",
+   "label": "type \"\""
+  },
+  {
+   "t": "press",
+   "key": "Escape"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(11) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(2) > div:nth-child(2) > div:nth-child(2) > div:nth-child(1) > button:nth-child(1)",
+   "label": "button \"Department: Any department. Choose…\" [collapsed, closed]"
+  },
+  {
+   "t": "type",
+   "text": "<script>alert(1)</script>",
+   "label": "type \"<script>alert(1)</script>\""
+  },
+  {
+   "t": "type",
+   "text": "<script>alert(1)</script>",
+   "label": "type \"<script>alert(1)</script>\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(11) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(2) > div:nth-child(2) > div:nth-child(2) > div:nth-child(1) > button:nth-child(1)",
+   "label": "button \"Department: Any department. Choose…\" [expanded, open]"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(11) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(2) > div:nth-child(1) > div:nth-child(2) > div:nth-child(1) > div:nth-child(1) > button:nth-child(1)",
+   "label": "button \"National\" [false]"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(11) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(1) > button:nth-child(2)",
+   "label": "checkbox \"Hide from\" [unchecked, off]"
+  },
+  {
+   "t": "press",
+   "key": "Escape"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(5) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(1) > div:nth-child(3) > button:nth-child(1)",
+   "label": "button \"Edit\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(11) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(3) > div:nth-child(3) > div:nth-child(1) > button:nth-child(2)",
+   "label": "button \"About this count\" [collapsed, closed]"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(11) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(2) > div:nth-child(2) > div:nth-child(2) > div:nth-child(1) > button:nth-child(1)",
+   "label": "button \"Department: Any department. Choose…\" [collapsed, closed]"
+  },
+  {
+   "t": "type",
+   "text": "<script>alert(1)</script>",
+   "label": "type \"<script>alert(1)</script>\""
+  },
+  {
+   "t": "press",
+   "key": "ArrowUp"
+  },
+  {
+   "t": "press",
+   "key": "Escape"
+  }
+ ],
+ "log": [
+  {
+   "n": 1,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Preview\"",
+   "backend": "random",
+   "confidence": 0,
+   "p": 0,
+   "margin": 0,
+   "ms": 0,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-01.jpg"
+  },
+  {
+   "n": 2,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "press Escape",
+   "backend": "clef",
+   "confidence": 0.22889795442663785,
+   "p": 0.3718321610318879,
+   "margin": 0.20464032809498206,
+   "ms": 0,
+   "escalated": false,
+   "cached": true,
+   "changed": true,
+   "shot": "step-02.jpg"
+  },
+  {
+   "n": 3,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Viewing: As me\" [collapsed, closed]",
+   "backend": "jev",
+   "confidence": 0.55,
+   "p": 0.6,
+   "margin": 0.41,
+   "ms": 0,
+   "escalated": true,
+   "cached": true,
+   "changed": true,
+   "shot": "step-03.jpg"
+  },
+  {
+   "n": 4,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Regional Qaid · Northeast\"",
+   "backend": "random",
+   "confidence": 0,
+   "p": 0,
+   "margin": 0,
+   "ms": 0,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-04.jpg"
+  },
+  {
+   "n": 5,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "press Tab",
+   "backend": "clef",
+   "confidence": 0.17567085329287624,
+   "p": 0.3989613100242283,
+   "margin": 0.24742275642530517,
+   "ms": 0,
+   "escalated": false,
+   "cached": true,
+   "changed": false,
+   "shot": "step-05.jpg"
+  },
+  {
+   "n": 6,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Viewing: Regional Qaid · Northeast\" [collapsed, closed]",
+   "backend": "jev",
+   "confidence": 0.82,
+   "p": 0.83,
+   "margin": 0.76,
+   "ms": 0,
+   "escalated": true,
+   "cached": true,
+   "changed": true,
+   "shot": "step-06.jpg"
+  },
+  {
+   "n": 7,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Custom…\"",
+   "backend": "random",
+   "confidence": 0,
+   "p": 0,
+   "margin": 0,
+   "ms": 0,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-07.jpg"
+  },
+  {
+   "n": 8,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "select \"No Majlis Baltimore Central Jersey Harrisburg North Jersey Philadelphi\"",
+   "backend": "random",
+   "confidence": 0,
+   "p": 0,
+   "margin": 0,
+   "ms": 0,
+   "escalated": false,
+   "cached": false,
+   "changed": false,
+   "shot": "step-08.jpg"
+  },
+  {
+   "n": 9,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "press Escape",
+   "backend": "clef",
+   "confidence": 0.595160303127281,
+   "p": 0.7677700629779888,
+   "margin": 0.726922489166278,
+   "ms": 0,
+   "escalated": false,
+   "cached": true,
+   "changed": true,
+   "shot": "step-09.jpg"
+  },
+  {
+   "n": 10,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Viewing: Regional Qaid · Northeast\" [collapsed, closed]",
+   "backend": "jev",
+   "confidence": 0.54,
+   "p": 0.6,
+   "margin": 0.39999999999999997,
+   "ms": 0,
+   "escalated": true,
+   "cached": true,
+   "changed": true,
+   "shot": "step-10.jpg"
+  },
+  {
+   "n": 11,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "press  ",
+   "backend": "random",
+   "confidence": 0,
+   "p": 0,
+   "margin": 0,
+   "ms": 0,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-11.jpg"
+  },
+  {
+   "n": 12,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Viewing: Everything (author view)\" [collapsed, closed]",
+   "backend": "jev",
+   "confidence": 0.25,
+   "p": 0.3,
+   "margin": 0.12,
+   "ms": 0,
+   "escalated": true,
+   "cached": true,
+   "changed": true,
+   "shot": "step-12.jpg"
+  },
+  {
+   "n": 13,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Custom…\"",
+   "backend": "jev",
+   "confidence": 0.23,
+   "p": 0.27,
+   "margin": 0.14,
+   "ms": 0,
+   "escalated": true,
+   "cached": true,
+   "changed": true,
+   "shot": "step-13.jpg"
+  },
+  {
+   "n": 14,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Edit\"",
+   "backend": "jev",
+   "confidence": 0.15,
+   "p": 0.16999999999999998,
+   "margin": 0.03999999999999998,
+   "ms": 0,
+   "escalated": true,
+   "cached": true,
+   "changed": true,
+   "shot": "step-14.jpg"
+  },
+  {
+   "n": 15,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "press Escape",
+   "backend": "clef",
+   "confidence": 0.6053402339170515,
+   "p": 0.7567118515854064,
+   "margin": 0.7173243121567763,
+   "ms": 0,
+   "escalated": false,
+   "cached": true,
+   "changed": true,
+   "shot": "step-15.jpg"
+  },
+  {
+   "n": 16,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "editor \"rich-text editor (document body)\"",
+   "backend": "random",
+   "confidence": 0,
+   "p": 0,
+   "margin": 0,
+   "ms": 0,
+   "escalated": false,
+   "cached": false,
+   "changed": false,
+   "shot": "step-16.jpg"
+  },
+  {
+   "n": 17,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Edit\"",
+   "backend": "random",
+   "confidence": 0,
+   "p": 0,
+   "margin": 0,
+   "ms": 0,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-17.jpg"
+  },
+  {
+   "n": 18,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Cancel\"",
+   "backend": "random",
+   "confidence": 0,
+   "p": 0,
+   "margin": 0,
+   "ms": 0,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-18.jpg"
+  },
+  {
+   "n": 19,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Edit\"",
+   "backend": "jev",
+   "confidence": 0.16,
+   "p": 0.21000000000000002,
+   "margin": 0.020000000000000018,
+   "ms": 0,
+   "escalated": true,
+   "cached": true,
+   "changed": true,
+   "shot": "step-19.jpg"
+  },
+  {
+   "n": 20,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Department: Any department. Choose…\" [collapsed, closed]",
+   "backend": "jev",
+   "confidence": 0.27,
+   "p": 0.3,
+   "margin": 0.12999999999999998,
+   "ms": 2411.293707999983,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-20.jpg"
+  },
+  {
+   "n": 21,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "press Escape",
+   "backend": "random",
+   "confidence": 0,
+   "p": 0,
+   "margin": 0,
+   "ms": 0,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-21.jpg"
+  },
+  {
+   "n": 22,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Edit\"",
+   "backend": "jev",
+   "confidence": 0.22,
+   "p": 0.26,
+   "margin": 0.09,
+   "ms": 2801.901375000016,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-22.jpg"
+  },
+  {
+   "n": 23,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Collapse section\" [expanded]",
+   "backend": "random",
+   "confidence": 0,
+   "p": 0,
+   "margin": 0,
+   "ms": 0,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-23.jpg"
+  },
+  {
+   "n": 24,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Edit\"",
+   "backend": "jev",
+   "confidence": 0.18,
+   "p": 0.24000000000000002,
+   "margin": 0.08000000000000002,
+   "ms": 2516.748041999992,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-24.jpg"
+  },
+  {
+   "n": 25,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Department: Any department. Choose…\" [collapsed, closed]",
+   "backend": "jev",
+   "confidence": 0.18,
+   "p": 0.19999999999999998,
+   "margin": 0.06999999999999998,
+   "ms": 2852.906624000054,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-25.jpg"
+  },
+  {
+   "n": 26,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"\"",
+   "backend": "jev",
+   "confidence": 0.16,
+   "p": 0.2,
+   "margin": 0.010000000000000009,
+   "ms": 2956.175500000012,
+   "escalated": true,
+   "cached": false,
+   "changed": false,
+   "shot": "step-26.jpg"
+  },
+  {
+   "n": 27,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "press Escape",
+   "backend": "jev",
+   "confidence": 0.55,
+   "p": 0.58,
+   "margin": 0.49999999999999994,
+   "ms": 3418.153708000027,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-27.jpg"
+  },
+  {
+   "n": 28,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Department: Any department. Choose…\" [collapsed, closed]",
+   "backend": "jev",
+   "confidence": 0.17,
+   "p": 0.19,
+   "margin": 0.04000000000000001,
+   "ms": 2760.739249999984,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-28.jpg"
+  },
+  {
+   "n": 29,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"<script>alert(1)</script>\"",
+   "backend": "clef",
+   "confidence": 0.27418096497649924,
+   "p": 0.37070870285449614,
+   "margin": 0.24665050153943702,
+   "ms": 3467.1743330000318,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-29.jpg"
+  },
+  {
+   "n": 30,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"<script>alert(1)</script>\"",
+   "backend": "clef",
+   "confidence": 0.3283198597776503,
+   "p": 0.48059879305902614,
+   "margin": 0.3940242850716329,
+   "ms": 3116.696957999957,
+   "escalated": false,
+   "cached": false,
+   "changed": false,
+   "shot": "step-30.jpg"
+  },
+  {
+   "n": 31,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Department: Any department. Choose…\" [expanded, open]",
+   "backend": "jev",
+   "confidence": 0.26,
+   "p": 0.3,
+   "margin": 0.21,
+   "ms": 3764.538876000035,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-31.jpg"
+  },
+  {
+   "n": 32,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"National\" [false]",
+   "backend": "jev",
+   "confidence": 0.13,
+   "p": 0.16,
+   "margin": 0.01999999999999999,
+   "ms": 3621.6406669999706,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-32.jpg"
+  },
+  {
+   "n": 33,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "checkbox \"Hide from\" [unchecked, off]",
+   "backend": "random",
+   "confidence": 0,
+   "p": 0,
+   "margin": 0,
+   "ms": 0,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-33.jpg"
+  },
+  {
+   "n": 34,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "press Escape",
+   "backend": "clef",
+   "confidence": 0.4531251211966101,
+   "p": 0.6270047658122967,
+   "margin": 0.5871463510925758,
+   "ms": 2785.1496669999906,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-34.jpg"
+  },
+  {
+   "n": 35,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Edit\"",
+   "backend": "random",
+   "confidence": 0,
+   "p": 0,
+   "margin": 0,
+   "ms": 0,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-35.jpg"
+  },
+  {
+   "n": 36,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"About this count\" [collapsed, closed]",
+   "backend": "random",
+   "confidence": 0,
+   "p": 0,
+   "margin": 0,
+   "ms": 0,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-36.jpg"
+  },
+  {
+   "n": 37,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Department: Any department. Choose…\" [collapsed, closed]",
+   "backend": "jev",
+   "confidence": 0.21,
+   "p": 0.24,
+   "margin": 0.09,
+   "ms": 26044.14745800005,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-37.jpg"
+  },
+  {
+   "n": 38,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"<script>alert(1)</script>\"",
+   "backend": "clef",
+   "confidence": 0.2787850700474426,
+   "p": 0.3489554116426095,
+   "margin": 0.22243412040840532,
+   "ms": 4185.495750000002,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-38.jpg"
+  },
+  {
+   "n": 39,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "press ArrowUp",
+   "backend": "random",
+   "confidence": 0,
+   "p": 0,
+   "margin": 0,
+   "ms": 0,
+   "escalated": false,
+   "cached": false,
+   "changed": false,
+   "shot": "step-39.jpg"
+  },
+  {
+   "n": 40,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "press Escape",
+   "backend": "random",
+   "confidence": 0,
+   "p": 0,
+   "margin": 0,
+   "ms": 0,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-40.jpg"
+  }
+ ],
+ "issues": [],
+ "stoppedBy": "max-steps"
+}

@@ -1,0 +1,332 @@
+{
+ "mission": "author-create-local-tabligh-nazim",
+ "ok": false,
+ "detail": "model gave up | final check: no matching section yet ([])",
+ "steps": 17,
+ "modelCalls": 33,
+ "wallMs": 47508,
+ "modelMs": 35814.969166999974,
+ "trace": [
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2)",
+   "label": "editor \"rich-text editor (document body)\""
+  },
+  {
+   "t": "type",
+   "text": "/",
+   "label": "type \"/\""
+  },
+  {
+   "t": "type",
+   "text": "role",
+   "label": "type \"role\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(10) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > button:nth-child(3)",
+   "label": "button \"Viewer's Role Fills in the viewer's role, or \"your role\"\""
+  },
+  {
+   "t": "press",
+   "key": "Enter"
+  },
+  {
+   "t": "press",
+   "key": "Enter"
+  },
+  {
+   "t": "type",
+   "text": "/",
+   "label": "type \"/\""
+  },
+  {
+   "t": "press",
+   "key": "ArrowDown"
+  },
+  {
+   "t": "type",
+   "text": "role",
+   "label": "type \"role\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(10) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > button:nth-child(3)",
+   "label": "button \"Viewer's Role Fills in the viewer's role, or \"your role\"\""
+  },
+  {
+   "t": "press",
+   "key": "Enter"
+  },
+  {
+   "t": "press",
+   "key": "Enter"
+  },
+  {
+   "t": "type",
+   "text": "/",
+   "label": "type \"/\""
+  },
+  {
+   "t": "press",
+   "key": "ArrowDown"
+  },
+  {
+   "t": "type",
+   "text": "role",
+   "label": "type \"role\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(10) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > button:nth-child(2)",
+   "label": "button \"Audience section Show this only to certain officeholders\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2)",
+   "label": "editor \"rich-text editor (document body)\""
+  }
+ ],
+ "log": [
+  {
+   "n": 1,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "editor \"rich-text editor (document body)\"",
+   "backend": "clef",
+   "confidence": 0.3319752859508809,
+   "p": 0.6290452723025304,
+   "margin": 0.49036824111911104,
+   "ms": 1294.6732499999998,
+   "escalated": false,
+   "cached": false,
+   "changed": false,
+   "shot": "step-01.jpg"
+  },
+  {
+   "n": 2,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"/\"",
+   "backend": "clef",
+   "confidence": 0.13333596005493176,
+   "p": 0.364854797924395,
+   "margin": 0.2674692300136875,
+   "ms": 1670.0427500000005,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-02.jpg"
+  },
+  {
+   "n": 3,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"role\"",
+   "backend": "jev",
+   "confidence": 0.26,
+   "p": 0.3,
+   "margin": 0.11999999999999997,
+   "ms": 2427.2590839999993,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-03.jpg"
+  },
+  {
+   "n": 4,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Viewer's Role Fills in the viewer's role, or \"your role\"\"",
+   "backend": "clef",
+   "confidence": 0.3117958260742003,
+   "p": 0.44166176379078553,
+   "margin": 0.20208448539782445,
+   "ms": 1318.7081669999989,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-04.jpg"
+  },
+  {
+   "n": 5,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "press Enter",
+   "backend": "jev",
+   "confidence": 0.42,
+   "p": 0.47,
+   "margin": 0.18,
+   "ms": 1409.3871249999993,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-05.jpg"
+  },
+  {
+   "n": 6,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "press Enter",
+   "backend": "jev",
+   "confidence": 0.23,
+   "p": 0.3,
+   "margin": 0.06999999999999998,
+   "ms": 1359.517832999998,
+   "escalated": true,
+   "cached": false,
+   "changed": false,
+   "shot": "step-06.jpg"
+  },
+  {
+   "n": 7,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"/\"",
+   "backend": "jev",
+   "confidence": 0.26,
+   "p": 0.33,
+   "margin": 0.12000000000000002,
+   "ms": 1725.6730419999967,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-07.jpg"
+  },
+  {
+   "n": 8,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "press ArrowDown",
+   "backend": "jev",
+   "confidence": 0.19,
+   "p": 0.23,
+   "margin": 0.11000000000000001,
+   "ms": 3597.2690409999996,
+   "escalated": true,
+   "cached": false,
+   "changed": false,
+   "shot": "step-08.jpg"
+  },
+  {
+   "n": 9,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"role\"",
+   "backend": "jev",
+   "confidence": 0.25,
+   "p": 0.29000000000000004,
+   "margin": 0.16000000000000003,
+   "ms": 2662.281332999999,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-09.jpg"
+  },
+  {
+   "n": 10,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Viewer's Role Fills in the viewer's role, or \"your role\"\"",
+   "backend": "jev",
+   "confidence": 0.48,
+   "p": 0.53,
+   "margin": 0.17000000000000004,
+   "ms": 1599.8679589999956,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-10.jpg"
+  },
+  {
+   "n": 11,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "press Enter",
+   "backend": "jev",
+   "confidence": 0.25,
+   "p": 0.31,
+   "margin": 0.12,
+   "ms": 2394.983,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-11.jpg"
+  },
+  {
+   "n": 12,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "press Enter",
+   "backend": "jev",
+   "confidence": 0.2,
+   "p": 0.26,
+   "margin": 0.05000000000000002,
+   "ms": 3570.7040830000005,
+   "escalated": true,
+   "cached": false,
+   "changed": false,
+   "shot": "step-12.jpg"
+  },
+  {
+   "n": 13,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"/\"",
+   "backend": "jev",
+   "confidence": 0.46,
+   "p": 0.5,
+   "margin": 0.4,
+   "ms": 1446.7123749999955,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-13.jpg"
+  },
+  {
+   "n": 14,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "press ArrowDown",
+   "backend": "jev",
+   "confidence": 0.21,
+   "p": 0.25,
+   "margin": 0.09,
+   "ms": 2591.360791999992,
+   "escalated": true,
+   "cached": false,
+   "changed": false,
+   "shot": "step-14.jpg"
+  },
+  {
+   "n": 15,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"role\"",
+   "backend": "jev",
+   "confidence": 0.29,
+   "p": 0.33,
+   "margin": 0.19,
+   "ms": 2145.5541660000017,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-15.jpg"
+  },
+  {
+   "n": 16,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Audience section Show this only to certain officeholders\"",
+   "backend": "jev",
+   "confidence": 0.45,
+   "p": 0.5,
+   "margin": 0.08999999999999997,
+   "ms": 1591.174291000003,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-16.jpg"
+  },
+  {
+   "n": 17,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "editor \"rich-text editor (document body)\"",
+   "backend": "jev",
+   "confidence": 0.15,
+   "p": 0.21,
+   "margin": 0.009999999999999981,
+   "ms": 1423.6266669999968,
+   "escalated": true,
+   "cached": false,
+   "changed": false,
+   "shot": "step-17.jpg"
+  }
+ ],
+ "issues": [],
+ "stoppedBy": "stuck"
+}

@@ -1,0 +1,53 @@
+{
+ "mission": "preview-as-regional-qaid-northeast",
+ "ok": true,
+ "detail": "bar: Viewing: Regional Qaid · Northeast",
+ "steps": 2,
+ "modelCalls": 3,
+ "wallMs": 2729,
+ "modelMs": 0,
+ "trace": [
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > button:nth-child(2)",
+   "label": "button \"Viewing: Everything (author view)\" [collapsed, closed]"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(11) > div:nth-child(1) > div:nth-child(1) > button:nth-child(6)",
+   "label": "button \"Regional Qaid · Northeast\""
+  }
+ ],
+ "log": [
+  {
+   "n": 1,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Viewing: Everything (author view)\" [collapsed, closed]",
+   "backend": "jev",
+   "confidence": 0.4,
+   "p": 0.45,
+   "margin": 0.16999999999999998,
+   "ms": 0,
+   "escalated": true,
+   "cached": true,
+   "changed": true,
+   "shot": "step-01.jpg"
+  },
+  {
+   "n": 2,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Regional Qaid · Northeast\"",
+   "backend": "clef",
+   "confidence": 0.7411353043763631,
+   "p": 0.8603281038225389,
+   "margin": 0.8462442008780137,
+   "ms": 0,
+   "escalated": false,
+   "cached": true,
+   "changed": true,
+   "shot": "step-02.jpg"
+  }
+ ],
+ "issues": [],
+ "stoppedBy": "success"
+}

@@ -1,0 +1,72 @@
+{
+ "mission": "preview-as-local-qaid-houston",
+ "ok": true,
+ "detail": "bar: Viewing: Local Qaid · Houston",
+ "steps": 3,
+ "modelCalls": 4,
+ "wallMs": 4520,
+ "modelMs": 966.760500000004,
+ "trace": [
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(3) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(1) > div:nth-child(3) > button:nth-child(2)",
+   "label": "button \"Preview\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > button:nth-child(2)",
+   "label": "button \"Viewing: As me\" [collapsed, closed]"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(11) > div:nth-child(1) > div:nth-child(1) > button:nth-child(5)",
+   "label": "button \"Local Qaid · Houston\""
+  }
+ ],
+ "log": [
+  {
+   "n": 1,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Preview\"",
+   "backend": "jev",
+   "confidence": 0.35,
+   "p": 0.4,
+   "margin": 0.07,
+   "ms": 0,
+   "escalated": true,
+   "cached": true,
+   "changed": true,
+   "shot": "step-01.jpg"
+  },
+  {
+   "n": 2,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Viewing: As me\" [collapsed, closed]",
+   "backend": "clef",
+   "confidence": 0.5461429271947402,
+   "p": 0.7433931502316622,
+   "margin": 0.6496405832927069,
+   "ms": 966.760500000004,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-02.jpg"
+  },
+  {
+   "n": 3,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Local Qaid · Houston\"",
+   "backend": "clef",
+   "confidence": 0.8632242704591847,
+   "p": 0.9406974402000359,
+   "margin": 0.9346908690867275,
+   "ms": 0,
+   "escalated": false,
+   "cached": true,
+   "changed": true,
+   "shot": "step-03.jpg"
+  }
+ ],
+ "issues": [],
+ "stoppedBy": "success"
+}

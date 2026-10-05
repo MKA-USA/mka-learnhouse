@@ -1,0 +1,53 @@
+{
+ "mission": "preview-as-regional-nazim-tabligh-northeast",
+ "ok": true,
+ "detail": "bar: Viewing: Regional Nazim Tabligh · Northeast",
+ "steps": 2,
+ "modelCalls": 3,
+ "wallMs": 3023,
+ "modelMs": 0,
+ "trace": [
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > button:nth-child(2)",
+   "label": "button \"Viewing: Everything (author view)\" [collapsed, closed]"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(11) > div:nth-child(1) > div:nth-child(1) > button:nth-child(8)",
+   "label": "button \"Regional Nazim Tabligh · Northeast\""
+  }
+ ],
+ "log": [
+  {
+   "n": 1,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Viewing: Everything (author view)\" [collapsed, closed]",
+   "backend": "jev",
+   "confidence": 0.43,
+   "p": 0.46,
+   "margin": 0.18,
+   "ms": 0,
+   "escalated": true,
+   "cached": true,
+   "changed": true,
+   "shot": "step-01.jpg"
+  },
+  {
+   "n": 2,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Regional Nazim Tabligh · Northeast\"",
+   "backend": "clef",
+   "confidence": 0.725539615598431,
+   "p": 0.8506617235242082,
+   "margin": 0.8368492540812161,
+   "ms": 0,
+   "escalated": false,
+   "cached": true,
+   "changed": true,
+   "shot": "step-02.jpg"
+  }
+ ],
+ "issues": [],
+ "stoppedBy": "success"
+}
