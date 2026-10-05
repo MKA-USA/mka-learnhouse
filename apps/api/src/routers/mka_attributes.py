@@ -14,12 +14,21 @@ every handler then decides):
                                    for the audit trail).
 
 Attributes are never writable by the user and never returned to other users.
+
+Audience block routes (contract docs/superpowers/specs/2026-10-05-mka-audience-contracts.md s2), all session-only
+(API tokens get 403) and ``Cache-Control: private, no-store``:
+
+* ``GET  /me?course_uuid=``          the viewer; ``can_view_all`` is also true for an author of THAT course.
+* ``GET  /options?org_id=``          picker vocabulary (any org member).
+* ``POST /audience/count``           aggregate audience size (superadmin / org admin / author of the course).
+* ``GET  /me/counterparts``          who to contact (viewer's own role mailboxes).
+* ``GET/POST /preview-people[...]``  org admin / maintainer / superadmin: find a person, read their effective attributes.
 """
 
-from typing import Optional
+from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from pydantic import BaseModel, ConfigDict, Field
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response
+from pydantic import BaseModel, ConfigDict, Field, StrictInt
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -35,12 +44,17 @@ from src.security.rbac.constants import ADMIN_OR_MAINTAINER_ROLE_IDS, is_admin
 from src.security.superadmin import is_user_superadmin
 from src.services.admin.admin import _require_api_token, _resolve_org_slug
 from src.services.mka import attributes as svc
+from src.services.mka import audience as audience_svc
+from src.services.mka.audience_config import build_options
+from src.services.mka.counterparts import counterparts_for
 from src.services.mka.token_rights import TOKEN_READ, TOKEN_WRITE, token_may
 
 router = APIRouter()
 
 REVIEW_STATUSES = ["unrecognized", "ambiguous", "partial"]
 MAX_ROSTER_IMPORT = 1000
+MAX_DB_INT = 2_147_483_647  # ids are int4: a bigger number is a 422, never a database error
+NO_STORE = "private, no-store"
 
 
 # ---------------------------------------------------------------------------
@@ -76,6 +90,14 @@ class RecomputeIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     dry_run: bool = False
+
+
+class AudienceCountIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    org_id: StrictInt = Field(ge=1, le=MAX_DB_INT)
+    course_uuid: Optional[str] = Field(default=None, max_length=200)
+    rule: Any  # raw on purpose: audience_eval.validate_rule is the one validator (invalid => 422 with its message)
 
 
 # ---------------------------------------------------------------------------
@@ -153,19 +175,21 @@ def _bad_request(exc: ValueError) -> HTTPException:
 
 @router.get("/me")
 async def api_get_me(
+    request: Request,
     response: Response,
+    course_uuid: Optional[str] = Query(None, max_length=200, description="Audience block: also grant can_view_all to an author of THIS course"),
     current_user=Depends(get_authenticated_user),
     db_session: AsyncSession = Depends(get_db_session),
 ) -> dict:
     """The signed-in user's own effective attributes (no source / flag metadata).
 
-    A user with no stored row yet is reported as ``unrecognized`` (unknown), never
-    as "not an officeholder". ``can_view_all`` is true for org admins/maintainers and
-    superadmins. UNVERIFIED/not implemented: the course author/maintainer check
-    from spec A7 (no verified symbol); it is added with the web evaluator (M3).
+    A user with no stored row yet is reported as ``unrecognized`` (unknown), never as "not an officeholder".
+    ``can_view_all`` is true for org admins/maintainers (of any org) and superadmins and, when ``course_uuid`` names a course the
+    user ACTIVELY authors (CREATOR/MAINTAINER/CONTRIBUTOR, passing the upstream ``update`` check, member of the course's org),
+    for that course. An unknown course_uuid is ignored: no 404, no elevation, no information.
     """
     uid = _uid(current_user)
-    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["Cache-Control"] = NO_STORE
     me = await db_session.get(User, uid)
     attrs, stale = svc.read_effective_from_row(await svc.get_row(db_session, uid), me)  # fails closed
     can_view_all = await is_user_superadmin(uid, db_session)
@@ -178,12 +202,90 @@ async def api_get_me(
                 )
             )
         ).first() is not None
+    if not can_view_all and course_uuid:
+        can_view_all = await audience_svc.author_can_view_all(request, uid, course_uuid, db_session)
     return {
         "attributes": attrs,
         "stale": stale,
         "can_view_all": can_view_all,
         "rules_version": svc.get_rules().version,
     }
+
+
+# ---------------------------------------------------------------------------
+# audience block (contract s2): options, count, counterparts, preview-as
+# ---------------------------------------------------------------------------
+
+@router.get("/options")
+async def api_audience_options(
+    response: Response,
+    org_id: int = Query(..., ge=1, le=MAX_DB_INT),
+    current_user=Depends(get_authenticated_user),
+    db_session: AsyncSession = Depends(get_db_session),
+) -> dict:
+    """Picker vocabulary: levels, departments, roles, regions, Majlis, presets, personas, copy. Any member of the org."""
+    await audience_svc.require_org_member(current_user, org_id, db_session)
+    response.headers["Cache-Control"] = NO_STORE
+    return build_options(svc.get_rules())
+
+
+@router.post("/audience/count")
+async def api_audience_count(
+    request: Request,
+    response: Response,
+    body: AudienceCountIn,
+    current_user=Depends(get_authenticated_user),
+    db_session: AsyncSession = Depends(get_db_session),
+) -> dict:
+    """How many members of the org the rule currently reaches. Aggregates only (never names). Authors count only for THEIR course."""
+    await audience_svc.course_author_or_admin(request, current_user, body.org_id, body.course_uuid, db_session)
+    rule = audience_svc.parse_rule_or_422(body.rule)
+    response.headers["Cache-Control"] = NO_STORE
+    return await audience_svc.count_audience(db_session, body.org_id, rule)
+
+
+@router.get("/me/counterparts")
+async def api_get_counterparts(
+    response: Response,
+    current_user=Depends(get_authenticated_user),
+    db_session: AsyncSession = Depends(get_db_session),
+) -> dict:
+    """The viewer's department-head / regional-Qaid / Majlis-nazim mailboxes, from the identity rules (never someone else's data)."""
+    uid = _uid(current_user)
+    response.headers["Cache-Control"] = NO_STORE
+    me = await db_session.get(User, uid)
+    attrs, _stale = svc.read_effective_from_row(await svc.get_row(db_session, uid), me)  # fails closed
+    return counterparts_for(attrs, svc.get_rules(), own_email=me.email)  # type: ignore[union-attr]
+
+
+@router.get("/preview-people")
+async def api_preview_people(
+    response: Response,
+    org_id: int = Query(..., ge=1, le=MAX_DB_INT),
+    q: str = Query(..., min_length=2, max_length=100),
+    current_user=Depends(get_authenticated_user),
+    db_session: AsyncSession = Depends(get_db_session),
+) -> dict:
+    """Find an org member to preview as. Org admin / maintainer / superadmin only. At most 20; no attributes in the list."""
+    await audience_svc.require_org_admin(current_user, org_id, db_session)
+    if len(q.strip()) < 2:
+        raise HTTPException(status_code=422, detail="q must have at least 2 characters")
+    response.headers["Cache-Control"] = NO_STORE
+    return {"people": await audience_svc.search_people(db_session, org_id, q)}
+
+
+@router.post("/preview-people/{user_id}")
+async def api_preview_person(
+    response: Response,
+    user_id: int = Path(..., ge=1, le=MAX_DB_INT),
+    org_id: int = Query(..., ge=1, le=MAX_DB_INT),
+    current_user=Depends(get_authenticated_user),
+    db_session: AsyncSession = Depends(get_db_session),
+) -> dict:
+    """The person's EFFECTIVE attributes (fail-closed reader), audited as ``preview_as`` with the admin as actor."""
+    actor = await audience_svc.require_org_admin(current_user, org_id, db_session)
+    response.headers["Cache-Control"] = NO_STORE
+    return await audience_svc.preview_person(db_session, org_id, actor, user_id)
 
 
 # ---------------------------------------------------------------------------

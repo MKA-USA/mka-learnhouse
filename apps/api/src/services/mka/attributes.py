@@ -46,7 +46,7 @@ LAYER_FIELDS = (
     "status", "is_officeholder", "level", "department", "role", "role_title", "majlis", "region",
 )
 PUBLIC_FIELDS = LAYER_FIELDS  # what /me returns (no source, no flags)
-AUDIT_ACTIONS = ("derive", "recompute", "override_set", "override_clear", "roster_apply")
+AUDIT_ACTIONS = ("derive", "recompute", "override_set", "override_clear", "roster_apply", "preview_as")
 
 _PRESERVE_FLAGS_DROP = {"needs_review", "ambiguous_slug", "unconfirmed_slug"}
 
