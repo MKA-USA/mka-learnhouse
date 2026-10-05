@@ -1,6 +1,7 @@
 {
   "body": {
     "candidates": 4,
+    "cooldown_days": 3,
     "disabled": 0,
     "dry_run": true,
     "enabled": true,
@@ -10,6 +11,7 @@
     "remaining": 0,
     "sent": 0,
     "skipped_attested": 1,
+    "skipped_cooldown": 0,
     "skipped_excluded": 0,
     "skipped_recent": 0,
     "stopped": null,

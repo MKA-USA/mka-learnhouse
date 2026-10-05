@@ -284,8 +284,7 @@ async def test_at_most_one_manual_remind_per_course_per_24h(db, org, world, tran
 
 
 async def test_the_weekly_per_person_cap_is_honoured(db, org, world, transport, on, monkeypatch):
-    """Manual reminders are their own allowance per person AND course (review M3): a second remind of the SAME
-    course in the same week reaches nobody again, while another course is a separate email."""
+    """A second remind reaches nobody again inside the cooldown (round 2 N3), for the same course or another."""
     monkeypatch.delenv("MKA_AUTOMATION_TEST_RECIPIENT")  # real mode: the cap counts real reminders
     async with client_for(db, 1) as c:
         first = await real(c, GENERAL, org)
@@ -296,8 +295,9 @@ async def test_the_weekly_per_person_cap_is_honoured(db, org, world, transport, 
         other_course = await real(c, TABLIGH, org)  # another course: its own email
     assert again.status_code == 200 and again.json()["sent"] == 0 and again.json()["skipped_recent"] == 8
     assert preview.json()["would_send"] == 0 and preview.json()["skipped_recent"] == 8
-    assert other_course.json()["sent"] == 4 and other_course.json()["skipped_attested"] == 1
-    assert len(transport.calls) == 8 + 4
+    # a person is mailed at most once per cooldown, whatever the course: the other course reaches nobody new
+    assert other_course.json()["sent"] == 0 and other_course.json()["skipped_cooldown"] == 4
+    assert len(transport.calls) == 8
 
 
 async def test_a_disabled_feature_cannot_send_and_does_not_burn_the_24h_slot(db, org, world, transport, monkeypatch):

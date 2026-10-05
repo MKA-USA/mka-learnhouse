@@ -17,7 +17,7 @@ const fx = (name) => JSON.parse(readFileSync(join(import.meta.dir, "fixtures", "
 const SHAPE = {
   dry_run: "boolean", enabled: "boolean", test_mode: "boolean", candidates: "number", would_send: "number", sent: "number",
   skipped_recent: "number", skipped_attested: "number", skipped_excluded: "number", suppressed: "number", failed: "number",
-  disabled: "number", stopped: "string?", remaining: "number", time_budget_hit: "boolean", quarantined: "number", preview_digest: "string?",
+  disabled: "number", stopped: "string?", remaining: "number", time_budget_hit: "boolean", quarantined: "number", skipped_cooldown: "number", cooldown_days: "number", preview_digest: "string?",
 };
 function problems(body) {
   const out = [];
@@ -216,5 +216,17 @@ describe("the real send is tied to the preview (review M4)", () => {
     expect(h).toContain("The list changed since you looked at it");
     expect(h).toContain(">Review the list again</button>");
     expect(h).not.toContain("Send ");
+  });
+});
+
+describe("skipped wording: cooldown and quarantine (round 2 N1/N3)", () => {
+  const base = { skipped_recent: 6, skipped_attested: 0, skipped_excluded: 0, suppressed: 0, failed: 0 };
+  test("people inside the cooldown are named as such, with the number of days", () => {
+    expect(remindSkipped({ ...base, skipped_cooldown: 6, cooldown_days: 3 })).toBe("6 skipped: reminded in the last 3 days");
+    expect(remindSkipped({ ...base, skipped_cooldown: 2, cooldown_days: 1 })).toBe("6 skipped: 4 already reminded this week, 2 reminded in the last 1 day");
+  });
+  test("a failing address is called out and older responses still read fine", () => {
+    expect(remindSkipped({ ...base, skipped_recent: 0, quarantined: 2 })).toBe("2 skipped: address keeps failing");
+    expect(remindSkipped(base)).toBe("6 skipped: already reminded this week");
   });
 });

@@ -184,6 +184,16 @@ def reminder_max_address_failures() -> int:
     return _int("MKA_REMINDER_MAX_ADDRESS_FAILURES", 3, 1)
 
 
+def reminder_cooldown_days() -> int:
+    """At most ONE reminder email of any kind (scheduled or manual) per person per this many days (default 3)."""
+    return _int("MKA_REMINDER_COOLDOWN_DAYS", 3, 1)
+
+
+def reminder_overdue_weeks() -> int:
+    """Scheduled OVERDUE reminders stop this many weeks after the cycle deadline (default 4); the Monday digest goes on."""
+    return _int("MKA_REMINDER_OVERDUE_WEEKS", 4, 1)
+
+
 def claim_lease_seconds() -> int:
     """A ``queued`` send-log claim older than this is presumed crashed and may be re-claimed once (default 900)."""
     return _int("MKA_AUTOMATION_CLAIM_LEASE_SECONDS", 900, 1)
@@ -308,5 +318,7 @@ def status_snapshot() -> dict:
         "reminder_window_days": reminder_window_days(),
         "claim_lease_seconds": claim_lease_seconds(),
         "reminder_max_address_failures": reminder_max_address_failures(),
+        "reminder_cooldown_days": reminder_cooldown_days(),
+        "reminder_overdue_weeks": reminder_overdue_weeks(),
         "weekly_reminder_cap": weekly_reminder_cap(),
     }

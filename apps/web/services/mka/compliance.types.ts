@@ -206,6 +206,9 @@ export interface RemindResponse {
   time_budget_hit: boolean
   /** Addresses skipped because their reminders keep failing (they are listed as 'address failing' in the Monday digest). */
   quarantined: number
+  /** Part of `skipped_recent`: people left out because ANY reminder reached them within `cooldown_days`. */
+  skipped_cooldown: number
+  cooldown_days: number
   /** Preview only: fingerprint of the list shown. A real send must pass it back; the API refuses (409) when the list changed. */
   preview_digest: string | null
 }

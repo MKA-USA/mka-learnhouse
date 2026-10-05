@@ -106,7 +106,8 @@ export function RemindDialogView({
         </p>
       ) : null}
       <p className="text-xs text-gray-500">
-        Each person gets at most one reminder a week, and a course can be reminded once every 24 hours.
+        Each person gets at most one reminder every {data.cooldown_days ?? 3} days, and a course can be reminded once
+        every 24 hours.
       </p>
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
         <Button type="button" variant="outline" onClick={onClose} disabled={sending}>

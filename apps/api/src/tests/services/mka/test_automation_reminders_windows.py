@@ -196,3 +196,35 @@ async def test_a_dry_run_ignores_the_budget_and_reports_nothing_remaining(db, or
     rep = await go(db, utc(2026, 11, 15), org)
     assert rep["reminder"]["would_send"] == CANDIDATES and rep["reminder"]["remaining"] == 0
     assert rep["_all"]["time_budget_hit"] is False
+
+
+# --- the same rules in REAL mode (the weekly cap and the cooldown are only enforced outside test mode) --------------
+
+
+async def test_real_mode_window_reminds_each_person_once_across_two_iso_weeks(db, org, world, transport, on, windowed, monkeypatch):  # noqa: F811
+    monkeypatch.setenv("MKA_AUTOMATION_RUN_SEND_CAP", "3")
+    reports = [(await go(db, utc(2026, 11, d), org, dry_run=False))["reminder"] for d in (8, 9, 10, 11)]  # Sun .. Wed
+    assert [r["sent"] for r in reports] == [3, 3, CANDIDATES - 6, 0]
+    rows = await log_rows(db, org_id=org.id, kind="reminder")
+    assert len(rows) == CANDIDATES and not any(r.test_mode for r in rows)
+    assert {m["to"] for m in transport.calls if "example.invalid" in m["to"]} >= {r.intended_email for r in rows}
+
+
+async def test_real_mode_weekly_cap_blocks_a_second_scheduled_reminder_in_the_same_iso_week(db, org, world, transport, on, monkeypatch):  # noqa: F811
+    monkeypatch.setenv("MKA_REMINDER_SCHEDULE", "11-10,11-13")  # Tue and Fri of week 46, one-day windows
+    monkeypatch.setenv("MKA_REMINDER_COOLDOWN_DAYS", "1")  # so only the WEEKLY rule can hold the second one back
+    first = (await go(db, utc(2026, 11, 10), org, dry_run=False))["reminder"]
+    second = (await go(db, utc(2026, 11, 13), org, dry_run=False))["reminder"]
+    assert first["sent"] == CANDIDATES and second["sent"] == 0 and second["skipped_recent"] == CANDIDATES
+    assert second["skipped_cooldown"] == 0
+
+
+async def test_real_mode_cooldown_holds_back_a_second_reminder_across_the_week_boundary(db, org, world, transport, on, monkeypatch):  # noqa: F811
+    monkeypatch.setenv("MKA_REMINDER_SCHEDULE", "11-15,11-16")  # Sunday (week 46) then Monday (week 47): a NEW week
+    first = (await go(db, utc(2026, 11, 15), org, dry_run=False))["reminder"]
+    monday = (await go(db, utc(2026, 11, 16), org, dry_run=False))["reminder"]
+    assert first["sent"] == CANDIDATES
+    assert monday["sent"] == 0 and monday["skipped_cooldown"] == CANDIDATES  # the weekly cap would allow it; the cooldown does not
+    monkeypatch.setenv("MKA_REMINDER_COOLDOWN_DAYS", "1")
+    later = (await go(db, utc(2026, 11, 16, 16), org, dry_run=False))["reminder"]  # 25 h after the first, new ISO week
+    assert later["sent"] == CANDIDATES

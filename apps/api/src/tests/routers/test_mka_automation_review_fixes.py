@@ -72,20 +72,56 @@ def real_mode(monkeypatch):
     monkeypatch.setenv("MKA_REMINDER_SCHEDULE", "11-16")  # today (MON) is a scheduled reminder day
 
 
-async def test_a_manual_remind_does_not_use_up_the_scheduled_weekly_reminder(db, org, world, transport, on, real_mode):  # noqa: F811
-    async with client_for(db, 1) as c:
-        manual = await real(c, TABLIGH, org)  # one course only
-    assert manual.status_code == 200 and manual.json()["sent"] == 4
+async def test_scheduled_then_manual_on_the_same_day_is_one_email_per_person(db, org, world, transport, on, real_mode):  # noqa: F811
     report = await rem.run_all(db, dry_run=False, kind="reminder", now=MON)
     mine = next(o for o in report["orgs"] if o["org_id"] == org.id)["reminder"]
-    # everybody outstanding in the org is still reminded by the scheduled run, including the 4 manual recipients
-    assert mine["sent"] == mine["candidates"] == 8 and mine["skipped_recent"] == 0
+    assert mine["sent"] == 8
+    async with client_for(db, 1) as c:
+        preview = await c.post(TABLIGH, params=q(org))
+        assert preview.json()["would_send"] == 0 and preview.json()["skipped_cooldown"] == 4
+        assert preview.json()["cooldown_days"] == 3
+        manual = await real(c, TABLIGH, org)
+    assert manual.json()["sent"] == 0 and manual.json()["skipped_recent"] == 4
+    assert len([t for t in transport.calls if "l2@example.invalid" in t["to"]]) == 1
 
 
-async def test_manual_keys_are_per_course_and_per_week(db, org, world, transport, on, real_mode):  # noqa: F811
+async def test_manual_then_scheduled_the_same_day_skips_the_manual_recipients_but_not_the_rest(db, org, world, transport, on, real_mode):  # noqa: F811
+    async with client_for(db, 1) as c:
+        assert (await real(c, TABLIGH, org)).json()["sent"] == 4
+    report = await rem.run_all(db, dry_run=False, kind="reminder", now=MON)
+    mine = next(o for o in report["orgs"] if o["org_id"] == org.id)["reminder"]
+    assert mine["sent"] == 4 and mine["skipped_cooldown"] == 4 and mine["candidates"] == 8
+
+
+async def test_a_manual_recipient_still_gets_the_scheduled_reminder_after_the_cooldown(db, org, world, transport, on, real_mode, monkeypatch):  # noqa: F811
+    monkeypatch.setenv("MKA_REMINDER_WINDOW_DAYS", "4")  # window 11-16 .. 11-19; the manual remind was on day 1
+    async with client_for(db, 1) as c:
+        await real(c, TABLIGH, org)
+    await rem.run_all(db, dry_run=False, kind="reminder", now=MON)  # day 1: the 4 are in their cooldown
+    day2 = await rem.run_all(db, dry_run=False, kind="reminder", now=MON + timedelta(days=1))
+    assert next(o for o in day2["orgs"] if o["org_id"] == org.id)["reminder"]["sent"] == 0  # still cooling down
+    day4 = await rem.run_all(db, dry_run=False, kind="reminder", now=MON + timedelta(days=3))  # window day 4
+    mine = next(o for o in day4["orgs"] if o["org_id"] == org.id)["reminder"]
+    assert mine["sent"] == 4 and mine["skipped_cooldown"] == 0
+    # the manual rows did not spend the weekly SCHEDULED slot: each of the 8 has exactly one scheduled row
+    scheduled = [r for r in (await db.execute(select(MkaAutomationSendLog))).scalars().all()
+                 if r.org_id == org.id and r.dedupe_key.startswith("reminder:")]
+    assert len(scheduled) == 8
+
+
+async def test_the_cooldown_is_configurable(db, org, world, transport, on, real_mode, monkeypatch):  # noqa: F811
+    monkeypatch.setenv("MKA_REMINDER_COOLDOWN_DAYS", "1")
+    async with client_for(db, 1) as c:
+        await real(c, TABLIGH, org)
+    report = await rem.run_all(db, dry_run=False, kind="reminder", now=MON + timedelta(days=1))
+    assert next(o for o in report["orgs"] if o["org_id"] == org.id)["reminder"]["skipped_cooldown"] == 0
+
+
+async def test_manual_keys_are_per_course_and_per_week(db, org, world, transport, on, real_mode, monkeypatch):  # noqa: F811
     async with client_for(db, 1) as c:
         t1 = await real(c, TABLIGH, org)
-        g1 = await real(c, GENERAL, org)  # same people, another course: its own slot
+        monkeypatch.setattr(rem, "current_instant", lambda: MON + timedelta(days=4))  # past the cooldown, same week
+        g1 = await real(c, GENERAL, org)
     assert t1.json()["sent"] == 4 and g1.json()["sent"] == 8
     keys = sorted(r.dedupe_key for r in (await db.execute(select(MkaAutomationSendLog))).scalars().all())
     assert all(k.startswith("manual:") for k in keys) and len(keys) == 12

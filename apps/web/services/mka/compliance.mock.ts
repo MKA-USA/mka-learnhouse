@@ -469,6 +469,6 @@ export async function mockRemind(uuid: string, dryRun: boolean): Promise<RemindR
     dry_run: dryRun, enabled: true, test_mode: true, candidates: outstanding,
     would_send: dryRun ? wouldSend : 0, sent: dryRun ? 0 : wouldSend, skipped_recent: recent,
     skipped_attested: attested, skipped_excluded: 0, suppressed: 0, failed: 0, disabled: 0, stopped: null,
-    remaining: 0, time_budget_hit: false, quarantined: 0, preview_digest: dryRun ? `mock-${course.course_uuid}` : null,
+    remaining: 0, time_budget_hit: false, quarantined: 0, skipped_cooldown: 0, cooldown_days: 3, preview_digest: dryRun ? `mock-${course.course_uuid}` : null,
   }
 }

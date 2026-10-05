@@ -310,12 +310,18 @@ export function remindHeadline(r: Pick<RemindResponse, 'dry_run' | 'would_send' 
 }
 
 /** "5 skipped: already reminded this week" (one reason) / "7 skipped: 5 already reminded this week, 2 already signed off". */
-export function remindSkipped(r: Pick<RemindResponse, 'skipped_recent' | 'skipped_attested' | 'skipped_excluded' | 'suppressed' | 'failed'>): string | null {
+export function remindSkipped(
+  r: Pick<RemindResponse, 'skipped_recent' | 'skipped_attested' | 'skipped_excluded' | 'suppressed' | 'failed'> &
+    Partial<Pick<RemindResponse, 'skipped_cooldown' | 'cooldown_days' | 'quarantined'>>,
+): string | null {
+  const cool = Math.min(r.skipped_cooldown ?? 0, r.skipped_recent)
   const reasons: [number, string][] = [
-    [r.skipped_recent, 'already reminded this week'],
+    [r.skipped_recent - cool, 'already reminded this week'],
+    [cool, `reminded in the last ${plural(r.cooldown_days ?? 3, 'day', 'days')}`],
     [r.skipped_attested, 'already signed off'],
     [r.skipped_excluded, 'in a department that is not reminded'],
     [r.suppressed, 'no deliverable address'],
+    [r.quarantined ?? 0, 'address keeps failing'],
   ]
   const parts = reasons.filter(([n]) => n > 0)
   const total = parts.reduce((a, [n]) => a + n, 0)

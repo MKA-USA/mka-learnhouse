@@ -181,6 +181,7 @@ def _blank_counts() -> dict:
         "would_send": 0, "sent": 0, "skipped_recent": 0, "skipped_attested": 0, "skipped_excluded": 0,
         "suppressed": 0, "failed": 0, "disabled": 0, "stopped": None, "disabled_reason": None,
         "remaining": 0, "time_budget_hit": False, "quarantined": 0,
+        "skipped_cooldown": 0,
     }
 
 
@@ -198,6 +199,7 @@ class Selection:
     key_week: str  # ISO week label used in the dedupe key (scheduled: the window's first week)
     already: int  # people dropped because they were already reminded in this window / week
     quarantined: int = 0  # people dropped because their address keeps failing (review N1)
+    cooled: int = 0  # people dropped because ANY reminder (scheduled or manual) reached them inside the cooldown (N3)
     last_sent: dict = field(default_factory=dict)
 
 
@@ -225,15 +227,21 @@ async def select_pending(
         excluded_people = {e for e, last in last_sent.items() if last is not None and last >= cutoff}
     # Addresses whose sends keep failing (review N1) are quarantined; the ones with some recent failure go LAST so a few
     # bad mailboxes can never sit at the head of the queue and trip the consecutive-failure stop for everybody else.
+    # Cross-kind cooldown (review N3): one reminder email of ANY kind per person per MKA_REMINDER_COOLDOWN_DAYS. A manual
+    # remind never spends the scheduled weekly slot (those are the separate checks above) but it does start a cooldown,
+    # so the person is not mailed again within days, and the scheduled reminder follows later in the window / week.
+    cool_cut = _naive_utc(now) - timedelta(days=cfg.reminder_cooldown_days())
+    any_last = await reminder_rows_by_person(db, org_id, key_like="%", test_mode=test_mode)
+    cooled = {e for e, last in any_last.items() if last is not None and last > cool_cut} - excluded_people
     fails = await failing_addresses(db, org_id, test_mode=test_mode, now=now)
     limit = cfg.reminder_max_address_failures()
-    quarantined = {e for e in people if e not in excluded_people and fails.get(e, 0) >= limit}
+    quarantined = {e for e in people if e not in excluded_people and e not in cooled and fails.get(e, 0) >= limit}
     pending = sorted(
-        (e for e in people if e not in excluded_people and e not in quarantined),
+        (e for e in people if e not in excluded_people and e not in cooled and e not in quarantined),
         key=lambda e: (fails.get(e, 0) > 0, last_sent.get(e) or datetime.min, e),
     )
     already = sum(1 for e in people if e in excluded_people)
-    return Selection(pending, key_week, already, len(quarantined), last_sent)
+    return Selection(pending, key_week, already, len(quarantined), sum(1 for e in people if e in cooled), last_sent)
 
 
 async def _send_reminders(
@@ -254,7 +262,8 @@ async def _send_reminders(
     )
     week = current_iso_week(now)
     pending = sel.pending
-    counts["skipped_recent"] += sel.already
+    counts["skipped_recent"] += sel.already + sel.cooled
+    counts["skipped_cooldown"] += sel.cooled
     counts["quarantined"] += sel.quarantined
     for index, email in enumerate(pending):
         p = people[email]
@@ -635,5 +644,5 @@ async def remind_course(
     return {
         "dry_run": dry_run, "enabled": cfg.reminders_enabled(), "test_mode": cfg.status_snapshot()["test_mode"],
         "candidates": len(people), **{k: v for k, v in counts.items() if k != "disabled_reason"},
-        "preview_digest": digest if dry_run else None,
+        "preview_digest": digest if dry_run else None, "cooldown_days": cfg.reminder_cooldown_days(),
     }
