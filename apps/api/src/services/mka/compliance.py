@@ -114,7 +114,6 @@ def _round1(x: float) -> float:
 # trust model: a row exists, is not stale, ``email_seen`` equals the account's CURRENT email (so changing the profile
 # email to a role address breaks the match) and the Workspace proof (``verified_hd``) covers that address's domain.
 # SQL narrows the candidates; ``_proven`` re-checks each with the attributes module's own ``is_stale``.
-# TODO(W1a): swap ``_proven`` for the attributes ``verified_email`` helper once it is exported.
 def _candidate_filter():
     return (
         MkaUserAttributes.user_id == User.id,
@@ -125,12 +124,8 @@ def _candidate_filter():
 
 
 def _proven(row: MkaUserAttributes, user: User) -> bool:
-    email = attrs.normalize_email(user.email)
-    return (
-        row.email_seen == email
-        and (row.verified_hd or "") == email.rsplit("@", 1)[-1]
-        and not attrs.is_stale(row, user)
-    )
+    """Per-address Workspace proof, delegated to the attributes module (single source of truth)."""
+    return attrs.is_address_proven(row, user)
 
 
 def _roster_users(org_id: int, cycle_id: int):
