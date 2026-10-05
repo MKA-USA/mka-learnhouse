@@ -183,11 +183,12 @@ async def count_audience(db: AsyncSession, org_id: int, rule: dict) -> dict:
                 )
             )
         ).scalars().all()
-        expected = {
-            "matching": sum(1 for r in rows if evaluate_validated(rule, _expected_viewer(r))),
-            "total": len(rows),
-            "cycle_id": cycle.id,
-        }
+        # People, not rows: a person may hold several roster rows (one per role) and counts once; they match if ANY row does.
+        people: dict[str, bool] = {}
+        for r in rows:
+            key = (r.email or "").strip().lower()
+            people[key] = people.get(key, False) or evaluate_validated(rule, _expected_viewer(r))
+        expected = {"matching": sum(people.values()), "total": len(people), "cycle_id": cycle.id}
     return {
         "count": count, "total_officeholders": total_officeholders, "unrecognized": unrecognized,
         "by_level": by_level, "expected": expected,

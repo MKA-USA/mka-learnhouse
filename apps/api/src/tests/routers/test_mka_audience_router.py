@@ -733,3 +733,17 @@ async def test_search_matches_full_name_and_email_case_insensitively(db, world):
         assert [p["user_id"] for p in got] == [31], q
     assert (await audience_svc.search_people(db, 1, "sample person"))[0]["display_name"] == "Sample Person"
 
+
+
+@pytest.mark.asyncio
+async def test_count_expected_counts_distinct_people_not_rows(db, world):
+    # one person with two roster rows (different roles/emails in different case): counted once; matches if ANY row matches
+    for dept, level, majlis, region, role in (("tabligh", "local", "Albany", "Northeast", "Nazim Tabligh"), ("maal", "regional", None, "Northeast", "Regional Nazim Maal")):
+        db.add(MkaComplianceExpected(org_id=1, cycle_id=world.cycle.id, email="Dual.Role@example.invalid" if dept == "maal" else "dual.role@example.invalid",
+                                     department=dept, level=level, majlis=majlis, region=region, role_title=role))
+    await db.commit()
+    base = {"department": 5, "total": 10}
+    tab = (await count(db, ADMIN, {"v": 1, "mode": "show", "groups": [{"department": ["tabligh"]}]})).json()["expected"]
+    assert tab == {"matching": base["department"] + 1, "total": base["total"] + 1, "cycle_id": world.cycle.id}  # 12 rows, 11 people
+    both = (await count(db, ADMIN, {"v": 1, "mode": "show", "groups": [{"department": ["tabligh"]}, {"department": ["maal"]}]})).json()["expected"]
+    assert both["matching"] == 5 + 3 + 1 and both["total"] == 11  # l3, l4, ghost2 (maal) + the dual person once
