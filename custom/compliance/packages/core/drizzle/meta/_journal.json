@@ -29,6 +29,13 @@
       "when": 1791167616945,
       "tag": "0003_outgoing_lake",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791172710320,
+      "tag": "0004_closed_black_queen",
+      "breakpoints": true
     }
   ]
 }

@@ -10,7 +10,7 @@ export const ATFAL_DOMAIN = "atfalusa.org";
 export interface RosterRow {
   departmentSlug: string; role: string; level: "national" | "region" | "majlis";
   region: string; majlis: string; roleTitle: string; learnerEmail: string;
-  personName?: string | null; source: string; flags?: string[]; slot?: string;
+  personName?: string | null; source: string; flags?: string[]; slot?: string; appointedOn?: string | null;
 }
 
 export const MAJLIS_TO_REGION: Record<string, string> = majlisData.majlis_to_region;

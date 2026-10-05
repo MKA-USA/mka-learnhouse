@@ -15,6 +15,8 @@ export const directoryOverride = pgTable(
     learnerEmail: text("learner_email"),
     personName: text("person_name"),
     note: text("note"),
+    /** YYYY-MM-DD: mid-year appointee (due = appointed_on + window in the fork scoring). */
+    appointedOn: text("appointed_on"),
     createdBy: text("created_by"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },

@@ -7,7 +7,7 @@ import { slugify } from "../roster/generate";
 
 export interface OverrideInput {
   departmentSlug: string; level: "national" | "region" | "majlis"; role: string; region: string; majlis: string;
-  learnerEmail: string | null; personName: string | null; note: string | null;
+  learnerEmail: string | null; personName: string | null; note: string | null; appointedOn: string | null;
 }
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const FILE = "directory_overrides.csv";
@@ -58,9 +58,11 @@ export function parseOverrides(csv: string, file = FILE): { rows: OverrideInput[
       if (first !== undefined) issues.push({ file, line: r.line, severity: "warn", code: "duplicate-mailbox", message: `${email} also used on line ${first}` });
       else emailSeen.set(email, r.line);
     }
+    let appointedOn: string | null = get("appointed_on") || null;
+    if (appointedOn && !/^\d{4}-\d{2}-\d{2}$/.test(appointedOn)) { issues.push({ file, line: r.line, severity: "warn", code: "bad-date", message: `appointed_on "${appointedOn}" is not YYYY-MM-DD; ignored` }); appointedOn = null; }
     const key = [dept, level, get("role"), region, majlis].join("|");
     if (out.has(key)) issues.push({ file, line: r.line, severity: "warn", code: "duplicate-key", message: `duplicate override for ${key}; later row wins` });
-    out.set(key, { departmentSlug: dept, level, role: get("role"), region, majlis, learnerEmail: email, personName: get("person_name") || null, note: get("note") || null });
+    out.set(key, { departmentSlug: dept, level, role: get("role"), region, majlis, learnerEmail: email, personName: get("person_name") || null, note: get("note") || null, appointedOn });
   }
   return { rows: [...out.values()], issues };
 }
@@ -76,6 +78,7 @@ export function applyOverrides<T extends RosterRow>(roster: T[], overrides: Over
     const m = matches[0]!;
     if (o.learnerEmail) m.learnerEmail = o.learnerEmail;
     if (o.personName) m.personName = o.personName;
+    if (o.appointedOn) m.appointedOn = o.appointedOn;
     m.source = "override";
   }
   return { roster: out, issues };

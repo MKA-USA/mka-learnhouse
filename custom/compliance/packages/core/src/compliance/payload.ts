@@ -15,7 +15,7 @@ export const forkLevel = (l: RosterRow["level"]): (typeof FORK_LEVELS)[number] =
 
 export interface ExpectedRowPayload {
   email: string; department: string; level: string; majlis: string | null; region: string | null; role_title: string;
-  person_name: string | null; source: string; formula_unconfirmed: boolean;
+  person_name: string | null; source: string; formula_unconfirmed: boolean; appointed_on?: string;
 }
 export interface RowError { row: number; error: string }
 
@@ -25,6 +25,7 @@ export function toExpectedRow(r: RosterRow): ExpectedRowPayload {
     email: r.learnerEmail.toLowerCase(), department: forkDepartment(r.departmentSlug), level,
     majlis: level === "local" ? r.majlis || null : null, region: r.region || null, role_title: r.roleTitle,
     person_name: r.personName ?? null, source: r.source, formula_unconfirmed: r.source === "formula-unconfirmed",
+    ...(r.appointedOn && /^\d{4}-\d{2}-\d{2}$/.test(r.appointedOn) ? { appointed_on: r.appointedOn } : {}),
   };
 }
 
@@ -37,6 +38,7 @@ export function validateExpectedRow(raw: ExpectedRowPayload): string | null {
   if (!(FORK_LEVELS as readonly string[]).includes(raw.level)) return "level must be national, regional or local";
   const lim: [string, string | null, number][] = [["department", raw.department, 64], ["majlis", raw.majlis, 100], ["region", raw.region, 100], ["role_title", raw.role_title, 200], ["person_name", raw.person_name, 200], ["source", raw.source, 100]];
   for (const [f, v, n] of lim) if (v && v.length > n) return `${f} must be at most ${n} characters`;
+  if (raw.appointed_on !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(raw.appointed_on)) return "appointed_on must be a YYYY-MM-DD date";
   return null;
 }
 

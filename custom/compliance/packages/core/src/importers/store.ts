@@ -26,8 +26,8 @@ export async function upsertDeptPlans(db: PostgresJsDatabase<any>, cycleId: numb
 }
 export async function upsertOverrides(db: PostgresJsDatabase<any>, cycleId: number, rows: OverrideInput[]): Promise<number> {
   for (const r of rows) {
-    await db.insert(directoryOverride).values({ cycleId, departmentSlug: r.departmentSlug, level: r.level, role: r.role, region: r.region, majlis: r.majlis, learnerEmail: r.learnerEmail, personName: r.personName, note: r.note })
-      .onConflictDoUpdate({ target: [directoryOverride.cycleId, directoryOverride.departmentSlug, directoryOverride.level, directoryOverride.role, directoryOverride.region, directoryOverride.majlis], set: { learnerEmail: r.learnerEmail, personName: r.personName, note: r.note } });
+    await db.insert(directoryOverride).values({ cycleId, departmentSlug: r.departmentSlug, level: r.level, role: r.role, region: r.region, majlis: r.majlis, learnerEmail: r.learnerEmail, personName: r.personName, note: r.note, appointedOn: r.appointedOn })
+      .onConflictDoUpdate({ target: [directoryOverride.cycleId, directoryOverride.departmentSlug, directoryOverride.level, directoryOverride.role, directoryOverride.region, directoryOverride.majlis], set: { learnerEmail: r.learnerEmail, personName: r.personName, note: r.note, appointedOn: r.appointedOn } });
   }
   return rows.length;
 }
@@ -40,13 +40,13 @@ export async function applyStoredOverrides(db: PostgresJsDatabase<any>, cycleId:
   const { applyOverrides } = await import("./overrides");
   const rows = await loadRoster(db, cycleId);
   const ovs = await db.select().from(directoryOverride).where(eq(directoryOverride.cycleId, cycleId));
-  const inputs = ovs.map((o) => ({ departmentSlug: o.departmentSlug, level: o.level as "national" | "region" | "majlis", role: o.role, region: o.region, majlis: o.majlis, learnerEmail: o.learnerEmail, personName: o.personName, note: o.note }));
+  const inputs = ovs.map((o) => ({ departmentSlug: o.departmentSlug, level: o.level as "national" | "region" | "majlis", role: o.role, region: o.region, majlis: o.majlis, learnerEmail: o.learnerEmail, personName: o.personName, note: o.note, appointedOn: o.appointedOn }));
   const { roster, issues } = applyOverrides(rows as any[], inputs);
   let changed = 0;
   for (let i = 0; i < roster.length; i++) {
     const a = rows[i]!, b = roster[i]!;
-    if (a.learnerEmail !== b.learnerEmail || a.personName !== b.personName || a.source !== b.source) {
-      await db.update(personRole).set({ learnerEmail: b.learnerEmail, personName: b.personName, source: b.source, updatedAt: sql`now()` }).where(eq(personRole.id, a.id));
+    if (a.learnerEmail !== b.learnerEmail || a.personName !== b.personName || a.source !== b.source || a.appointedOn !== b.appointedOn) {
+      await db.update(personRole).set({ learnerEmail: b.learnerEmail, personName: b.personName, source: b.source, appointedOn: b.appointedOn ?? null, updatedAt: sql`now()` }).where(eq(personRole.id, a.id));
       changed++;
     }
   }

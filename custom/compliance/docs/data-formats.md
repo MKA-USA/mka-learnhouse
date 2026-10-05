@@ -30,6 +30,7 @@ Corrections to the generated roster (name and/or mailbox) for one role slot.
 | learner_email | optional; must be `@mkausa.org` or `@atfalusa.org` (else `foreign-domain` warning) |
 | person_name | optional |
 | note | optional |
+| appointed_on | optional `YYYY-MM-DD`; mid-year appointee (the fork computes due = appointed_on + window). Bad dates are ignored with a `bad-date` issue |
 
 Checks: mailbox prefix must belong to the row's department. The known Atfal/Amoor-e-Tuluba column swap is auto-corrected from the mailbox
 (`swapped-columns`); any other mismatch skips the row (`department-mismatch`). Also: `email-majlis-mismatch`, `duplicate-mailbox`, `unknown-majlis`, `bad-email`, `override-no-match`, `override-ambiguous`.

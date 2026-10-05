@@ -137,3 +137,23 @@ describe("guards", () => {
   });
 });
 void ({} as RosterRow);
+
+import { explainHttp } from "../src/commands-push";
+describe("early, clear failures", () => {
+  test("403/401/409/404 messages are actionable and PII-free", () => {
+    expect(explainHttp(new LhHttpError("POST", "/x", 403, "API token lacks organizations.action_update"))).toContain("organizations.action_update");
+    expect(explainHttp(new LhHttpError("POST", "/x", 403, "no bob@x.org"))).not.toContain("bob@x.org");
+    expect(explainHttp(new LhHttpError("POST", "/x", 401))).toContain("rejected");
+    expect(explainHttp(new LhHttpError("POST", "/x", 409))).toContain("re-run");
+    expect(explainHttp(new LhHttpError("POST", "/x", 404, "Cycle not found"))).toContain("push-cycle");
+  });
+});
+
+describe("appointed_on", () => {
+  test("rows with an appointment date carry it; bad dates are refused locally", () => {
+    const base = generateRoster()[0]!;
+    expect(toExpectedRow({ ...base, appointedOn: "2027-03-15" }).appointed_on).toBe("2027-03-15");
+    expect("appointed_on" in toExpectedRow(base)).toBe(false);
+    expect(validateExpectedRow({ ...toExpectedRow(base), appointed_on: "03/15/2027" })).toContain("appointed_on");
+  });
+});

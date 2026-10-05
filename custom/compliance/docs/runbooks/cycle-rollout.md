@@ -19,3 +19,28 @@ Everything below is staging first; production only with the owner's explicit say
 | 11 | Monitor | Operator | scheduled `reconcile`; the fork API serves the analytics | n/a |
 
 Open confirmations before go-live: regional department mailbox pattern `{dept}.{region}@mkausa.org`; Muqami as a Majlis; Atfal regional officers; the fork's deployment of the compliance API.
+
+## Org API token: how to create it and which scopes to tick
+Only an org **admin** can do this, in the ilm-dev admin UI (Organization settings, API Tokens; Pro plan). Name it e.g. `compliance-provisioner`, set an expiry,
+then tick exactly these rights (API token `rights`, `db/roles.py::Rights`):
+
+| Resource | Actions | Needed for |
+|---|---|---|
+| **users** | read | fork compliance **reads**, user lookups by email (`users.action_read`) |
+| **organizations** | update | fork **imports and deletes**: `push-cycle`, `push-roster` (`organizations.action_update`) |
+| courses | create, read, update, delete | apply / plan / publish / assign-authors |
+| coursechapters, activities, assignments | create, read, update, delete | apply / publish |
+| certifications | read | probes |
+| usergroups | read | probes |
+
+Copy the token once (it is shown once) into the macOS keychain item `MKA_LH_DEV_API_TOKEN`
+(`security add-generic-password -s MKA_LH_DEV_API_TOKEN -a "$USER" -w` then paste at the prompt; never put it in a file or chat).
+The fork API returns **403 "API token lacks users.action_read" / "organizations.action_update"** when a right is missing, and **403 "no permissions configured"** for an empty token.
+`push-cycle` and `push-roster` stop at the first 403 with that message (`push-roster --apply` first sends a one-row server `dry_run` as a preflight, so a missing right
+fails before anything is written). A 409 means a concurrent import hit the same key: re-run.
+
+## Verify payloads against the real fork code (before any push)
+```
+bun run lh push-cycle ; bun run lh push-roster --all          # dry runs dump out/payload-cycle.json and out/payload-expected.json
+FORK_API_DIR=<fork worktree>/apps/api uv run --project "$FORK_API_DIR" python scripts/validate-against-api.py
+```

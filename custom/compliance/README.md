@@ -70,3 +70,9 @@ Cycle dates are config, not code: flags > `cycle` table row > built-in default f
 `push-cycle` sends `out/cycle-courses.json` to `POST /mka/compliance/cycles`; `push-roster` sends the expected roster (every role, regional included,
 `formula_unconfirmed` flagged) to `POST /mka/compliance/expected/import` in batches (API limit 2000). Auth: org API token plus `org_slug`.
 Per-row errors go to `out/push-roster-report.json`; console shows counts only. Runbook: `docs/runbooks/cycle-rollout.md`.
+
+## Contract check against the fork's real code
+`scripts/validate-against-api.py` imports the fork's actual request models and validators (cycles, expected import, contributor routes, `CONTACT_CHECK_RULES`)
+and validates the payloads dumped by the dry runs (`out/payload-*.json`). See `docs/runbooks/cycle-rollout.md`. Mid-year appointees: add an `appointed_on`
+(YYYY-MM-DD) column to `directory_overrides.csv`; it is sent as `appointed_on` and the fork derives the due date from it.
+Token rights needed: `users.action_read` and `organizations.action_update` (runbook).

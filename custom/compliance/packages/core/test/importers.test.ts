@@ -115,3 +115,14 @@ describe("gap report", () => {
     expect(markdown).not.toContain("Secret Name");
   });
 });
+
+describe("overrides: appointed_on", () => {
+  test("parsed, validated and applied to the roster", () => {
+    const r = parseOverrides("department,majlis,learner_email,appointed_on\nTabligh,Boston,tabligh.boston@mkausa.org,2027-03-15\nMaal,Boston,maal.boston@mkausa.org,15 March\n");
+    expect(r.rows.find((x) => x.departmentSlug === "tabligh")?.appointedOn).toBe("2027-03-15");
+    expect(r.issues.map((i) => i.code)).toContain("bad-date");
+    const { roster } = applyOverrides(generateRoster(), r.rows);
+    expect(roster.find((x) => x.learnerEmail === "tabligh.boston@mkausa.org")?.appointedOn).toBe("2027-03-15");
+    expect(roster.find((x) => x.learnerEmail === "maal.boston@mkausa.org")?.appointedOn ?? null).toBeNull();
+  });
+});

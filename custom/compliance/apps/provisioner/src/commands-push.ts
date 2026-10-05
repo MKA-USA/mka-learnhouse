@@ -15,7 +15,16 @@ function client(delayMs = 1000) {
   return LhClient.fromEnv({ ...process.env, LH_ORG_SLUG: process.env.LH_ORG_SLUG || "default" }, { delayMs, maxRetries: 2 });
 }
 function gate(a: Args, what: string) { if (a.has("apply") && !a.has("confirm-staging")) throw new SafetyError(`${what} --apply requires --confirm-staging`); }
-const errStatus = (e: unknown) => (e instanceof LhHttpError ? `HTTP ${e.status}${e.status === 404 ? " (fork compliance API not deployed on this host?)" : ""}` : (e as Error).message);
+/** Clear, PII-free messages. Token rights per the fork API: reads need users.action_read, imports/deletes organizations.action_update. */
+export function explainHttp(e: LhHttpError): string {
+  const need = "The org API token must carry users.action_read (reads) and organizations.action_update (imports); see docs/runbooks/cycle-rollout.md";
+  if (e.status === 403) return `HTTP 403 forbidden: ${(e.detail ?? "").replace(/\S+@\S+/g, "<email>")}. ${need}.`;
+  if (e.status === 401) return "HTTP 401: the API token was rejected (expired or revoked). Re-issue it and update the keychain item MKA_LH_DEV_API_TOKEN.";
+  if (e.status === 409) return "HTTP 409: conflicting concurrent import; nothing was lost, re-run the same command.";
+  if (e.status === 404) return `HTTP 404${e.detail ? ` (${e.detail.slice(0, 80)})` : ""}: cycle not found (run push-cycle first) or the fork compliance API is not deployed on this host.`;
+  return `HTTP ${e.status}`;
+}
+const errStatus = (e: unknown) => (e instanceof LhHttpError ? explainHttp(e) : (e as Error).message);
 
 export async function cmdPushCycle(a: Args) {
   gate(a, "push-cycle"); const apply = a.has("apply");
@@ -28,6 +37,7 @@ export async function cmdPushCycle(a: Args) {
     const errs = validateCyclePayload(payload);
     console.log(`PUSH-CYCLE ${apply ? "APPLY" : "(dry run, nothing is sent)"} ${payload.cycle}: starts ${payload.starts_on}, deadline ${payload.deadline}, ${payload.courses.length} courses`);
     if (errs.length) { errs.forEach((e) => console.log("  invalid: " + e)); throw new Error("refusing: payload would be rejected by the API"); }
+    writeOut("payload-cycle.json", JSON.stringify(payload, null, 1));
     if (!apply) return;
     const r = await pushCycle(client(), payload);
     console.log(`cycle ${r.cycle.label} (${r.cycle.action}): ${r.ok} ok, ${r.failed} failed`);
@@ -49,9 +59,11 @@ export async function cmdPushRoster(a: Args) {
     const rows = selectLearners(roster, only).map(toExpectedRow);
     const v = validateExpected(rows);
     console.log(`PUSH-ROSTER ${apply ? (a.has("server-dry-run") ? "APPLY (server dry_run)" : "APPLY") : "(dry run, nothing is sent)"} ${cycle}: ${rows.length} rows, ${v.errors.length} rejected locally, ${v.duplicates} duplicate keys, ${rows.filter((r) => r.formula_unconfirmed).length} flagged formula_unconfirmed`);
+    writeOut("payload-expected.json", JSON.stringify({ cycle, batchSize: batch, rows: v.ok }, null, 1));
     const report: Record<string, unknown> = { cycle, localErrors: v.errors, batches: [] as unknown[] };
     if (apply) {
       const c = client(); const batches = chunk(v.ok, batch); let offset = 0;
+      if (!a.has("server-dry-run") && v.ok.length) { await pushExpected(c, cycle, v.ok.slice(0, 1), true); console.log("preflight ok (token rights and cycle verified, nothing written)"); }
       for (const [i, b] of batches.entries()) {
         const r = await pushExpected(c, cycle, b, a.has("server-dry-run"));
         (report.batches as unknown[]).push({ batch: i, rowOffset: offset, ...r, errors: r.errors.map((e) => ({ ...e, row: e.row + offset })) });
