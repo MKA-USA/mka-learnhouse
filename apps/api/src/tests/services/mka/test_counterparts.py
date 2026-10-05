@@ -30,6 +30,7 @@ def test_local_nazim_gets_national_and_regional_not_self():
     assert res["reason"] is None
     assert [(r["level"], r["role_title"], r["email"], r["department"]) for r in res["counterparts"]] == [
         ("national", "Mohtamim Tabligh", "tabligh@mkausa.org", "tabligh"),
+        ("regional", "Regional Nazim Tabligh", "tabligh.northeast@mkausa.org", "tabligh"),
         ("regional", "Regional Qaid", "qaid.northeast@mkausa.org", None),
     ]
     assert all(r["name"] is None for r in res["counterparts"])
@@ -39,7 +40,7 @@ def test_local_row_appears_for_a_different_role_in_the_department():
     res = result("murabbi.syracuse@atfalusa.org")
     assert [(r["level"], r["role_title"], r["email"]) for r in res["counterparts"]] == [
         ("national", "Mohtamim Atfal", "atfal@mkausa.org"),
-        ("regional", "Regional Qaid", "qaid.northeast@mkausa.org"),
+        ("regional", "Regional Qaid", "qaid.northeast@mkausa.org"),  # atfalusa.org has no regional pattern: no regional Atfal row
         ("local", "Nazim Atfal", "nazim.syracuse@atfalusa.org"),
     ]
 
@@ -82,10 +83,35 @@ def test_national_head_viewing_with_a_different_address_still_gets_the_mailbox()
     assert emails(res) == ["tabligh@mkausa.org"]
 
 
-def test_regional_department_nazim_gets_national_and_regional_qaid_only():
+def test_regional_department_nazim_gets_national_and_regional_qaid_not_themselves():
     res = result("tabligh.northeast@mkausa.org")
     assert [r["level"] for r in res["counterparts"]] == ["national", "regional"]
     assert emails(res) == ["tabligh@mkausa.org", "qaid.northeast@mkausa.org"]
+
+
+def test_regional_nazim_row_for_a_viewer_without_a_matching_own_role():
+    # a national head in a region: both regional rows, department one first
+    attrs = {"status": "matched", "department": "maal", "role": "mohtamim", "level": "national", "region": "Gulf"}
+    res = counterparts_for(attrs, RULES, own_email="x@example.invalid")
+    assert [(r["role_title"], r["email"]) for r in res["counterparts"]] == [
+        ("Mohtamim Maal", "maal@mkausa.org"), ("Regional Nazim Maal", "maal.gulf@mkausa.org"), ("Regional Qaid", "qaid.gulf@mkausa.org"),
+    ]
+
+
+def test_regional_nazim_row_omits_own_address():
+    attrs = attrs_of("maal.gulf@mkausa.org")
+    assert attrs["role"] == "regional_nazim_dept"
+    res = counterparts_for(attrs, RULES, own_email="maal.gulf@mkausa.org")
+    assert emails(res) == ["maal@mkausa.org", "qaid.gulf@mkausa.org"]
+    # a local nazim of the same department in that region is not the regional nazim: they get the row
+    local = counterparts_for({"status": "matched", "department": "maal", "role": "nazim_dept", "level": "local", "majlis": "Houston", "region": "Gulf"}, RULES, own_email="x@example.invalid")
+    assert "maal.gulf@mkausa.org" in emails(local)
+
+
+def test_atfal_never_gets_a_regional_department_row():
+    attrs = {"status": "matched", "department": "atfal", "role": "murabbi_atfal", "level": "local", "majlis": "Houston", "region": "Gulf"}
+    rows = counterparts_for(attrs, RULES, own_email="x@example.invalid")["counterparts"]
+    assert [r["role_title"] for r in rows] == ["Mohtamim Atfal", "Regional Qaid", "Nazim Atfal"]
 
 
 def test_partial_viewer_with_department_only_gets_national_row():
@@ -126,6 +152,7 @@ def test_every_emitted_mailbox_parses_back_to_the_row_it_describes():
     """Provider/parser symmetry for EVERY Majlis and department that has a national and local mailbox."""
     provider = MailboxProvider()
     checked = 0
+    emitted_regional_dept: set[str] = set()
     for majlis, region in MAJLIS_TO_REGION.items():
         for dept in RULES.department_names:
             attrs = {"status": "matched", "department": dept, "role": "murabbi_atfal" if dept == "atfal" else "regional_nazim_dept",
@@ -136,6 +163,9 @@ def test_every_emitted_mailbox_parses_back_to_the_row_it_describes():
                 assert parsed.level == row["level"], row
                 if row["level"] == "national":
                     assert parsed.department == dept
+                elif row["level"] == "regional" and row["department"]:
+                    assert parsed.role in ("regional_nazim_dept", "regional_motamid") and parsed.department == dept and parsed.region == region
+                    emitted_regional_dept.add(dept)
                 elif row["level"] == "regional":
                     assert parsed.role == "regional_qaid" and parsed.region == region
                 else:
@@ -143,6 +173,7 @@ def test_every_emitted_mailbox_parses_back_to_the_row_it_describes():
                 assert row["role_title"] == parsed.role_title, row
                 checked += 1
     assert checked > 100
+    assert "atfal" not in emitted_regional_dept and "tabligh" in emitted_regional_dept and len(emitted_regional_dept) == 20
 
 
 def test_mailboxes_follow_the_rules_data_not_code():
@@ -153,11 +184,11 @@ def test_mailboxes_follow_the_rules_data_not_code():
     custom = IdentityRules.from_dict(raw, MAJLIS_TO_REGION)
     attrs = {"status": "matched", "department": "tabligh", "role": "nazim_dept", "level": "regional", "region": "Northeast"}
     assert emails(counterparts_for(attrs, custom, own_email="x@example.invalid")) == [
-        "tabligh-head@mkausa.org", "regionalqaid.northeast@mkausa.org",
+        "tabligh-head@mkausa.org", "tabligh.northeast@mkausa.org", "regionalqaid.northeast@mkausa.org",
     ]
     del raw["domains"]["mkausa.org"]["local_prefixes"]["regionalqaid"]["regional"]  # no regional-qaid mailbox convention left
     custom = IdentityRules.from_dict(raw, MAJLIS_TO_REGION)
-    assert emails(counterparts_for(attrs, custom, own_email="x@example.invalid")) == ["tabligh-head@mkausa.org"]
+    assert emails(counterparts_for(attrs, custom, own_email="x@example.invalid")) == ["tabligh-head@mkausa.org", "tabligh.northeast@mkausa.org"]
 
 
 def test_domain_slug_alias_is_used_for_the_mailbox():

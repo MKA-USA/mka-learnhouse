@@ -57,7 +57,7 @@ def test_every_persona_attributes_validate_against_rules():
             assert p["attributes"]["majlis"] in MAJLIS_TO_REGION
             assert MAJLIS_TO_REGION[p["attributes"]["majlis"]] == p["attributes"]["region"]
     labels = [p["label"] for p in personas]
-    assert "Local Nazim Tabligh · Albany" in labels and "Atfal Nazim · Syracuse-Binghamton" in labels
+    assert "Local Nazim Tabligh · Albany" in labels and "Regional Nazim Tabligh · Northeast" in labels and not any("Atfal" in lab for lab in labels)
     unrec = next(p for p in personas if p["attributes"]["status"] == "unrecognized")
     assert unrec["attributes"]["is_officeholder"] is None
     notoff = next(p for p in personas if p["attributes"]["status"] == "not_applicable")

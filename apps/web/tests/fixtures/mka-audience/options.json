@@ -398,17 +398,17 @@
       },
       {
         "attributes": {
-          "department": "atfal",
+          "department": "tabligh",
           "is_officeholder": true,
-          "level": "local",
-          "majlis": "Syracuse-Binghamton",
+          "level": "regional",
+          "majlis": null,
           "region": "Northeast",
-          "role": "nazim_atfal",
-          "role_title": "Nazim Atfal",
+          "role": "regional_nazim_dept",
+          "role_title": "Regional Nazim Tabligh",
           "status": "matched"
         },
-        "id": "atfal-nazim-syracuse-binghamton",
-        "label": "Atfal Nazim · Syracuse-Binghamton"
+        "id": "regional-nazim-tabligh-northeast",
+        "label": "Regional Nazim Tabligh · Northeast"
       },
       {
         "attributes": {

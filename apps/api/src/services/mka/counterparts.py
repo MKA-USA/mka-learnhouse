@@ -4,7 +4,7 @@
 identity parser uses (no hard-coded department / region / Majlis lists). A later provider can return real names (``name``).
 Mailboxes are never verified to exist: they are the org's mailbox *conventions*, the inverse of ``parse_identity``.
 
-Rows, in order: national (the viewer's department head), regional (the regional Qaid of the viewer's region), local (the
+Rows, in order: national (the viewer's department head), regional (the department's regional nazim, then the regional Qaid, of the viewer's region), local (the
 department's Majlis nazim at the viewer's Majlis). A row for the viewer's own address is dropped.
 """
 
@@ -64,6 +64,16 @@ class MailboxProvider:
         return fallback
 
     @staticmethod
+    def _regional_dept_mailbox(rules: IdentityRules, department: str) -> Optional[tuple[str, str, dict]]:
+        """``{prefix}.{region slug}@domain`` convention of a department: a local prefix that declares a ``regional`` role.
+        Domains without one (atfalusa.org) have no regional pattern, so such departments get no row."""
+        for domain, dom in rules.domains.items():
+            for prefix, entry in dom.get("local_prefixes", {}).items():
+                if entry.get("department") == department and entry.get("regional"):
+                    return domain, prefix, entry
+        return None
+
+    @staticmethod
     def _region_slug(rules: IdentityRules, region: str) -> Optional[str]:
         for slug, name in rules.regions.items():
             if name == region:
@@ -104,6 +114,12 @@ class MailboxProvider:
         if national:
             domain, key, entry = national
             rows.append(_row("national", rules.title(entry.get("role"), "national", department), f"{key}@{domain}", department))
+        region_slug = self._region_slug(rules, attrs["region"]) if isinstance(attrs.get("region"), str) else None
+        regional_dept = self._regional_dept_mailbox(rules, department)
+        if regional_dept and region_slug:
+            domain, prefix, entry = regional_dept
+            if not (level == "regional" and role == entry["regional"]):  # that mailbox is the viewer's own role
+                rows.append(_row("regional", rules.title(entry["regional"], "regional", department), f"{prefix}.{region_slug}@{domain}", department))
         regional = self._regional_row(attrs, rules)
         if regional:
             rows.append(regional)

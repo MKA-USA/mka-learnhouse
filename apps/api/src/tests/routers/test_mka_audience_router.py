@@ -500,6 +500,7 @@ async def test_counterparts_for_a_local_department_nazim(db, world):
     assert r.json() == {
         "counterparts": [
             {"level": "national", "role_title": "Mohtamim Tabligh", "email": "tabligh@mkausa.org", "name": None, "department": "tabligh"},
+            {"level": "regional", "role_title": "Regional Nazim Tabligh", "email": "tabligh.northeast@mkausa.org", "name": None, "department": "tabligh"},
             {"level": "regional", "role_title": "Regional Qaid", "email": "qaid.northeast@mkausa.org", "name": None, "department": None},
         ],
         "reason": None,

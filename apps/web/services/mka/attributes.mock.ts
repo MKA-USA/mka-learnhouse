@@ -51,9 +51,9 @@ export const MOCK_PERSONAS: Persona[] = [
     attributes: { status: 'matched', is_officeholder: true, level: 'national', department: 'tabligh', role: 'mohtamim', role_title: 'Mohtamim Tabligh', majlis: null, region: null },
   },
   {
-    id: 'atfal-nazim-syracuse-binghamton',
-    label: 'Atfal Nazim · Syracuse-Binghamton',
-    attributes: { status: 'matched', is_officeholder: true, level: 'local', department: 'atfal', role: 'nazim_atfal', role_title: 'Nazim Atfal', majlis: 'Syracuse-Binghamton', region: 'Northeast' },
+    id: 'regional-nazim-tabligh-northeast',
+    label: 'Regional Nazim Tabligh · Northeast',
+    attributes: { status: 'matched', is_officeholder: true, level: 'regional', department: 'tabligh', role: 'regional_nazim_dept', role_title: 'Regional Nazim Tabligh', majlis: null, region: 'Northeast' },
   },
   { id: 'unrecognized-account', label: 'Unrecognized account', attributes: { ...NULLS } },
   {
@@ -157,7 +157,7 @@ const POPULATION: [string, number][] = [
   ['local-qaid-houston', 20],
   ['regional-qaid-northeast', 6],
   ['mohtamim-tabligh-national', 8],
-  ['atfal-nazim-syracuse-binghamton', 12],
+  ['regional-nazim-tabligh-northeast', 12],
   ['unrecognized-account', 3],
   ['not-an-officeholder', 40],
 ]
@@ -185,6 +185,7 @@ export function mockCounterparts(): Counterparts {
     reason: null,
     counterparts: [
       { level: 'national', role_title: 'Mohtamim Tabligh', email: 'tabligh@example.invalid', name: null, department: 'tabligh' },
+      { level: 'regional', role_title: 'Regional Nazim Tabligh', email: 'tabligh.northeast@example.invalid', name: null, department: 'tabligh' },
       { level: 'regional', role_title: 'Regional Qaid', email: 'qaid.northeast@example.invalid', name: null, department: null },
     ],
   }

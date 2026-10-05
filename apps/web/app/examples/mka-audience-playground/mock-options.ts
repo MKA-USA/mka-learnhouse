@@ -42,7 +42,7 @@ export const MOCK_PERSONAS: Persona[] = [
   { id: 'local-qaid-houston', label: 'Local Qaid · Houston', attributes: attrs({ level: 'local', role: 'qaid', role_title: 'Qaid', majlis: 'Houston', region: 'Gulf' }) },
   { id: 'regional-qaid-northeast', label: 'Regional Qaid · Northeast', attributes: attrs({ level: 'regional', role: 'regional_qaid', role_title: 'Regional Qaid', region: 'Northeast' }) },
   { id: 'mohtamim-tabligh', label: 'Mohtamim Tabligh (National)', attributes: attrs({ level: 'national', department: 'tabligh', role: 'mohtamim', role_title: 'Mohtamim Tabligh' }) },
-  { id: 'atfal-nazim-syracuse', label: 'Atfal Nazim · Syracuse-Binghamton', attributes: attrs({ level: 'local', department: 'atfal', role: 'nazim_atfal', role_title: 'Nazim Atfal', majlis: 'Syracuse-Binghamton', region: 'Northeast' }) },
+  { id: 'regional-nazim-tabligh-northeast', label: 'Regional Nazim Tabligh · Northeast', attributes: attrs({ level: 'regional', department: 'tabligh', role: 'regional_nazim_dept', role_title: 'Regional Nazim Tabligh', region: 'Northeast' }) },
   { id: 'unrecognized', label: 'Unrecognized account', attributes: attrs({ status: 'unrecognized', is_officeholder: null }) },
   { id: 'not-officeholder', label: 'Not an officeholder', attributes: attrs({ status: 'not_applicable', is_officeholder: false }) },
 ]

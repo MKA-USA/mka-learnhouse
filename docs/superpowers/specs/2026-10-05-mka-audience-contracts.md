@@ -159,3 +159,14 @@ W1/W2/W3: one import line + one spread line each, both suffixed `// MKA fork`. L
 ## 5. Tests & gates (per seam)
 API: `cd apps/api && uv run --with greenlet python -m pytest src/tests/services/mka src/tests/routers -q -k mka`; `uvx ruff@0.15.9 check ./apps/api`. Contract fixtures: `test_mka_audience_contract_dump.py` → `apps/web/tests/fixtures/mka-audience/*.json` ({path,status,body}); web `mka-audience-contract.test.mjs` validates shapes (copy the mini shape checker from `mka-compliance-contract.test.mjs`). Authz matrix (learner/author-other-course/author/maintainer/admin/other-org admin/superadmin/API token) and cross-org tests for every new route.
 Web: `cd apps/web && bun test tests`, `bunx tsc --noEmit` (baseline png/svg module errors only), eslint on fork files, `bun run build` with mocks off.
+
+## Amendment 2026-10-05 (product decisions recorded in origin/dev eceffa99)
+
+Supersedes the matching lines above; earlier text is left as written.
+
+- **§2.3 counterparts:** regional department mailboxes `{local_prefix}.{region slug}@mkausa.org` are CONFIRMED. For a department officeholder whose region is known and whose department has a mkausa.org local prefix declaring a `regional` role, a regional row is emitted BEFORE the regional Qaid row:
+  `{"level":"regional","role_title":"Regional Nazim Tabligh","email":"tabligh.northeast@mkausa.org","name":null,"department":"tabligh"}`.
+  Row order is now: national, regional department nazim, regional Qaid, local. Atfal gets no regional department row (atfalusa.org has no regional pattern). A Regional Nazim viewer gets national + regional Qaid rows (their own regional row is omitted by role, and any row equal to their own address is dropped). Local executives (qaid / naib_qaid / motamid) are unchanged: regional Qaid row only. Every emitted mailbox is parsed back through `parse_identity` in tests (department rows parse as `regional_nazim_dept`, or `regional_motamid` for Aitmad).
+  Example for a Local Nazim Tabligh in Albany: national `tabligh@mkausa.org`, regional `tabligh.northeast@mkausa.org` (Regional Nazim Tabligh), regional `qaid.northeast@mkausa.org` (Regional Qaid); no local row (it would be their own role).
+- **§2.1 personas:** "Atfal Nazim · Syracuse-Binghamton" is replaced by "Regional Nazim Tabligh · Northeast" (id `regional-nazim-tabligh-northeast`; `role: regional_nazim_dept`, `level: regional`, `department: tabligh`, `region: Northeast`, `majlis: null`). Atfal stays a selectable department in `/options`; no other Atfal behaviour changes.
+- **§2.2 `expected`:** `matching` / `total` count DISTINCT people (lower-cased email in the cycle); a person matches if ANY of their roster rows matches.
