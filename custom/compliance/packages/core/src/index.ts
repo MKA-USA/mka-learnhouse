@@ -2,6 +2,7 @@ export * from "./schema";
 export * from "./db";
 export * from "./lh";
 export { DEPARTMENTS } from "./seed/departments";
+export * from "./config";
 export { seedDepartments } from "./seed/seed";
 export * from "./roster";
 export * from "./importers";

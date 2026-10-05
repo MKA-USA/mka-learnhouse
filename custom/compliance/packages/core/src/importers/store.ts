@@ -31,8 +31,10 @@ export async function upsertOverrides(db: PostgresJsDatabase<any>, cycleId: numb
   }
   return rows.length;
 }
-export async function loadRoster(db: PostgresJsDatabase<any>, cycleId: number) {
-  return db.select().from(personRole).where(eq(personRole.cycleId, cycleId));
+/** `excluded`: department slugs left out of the result (config.ts). Omit to get every stored row (internal maintenance only). */
+export async function loadRoster(db: PostgresJsDatabase<any>, cycleId: number, excluded: readonly string[] = []) {
+  const rows = await db.select().from(personRole).where(eq(personRole.cycleId, cycleId));
+  return excluded.length ? rows.filter((r) => !excluded.includes(r.departmentSlug)) : rows;
 }
 
 /** Apply stored overrides + names to person_role rows in place. Returns rows changed and pure-apply issues. */

@@ -83,7 +83,7 @@ describe("directory overrides importer", () => {
     expect(r.rows.find((x) => x.majlis === "Dayton")?.departmentSlug).toBe("amoor-e-tuluba");
   });
   test("applyOverrides: matches by dept/level/majlis(+role), marks source, reports ambiguity", () => {
-    const base = generateRoster();
+    const base = generateRoster({ excludedDepartments: [] }); // Atfal switched on for this swap test
     const { roster, issues } = applyOverrides(base, r.rows);
     const t = roster.find((x) => x.learnerEmail === "tabligh.boston@mkausa.org")!;
     expect(t.personName).toBe("Test Nazim"); expect(t.source).toBe("override");
@@ -109,10 +109,11 @@ describe("gap report", () => {
     const { markdown, counts } = buildGapReport({ cycleLabel: "2026-27", roster, plans: [{ departmentSlug: "tabligh", level: "all", stale: true, source: "x" }], issues: [{ file: "f", line: 2, severity: "warn", code: "sheet-error", message: "m" }] });
     expect(counts.rosterRows).toBe(roster.length);
     expect(counts.missingNames).toBe(roster.length - 1);
-    expect(counts.departmentsWithoutPlan).toBe(20);
+    expect(counts.departmentsWithoutPlan).toBe(19); // 20 active departments (Atfal excluded), 1 has a plan
     expect(counts.departmentsStalePlanOnly).toBe(1);
     expect(markdown).toContain("Departments with **no plan**");
     expect(markdown).not.toContain("Secret Name");
+    expect(markdown).toContain("Excluded by config");
   });
 });
 
