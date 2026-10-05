@@ -2,7 +2,7 @@
 
 > Operational steps, env vars, kill switches and rollout live in the single runbook `docs/runbooks/mka-compliance-automation.md`. This file keeps only seam-specific technical detail.
 
-Dedupe: reminder `reminder:<ISO week>:<email>` (unique in the send log, claimed before the email leaves), digest `digest:<ISO week>:<email>`; ISO weeks in the cycle timezone.
+Dedupe: scheduled reminder `reminder:<ISO week of the window start>:<email>` (unique in the send log, claimed before the email leaves), manual remind `manual:<course_id>:<ISO week>:<email>`, digest `digest:<ISO week>:<email>`; ISO weeks in the cycle timezone. Runs are windowed, fair and time-bounded: see the runbook.
 
 ## Troubleshooting
 
