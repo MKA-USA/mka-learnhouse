@@ -26,7 +26,8 @@ const React = (await import("react")).default;
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
-const { EditorContent, useEditor } = await import("@tiptap/react");
+const { EditorContent, useEditor, ReactRenderer } = await import("@tiptap/react");
+const { AudienceChrome } = await import("../components/mka/editor/AudienceChrome.tsx");
 const { default: StarterKit } = await import("@tiptap/starter-kit");
 const { NoTextInput } = await import("../components/Objects/Editor/Extensions/NoTextInput/NoTextInput");
 const { SessionContext } = await import("../components/Contexts/LHSessionContext.tsx");
@@ -821,5 +822,53 @@ describe("explorer findings", () => {
     } finally {
       console.warn = warn;
     }
+  });
+});
+
+describe("FINDING-0: nothing correctness-critical depends on the React chrome mounting", () => {
+  // The bar renders through ReactRenderer -> contentComponent, which can silently fail to mount (it did on the learner
+  // page). Simulate that: AudienceChrome never renders.
+  const realRender = ReactRenderer.prototype.render;
+  const stubChrome = () => {
+    ReactRenderer.prototype.render = function () {
+      if (this.component === AudienceChrome) return;
+      return realRender.call(this);
+    };
+  };
+  afterEach(() => { ReactRenderer.prototype.render = realRender; });
+
+  test("learner state filter, copy policy and TOC-visible content work with the chrome never mounted", async () => {
+    stubChrome();
+    const m = await mount(stateDoc);
+    await settle();
+    expect(m.container.querySelector(".mka-audience-chrome")?.children.length ?? 0).toBe(0); // chrome really absent
+    expect(tocHeadings(m.editor())).toEqual(["PUBLIC-HEADING", "LOCAL-HEADING"]);
+    expect(m.editor().state.doc.textContent).not.toContain("REGIONAL");
+    expect(getAudienceStore(m.editor()).get().copyPolicy.kind).toBe("viewer");
+    const { dom, text } = copied(m.editor());
+    expect(dom.innerHTML + text).not.toContain("REGIONAL");
+  });
+
+  test("learner notes are plain DOM and show with the chrome never mounted", async () => {
+    stubChrome();
+    const { container } = await mount(content, { search: "?mka_viewer=unrecognized" });
+    await settle();
+    expect(container.querySelectorAll('[data-testid="mka-note-unrecognized"]').length).toBe(1);
+    expect(container.querySelector(".mka-audience-notes").textContent).toContain("We couldn't recognise your role");
+  });
+
+  test("empty-lesson note is plain DOM too", async () => {
+    stubChrome();
+    const onlyRegional = doc(para(""), hsec("b", rule("regional"), heading("REGIONAL-HEADING"), para("REGIONAL-BODY")));
+    const { container } = await mount(onlyRegional);
+    await settle();
+    expect(container.querySelector('[data-testid="mka-note-empty"]')).not.toBeNull();
+  });
+
+  test("the chrome (admin bar) mounts when it is created late, via the section node views", async () => {
+    // not stubbed: the real path; the bar must be present for a can_view_all viewer on the learner page
+    const m = await mount(content, { search: "?mka_admin=1", flag: "1" });
+    await settle();
+    expect(m.container.querySelector('[aria-label="Audience preview"]')).not.toBeNull();
   });
 });

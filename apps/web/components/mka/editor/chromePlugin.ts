@@ -2,9 +2,9 @@
 // Rendered through ReactRenderer (portal into the editor's EditorContent) so app contexts are available,
 // and with no upstream layout hook (B1.4).
 import { Plugin, PluginKey } from '@tiptap/pm/state'
-import { ReactRenderer } from '@tiptap/react'
 import type { AudienceNodeOptions } from './AudienceNodeView'
-import { AudienceChrome } from './AudienceChrome'
+import { ensureChrome } from './chromeMount'
+import { startAudienceDriver } from './driver'
 import { getAudienceStore } from './store'
 import { AUDIENCE_NODE } from './plugins'
 import { transformCopiedSlice } from './learnerFilter'
@@ -33,11 +33,13 @@ export function createChromePlugin(editor: any, options: AudienceNodeOptions): P
     },
     view(view) {
       const store = getAudienceStore(editor)
-      const st = () => editor.storage?.mkaAudience as { stripping?: boolean; explicitLoad?: boolean; original?: unknown; chromeRenderer?: ReactRenderer | null } | undefined
+      const st = () =>
+        editor.storage?.mkaAudience as
+          | { stripping?: boolean; explicitLoad?: boolean; original?: unknown; chromeRenderer?: any; notesHost?: HTMLElement | null; driverStop?: (() => void) | null }
+          | undefined
       // The learner filter swaps in a fresh EditorState (see learnerFilter.ts), which makes ProseMirror destroy and
       // re-create plugin views. That swap must neither re-capture the filtered doc as the original nor re-mount the chrome.
       const swapping = !!st()?.stripping
-      let renderer: ReactRenderer | null = (swapping && st()?.chromeRenderer) || null
 
       const countSections = () => {
         let n = 0
@@ -60,22 +62,22 @@ export function createChromePlugin(editor: any, options: AudienceNodeOptions): P
       }
       if (!swapping) captureOriginal()
 
-      try {
-        const parent = view.dom.parentElement
-        if (parent && !renderer) {
-          renderer = new ReactRenderer(AudienceChrome as any, {
-            editor,
-            props: { editor, options },
-            className: 'mka-audience-chrome',
-          })
-          parent.insertBefore(renderer.element, view.dom)
-          const storage = st()
-          if (storage) storage.chromeRenderer = renderer
-        }
-      } catch (err) {
-        renderer = null
-        if (process.env.NODE_ENV !== 'production') console.error('[mka-audience] chrome mount failed', err)
+      // Plain-DOM notes host (no React) + the driver. Created once per editor; the state swap re-creates plugin views and
+      // they inherit both.
+      const storage0 = st()
+      if (storage0 && !storage0.notesHost) {
+        const host = document.createElement('div')
+        host.className = 'mka-audience-notes'
+        host.setAttribute('data-mka-notes', '')
+        host.contentEditable = 'false'
+        view.dom.parentElement?.insertBefore(host, view.dom)
+        storage0.notesHost = host
       }
+      if (storage0 && storage0.notesHost && !storage0.driverStop) {
+        storage0.driverStop = startAudienceDriver(editor, options, storage0.notesHost)
+      }
+      // React chrome (the bar): best effort here; section node views call ensureChrome again at the right time.
+      ensureChrome(editor, options)
 
       return {
         update(v, prev) {
@@ -87,16 +89,21 @@ export function createChromePlugin(editor: any, options: AudienceNodeOptions): P
           }
         },
         destroy() {
-          if (st()?.stripping) return // state swap: the next plugin view inherits the mounted chrome
+          if (st()?.stripping) return // state swap: the next plugin view inherits the chrome, notes host and driver
+          const storage = st()
           try {
-            renderer?.destroy()
-            renderer?.element.remove()
+            storage?.driverStop?.()
+            storage?.chromeRenderer?.destroy()
+            storage?.chromeRenderer?.element.remove()
+            storage?.notesHost?.remove()
           } catch {
             /* ignore */
           }
-          renderer = null
-          const storage = st()
-          if (storage) storage.chromeRenderer = null
+          if (storage) {
+            storage.chromeRenderer = null
+            storage.driverStop = null
+            storage.notesHost = null
+          }
         },
       }
     },

@@ -87,6 +87,12 @@ function HeaderButton({ icon: Icon, label, onClick, expanded }: { icon: typeof P
   )
 }
 
+/** describeRule says "Everyone except X" for hide rules; the header and the badge read "Hidden from: X" instead. */
+export function displayLabel(label: string, hide: boolean): string {
+  const stripped = hide ? label.replace(/^Everyone except /, '') : label
+  return stripped.charAt(0).toUpperCase() + stripped.slice(1)
+}
+
 export function AudienceHeader({
   rule, label, count, onEdit, onPreview, onToggleCollapse, collapsed, blockCount, warnings,
 }: AudienceHeaderProps) {
@@ -94,9 +100,7 @@ export function AudienceHeader({
   const hide = isDescribable(rule) && rule.mode === 'hide'
   const Icon = hide ? EyeOff : Eye
   const prefix = hide ? 'Hidden from' : 'Visible to'
-  // describeRule says "Everyone except X" for hide rules; the header reads "Hidden from: X" instead.
-  const stripped = hide ? label.replace(/^Everyone except /, '') : label
-  const shownLabel = stripped.charAt(0).toUpperCase() + stripped.slice(1)
+  const shownLabel = displayLabel(label, hide)
   const fullLabel = `${prefix}: ${shownLabel}`
   return (
     <TooltipProvider delayDuration={400}>
@@ -180,7 +184,7 @@ export function ReadOnlyBadge({ rule, label, className }: { rule: Rule; label: s
     <div className={cn('inline-flex max-w-full items-center gap-2 rounded-full border border-gray-200 bg-gray-50 py-1 ps-2 pe-3 text-xs', className)}>
       <ColourBarDot tone={tone} />
       <span className="truncate" title={label}>
-        <span className="font-medium">{hide ? 'Hidden from' : 'Visible to'}:</span> {label}
+        <span className="font-medium">{hide ? 'Hidden from' : 'Visible to'}:</span> {displayLabel(label, hide)}
         <span className="text-gray-600"> · you can see this because of your role</span>
       </span>
     </div>
