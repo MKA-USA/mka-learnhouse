@@ -1,6 +1,6 @@
 // MKA fork — entry point hooked into the upstream editors (W1/W2/W3, contract §4).
 import type { AnyExtension } from '@tiptap/core'
-import { mkaAudienceEnabled } from '@services/mka/flags'
+import { waitForMkaAudienceEnabled } from '@services/mka/flags'
 import { MkaAudience } from './AudienceNode'
 import { MkaViewerField } from './ViewerFieldNode'
 import { MkaCounterparts } from './CounterpartsNode'
@@ -15,6 +15,8 @@ export type MkaEditorOptions = {
   orgId?: number | null
 }
 
+let slashWaiting = false
+
 function registerSlash(): void {
   // Lazy: keeps the slash config (and its image imports) out of read-only viewer bundles and out of tests.
   import('./slash').then((m) => m.registerMkaSlashItems()).catch(() => undefined)
@@ -28,7 +30,17 @@ function registerSlash(): void {
 export function mkaEditorExtensions(opts: MkaEditorOptions): AnyExtension[] {
   const { editable, activity, courseUuid = null, orgId = null } = opts
   try {
-    if (editable && mkaAudienceEnabled()) registerSlash()
+    // Runtime flag: may flip on after hydration (runtime-config.js), so wait for it instead of checking once.
+    if (editable && !slashWaiting) {
+      slashWaiting = true // one pending wait at a time, however many editors are created
+      waitForMkaAudienceEnabled(
+        () => {
+          slashWaiting = false
+          registerSlash()
+        },
+        { onGiveUp: () => (slashWaiting = false) },
+      )
+    }
   } catch {
     /* authoring entry points are optional */
   }

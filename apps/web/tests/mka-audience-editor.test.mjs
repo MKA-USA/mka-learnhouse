@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { Window } from "happy-dom";
 
 // ProseMirror needs a DOM. happy-dom is already installed alongside the app (see ai-editor-content.test.mjs).
-const domWindow = new Window({ url: "http://localhost/" });
+// Reuse the DOM installed by tests/setup/dom.mjs (bunfig preload) so `document` and `window` are one happy-dom window.
+const domWindow = globalThis.window ?? new Window({ url: "http://localhost/" });
 for (const key of [
   "document", "navigator", "HTMLElement", "Element", "Node", "Text", "DocumentFragment", "MutationObserver",
   "Range", "Selection", "DOMParser", "getComputedStyle", "requestAnimationFrame", "cancelAnimationFrame",

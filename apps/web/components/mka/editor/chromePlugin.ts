@@ -14,13 +14,26 @@ export const chromePluginKey = new PluginKey('mkaAudienceChrome')
 export function createChromePlugin(editor: any, options: AudienceNodeOptions): Plugin {
   return new Plugin({
     key: chromePluginKey,
+    // The ORIGINAL document may only be (re)captured from an explicit content load: the initial document, or
+    // `setContent` (it always sets the `preventUpdate` meta). Any other doc change made after the learner filter ran
+    // must not become the "original", or a later can_view_all viewer would see emptied sections.
+    state: {
+      init: () => null,
+      apply(tr) {
+        if (tr.docChanged && tr.getMeta('preventUpdate') !== undefined) {
+          const storage = editor.storage?.mkaAudience
+          if (storage) storage.explicitLoad = true
+        }
+        return null
+      },
+    },
     props: {
       // Belt and braces behind the learner filter: copy/cut never serializes a section this viewer may not see.
       transformCopied: (slice) => transformCopiedSlice(slice, getAudienceStore(editor).get().copyPolicy),
     },
     view(view) {
       const store = getAudienceStore(editor)
-      const st = () => editor.storage?.mkaAudience as { stripping?: boolean; original?: unknown; chromeRenderer?: ReactRenderer | null } | undefined
+      const st = () => editor.storage?.mkaAudience as { stripping?: boolean; explicitLoad?: boolean; original?: unknown; chromeRenderer?: ReactRenderer | null } | undefined
       // The learner filter swaps in a fresh EditorState (see learnerFilter.ts), which makes ProseMirror destroy and
       // re-create plugin views. That swap must neither re-capture the filtered doc as the original nor re-mount the chrome.
       const swapping = !!st()?.stripping
@@ -67,7 +80,9 @@ export function createChromePlugin(editor: any, options: AudienceNodeOptions): P
       return {
         update(v, prev) {
           if (v.state.doc !== prev.doc) {
-            if (!st()?.stripping) captureOriginal()
+            const storage = st()
+            if (storage && !storage.stripping && storage.explicitLoad) captureOriginal()
+            if (storage) storage.explicitLoad = false
             publish()
           }
         },

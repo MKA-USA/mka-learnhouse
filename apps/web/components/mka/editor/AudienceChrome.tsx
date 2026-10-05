@@ -16,7 +16,8 @@ import {
   useAudienceScope,
   useMkaViewer,
 } from '@services/mka/attributes'
-import { mkaAudienceEnabled, mkaAudienceMock } from '@services/mka/flags'
+import { mkaAudienceMock } from '@services/mka/flags'
+import { useMkaAudienceEnabled } from '@services/mka/useMkaAudienceEnabled'
 import type { AudienceView } from '../audience/types'
 import type { PreviewPerson } from './PreviewMenu'
 import { applyLearnerFilter } from './learnerFilter'
@@ -60,6 +61,7 @@ function Inner({ editor, options }: Props) {
   const people = useRef(new Map<number, string>())
 
   const previewing = st.view.kind !== 'author'
+  const audienceEnabled = useMkaAudienceEnabled()
 
   // Under a preview the document is read-only: the author is looking at what a viewer sees, with
   // hidden content detached from the page. Only transitions touch editability (never on mount), and
@@ -101,7 +103,7 @@ function Inner({ editor, options }: Props) {
   }, [learnerDoc, me.state, me.viewer, me.canViewAll, st.originalVersion, editor])
 
   // The bar is the only way out of a preview, so it shows whenever a preview is active, flag or not.
-  const showBar = previewing || (mkaAudienceEnabled() && st.sectionCount > 0 && (editable || me.canViewAll))
+  const showBar = previewing || (audienceEnabled && st.sectionCount > 0 && (editable || me.canViewAll))
 
   const onChangeView = useCallback((view: AudienceView) => getAudienceStore(editor).set({ view }), [editor])
   const searchPeople = useCallback(
