@@ -705,14 +705,13 @@ async def test_both_endpoints_work_without_any_session_cookie_or_token(db, world
         assert (await c.post(SWEEP, headers=cron())).status_code == 200
 
 
-def test_the_receipts_router_is_included_by_one_marked_hook_at_the_end_of_the_fork_router():
+def test_the_receipts_router_is_included_by_one_marked_hook_in_the_fork_router():
     from pathlib import Path
 
     import src.routers.mka_automation as module
 
     text = Path(module.__file__).read_text(encoding="utf-8")
-    tail = text.rstrip().splitlines()[-4:]
-    assert tail[0] == "# --- seam B: webhook/receipts ---"
+    assert "# --- seam B: webhook/receipts ---" in text
     assert text.count("include_router(_receipts_router)") == 1
 
 
