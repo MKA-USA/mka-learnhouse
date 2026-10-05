@@ -232,17 +232,27 @@ async def select_pending(
     # remind never spends the scheduled weekly slot (those are the separate checks above) but it does start a cooldown,
     # so the person is not mailed again within days, and the scheduled reminder follows later in the window / week.
     cool_cut = _naive_utc(now) - timedelta(days=cfg.reminder_cooldown_days())
-    # Round 3 M1: on the LAST day of a reminder window a scheduled run ignores the cooldown that comes from a MANUAL
-    # reminder. The manual mail covers one course; the scheduled mail lists everything outstanding, and there is no
-    # later run in this window, so nobody who is still outstanding may fall through. (Cost: that person can get two
-    # emails about 3 days apart. The weekly cap, the scheduled-vs-scheduled cooldown and the quarantine still apply.)
+    # Round 3 M1 / round 4 H1: on the LAST day of a reminder window a scheduled run lifts the cooldown that comes from a
+    # MANUAL reminder, but only for manual reminders sent BEFORE local midnight (cycle TZ) of that last day. The manual
+    # mail covers one course; the scheduled mail lists everything outstanding, and there is no later run in this window,
+    # so nobody still outstanding may fall through. A manual reminder sent on the last day itself still blocks, so a
+    # manual Remind at 09:30 plus the 10:00 cron never mails the same person twice within minutes. (Cost: a person
+    # reminded manually on an earlier day can get two emails about 3 days apart. The weekly cap, the scheduled-vs-
+    # scheduled cooldown and the quarantine still apply.)
     last_window_day = (
         manual_course_id is None and window_start is not None
         and today >= window_start + timedelta(days=cfg.reminder_window_days() - 1)
     )
-    any_last = await reminder_rows_by_person(
-        db, org_id, key_like=f"{SCHEDULED_KEY_PREFIX}%" if last_window_day else "%", test_mode=test_mode
-    )
+    if last_window_day:
+        any_last = await reminder_rows_by_person(db, org_id, key_like=f"{SCHEDULED_KEY_PREFIX}%", test_mode=test_mode)
+        manual_last = await reminder_rows_by_person(db, org_id, key_like="manual:%", test_mode=test_mode)
+        day_start = _local_midnight_utc(today)
+        for e, last in manual_last.items():
+            if last is not None and last >= day_start:  # sent on the last day itself: still blocks
+                if any_last.get(e) is None or last > any_last[e]:
+                    any_last[e] = last
+    else:
+        any_last = await reminder_rows_by_person(db, org_id, key_like="%", test_mode=test_mode)
     cooled = {e for e, last in any_last.items() if last is not None and last > cool_cut} - excluded_people
     fails = await failing_addresses(db, org_id, test_mode=test_mode, now=now)
     limit = cfg.reminder_max_address_failures()
@@ -544,7 +554,8 @@ async def run_all(db: AsyncSession, *, dry_run: bool, kind: str, now: Optional[d
             for key in totals:
                 totals[key] += int(block.get(key) or 0)
             time_budget_hit = time_budget_hit or bool(block.get("time_budget_hit"))
-            disabled_reason = disabled_reason or block.get("disabled_reason")
+            if block.get("disabled_reason") and disabled_reason != "invalid_test_recipient":
+                disabled_reason = block["disabled_reason"]  # a misconfigured test recipient outranks "switched off"
             last_window_day = last_window_day or bool(block.get("last_window_day"))
     return {
         "dry_run": dry_run, "kind": kind, "test_mode": cfg.status_snapshot()["test_mode"], **totals,

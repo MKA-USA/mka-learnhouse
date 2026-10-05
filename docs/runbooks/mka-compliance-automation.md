@@ -188,6 +188,8 @@ logging filter on `src.services.email.utils` would remove it without touching up
   with any recent failure are tried last, so a few rejected mailboxes cannot stop everybody else's reminders. The
   consecutive-failure stop (`MKA_AUTOMATION_MAX_CONSECUTIVE_FAILURES`) counts distinct addresses (each is tried once per
   run) and quarantined ones never reach it. They are retried automatically when the failures age out.
+  An address that fails repeatedly across the several calls of ONE workflow run can be counted several times, so a single
+  bad mailbox can trip both red rules (the failure share and the newly-quarantined rule) in the same run.
 - **Reminder runs are fair and resumable**: people already reminded in the current window / ISO week are dropped before
   the per-run cap applies; the rest go least-recently-reminded first. A run stops at the time budget or the cap and
   says how many are left and WHY it stopped (`stopped`: `time_budget_reached`, `send_cap_reached` or
