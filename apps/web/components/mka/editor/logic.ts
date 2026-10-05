@@ -1,5 +1,6 @@
 // MKA fork — pure decision logic for Audience sections (contract §3.3). No React, no DOM.
 import { evaluateRule, validateRule } from '../audience/evaluate'
+import { hidesAllOfficeholders } from '../audience/rule-edit'
 import type { AudienceOptions, AudienceView, AudienceWarning, MkaViewerAttributes, Rule } from '../audience/types'
 
 /**
@@ -132,6 +133,7 @@ export function ruleWarnings(raw: unknown, options: AudienceOptions | undefined,
   if (!res.ok) return [{ kind: 'invalid' }]
   const warnings: AudienceWarning[] = []
   if (res.rule.v > 1) warnings.push({ kind: 'newer_version' })
+  if (hidesAllOfficeholders(res.rule)) warnings.push({ kind: 'only_non_officeholders' })
   const unknown = unknownValues(res.rule, options)
   if (unknown.length) warnings.push({ kind: 'unknown_values', values: unknown })
   if (zero) warnings.push({ kind: 'zero' })

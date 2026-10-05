@@ -4,7 +4,7 @@ import React from 'react'
 import { Braces, Eye, Users } from 'lucide-react'
 import { slashCommands } from '@components/Objects/Editor/Extensions/SlashCommands'
 import type { SlashCommandItem } from '@components/Objects/Editor/Extensions/SlashCommands/types'
-import { FIELD_FALLBACKS, FIELD_LABELS, VIEWER_FIELDS } from './fields'
+import { AUDIENCE_KEYWORDS, FIELD_FALLBACKS, FIELD_LABELS, VIEWER_FIELDS } from './fields'
 
 let registered = false
 
@@ -15,10 +15,10 @@ export function registerMkaSlashItems(): void {
     {
       id: 'mka-audience',
       title: 'Audience section',
-      description: 'Show this only to certain officeholders',
+      description: 'Show this part only to certain officeholders',
       icon: <Eye className="size-5" />,
       category: 'interactive',
-      keywords: ['audience', 'show only to', 'role', 'officeholder', 'visibility', 'who sees'],
+      keywords: AUDIENCE_KEYWORDS,
       command: (editor) => {
         editor.chain().focus().setMkaAudience().run()
       },

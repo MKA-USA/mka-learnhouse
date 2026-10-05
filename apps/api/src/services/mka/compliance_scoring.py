@@ -63,7 +63,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
 }
 
 STAGES = ("not_signed_in", "not_started", "in_progress", "completed", "attested")
-RAG_ORDER = {"red": 3, "amber": 2, "green": 1, "none": 0}
+RAG_ORDER = {"red": 3, "amber": 2, "green": 1, "none": 0, "not_started": 0}
 
 
 def with_config(partial: Optional[dict] = None) -> dict:
@@ -329,6 +329,8 @@ def attention(agg: dict, cycle: dict, as_of: str, cfg: Optional[dict] = None) ->
     if n == 0:
         return {"score": 0, "rag": "none", "shortfall": 0, "reasons": [],
                 "summary": f"No {cfg['noun_plural']} in scope"}
+    if diff_days(as_of, cycle["starts_on"]) < 0:  # cycle hasn't opened yet: nothing to judge, stay neutral
+        return {"score": 0, "rag": "not_started", "shortfall": 0, "reasons": [], "summary": "Cycle not started"}
     shortfall = max(0, agg["expected_attested_pct"] - agg["attested_pct"])
     overdue_rate = agg["overdue"] / n
     mismatch_rate = agg["self_check_mismatches"] / n

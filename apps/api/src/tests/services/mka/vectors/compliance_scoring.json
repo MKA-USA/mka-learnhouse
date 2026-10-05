@@ -941,10 +941,10 @@
    ],
    "as_of": "2026-10-20",
    "expect": {
-    "rag": "green",
+    "rag": "not_started",
     "score": 0,
     "reasons": [],
-    "summary": "On track"
+    "summary": "Cycle not started"
    },
    "ref_parity": true
   },

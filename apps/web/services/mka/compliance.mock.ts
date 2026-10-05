@@ -270,7 +270,7 @@ function score(c: ComplianceCounts, mismatches: number): { rag: ComplianceRag; s
   return { rag, score: sc, reasons, attested_pct: Math.round(actual * 1000) / 10 }
 }
 
-const rank = (r: ComplianceRag) => ({ red: 3, amber: 2, green: 1, none: 0 })[r]
+const rank = (r: ComplianceRag) => ({ red: 3, amber: 2, green: 1, none: 0, not_started: 0 })[r]
 
 function overviewOf(): Omit<OverviewResponse, 'cycle'> {
   const { people } = world()

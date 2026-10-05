@@ -18,7 +18,7 @@ export type ComplianceStatus =
   | 'overdue'
 
 /** (open) the contract names RAG but not its literal values; W3 reference uses these. */
-export type ComplianceRag = 'green' | 'amber' | 'red' | 'none'
+export type ComplianceRag = 'green' | 'amber' | 'red' | 'none' | 'not_started'
 
 export type CourseKind = 'general' | 'department'
 export type LearnerLevel = 'national' | 'regional' | 'local'

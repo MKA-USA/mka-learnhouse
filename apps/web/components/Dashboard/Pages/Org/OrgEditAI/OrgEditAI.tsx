@@ -13,6 +13,7 @@ import useAdminStatus from '@components/Hooks/useAdminStatus'
 import { Switch } from '@components/ui/switch'
 import { ShieldAlert, BrainCircuit, MessageCircle, Pencil, Sparkles, Info } from 'lucide-react'
 import Image from 'next/image'
+import OrgEditAIModeration from './OrgEditAIModeration'
 
 const OrgEditAI: React.FC = () => {
   const { t } = useTranslation()
@@ -174,6 +175,8 @@ const OrgEditAI: React.FC = () => {
             />
           </div>
         )}
+
+        <OrgEditAIModeration />
       </div>
     </FeatureGate>
   )

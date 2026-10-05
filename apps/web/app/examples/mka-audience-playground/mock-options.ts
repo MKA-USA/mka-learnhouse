@@ -41,10 +41,10 @@ export const MOCK_PERSONAS: Persona[] = [
   { id: 'local-nazim-tabligh-albany', label: 'Local Nazim Tabligh · Albany', attributes: attrs({ level: 'local', department: 'tabligh', role: 'nazim_dept', role_title: 'Nazim Tabligh', majlis: 'Albany', region: 'Northeast' }) },
   { id: 'local-qaid-houston', label: 'Local Qaid · Houston', attributes: attrs({ level: 'local', role: 'qaid', role_title: 'Qaid', majlis: 'Houston', region: 'Gulf' }) },
   { id: 'regional-qaid-northeast', label: 'Regional Qaid · Northeast', attributes: attrs({ level: 'regional', role: 'regional_qaid', role_title: 'Regional Qaid', region: 'Northeast' }) },
-  { id: 'mohtamim-tabligh', label: 'Mohtamim Tabligh (National)', attributes: attrs({ level: 'national', department: 'tabligh', role: 'mohtamim', role_title: 'Mohtamim Tabligh' }) },
+  { id: 'mohtamim-tabligh-national', label: 'Mohtamim Tabligh (National)', attributes: attrs({ level: 'national', department: 'tabligh', role: 'mohtamim', role_title: 'Mohtamim Tabligh' }) },
   { id: 'regional-nazim-tabligh-northeast', label: 'Regional Nazim Tabligh · Northeast', attributes: attrs({ level: 'regional', department: 'tabligh', role: 'regional_nazim_dept', role_title: 'Regional Nazim Tabligh', region: 'Northeast' }) },
   { id: 'unrecognized', label: 'Unrecognized account', attributes: attrs({ status: 'unrecognized', is_officeholder: null }) },
-  { id: 'not-officeholder', label: 'Not an officeholder', attributes: attrs({ status: 'not_applicable', is_officeholder: false }) },
+  { id: 'not-an-officeholder', label: 'Not an officeholder', attributes: attrs({ status: 'not_applicable', is_officeholder: false }) },
 ]
 
 export const MOCK_OPTIONS: AudienceOptions = {
@@ -57,10 +57,10 @@ export const MOCK_OPTIONS: AudienceOptions = {
   presets: [
     { id: 'local', label: 'Local officeholders', rule: { v: 1, mode: 'show', groups: [{ level: ['local'] }] } },
     { id: 'regional-qaids', label: 'Regional Qaids', rule: { v: 1, mode: 'show', groups: [{ level: ['regional'], role: ['regional_qaid'] }] } },
-    { id: 'national', label: 'National team', rule: { v: 1, mode: 'show', groups: [{ level: ['national'] }] } },
-    { id: 'qaids', label: 'Qaids & Naib Qaids', rule: { v: 1, mode: 'show', groups: [{ role: ['qaid', 'naib_qaid'] }] } },
+    { id: 'national-team', label: 'National team', rule: { v: 1, mode: 'show', groups: [{ level: ['national'] }] } },
+    { id: 'qaids-naib-qaids', label: 'Qaids & Naib Qaids', rule: { v: 1, mode: 'show', groups: [{ role: ['qaid', 'naib_qaid'] }] } },
     { id: 'motamids', label: 'Motamids', rule: { v: 1, mode: 'show', groups: [{ role: ['motamid', 'regional_motamid'] }] } },
-    { id: 'my-dept', label: 'My department', rule: { v: 1, mode: 'show', groups: [{}] }, needs_author_department: true },
+    { id: 'my-department', label: 'My department', rule: { v: 1, mode: 'show', groups: [{}] }, needs_author_department: true },
   ],
   personas: MOCK_PERSONAS,
   copy: {

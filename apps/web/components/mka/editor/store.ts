@@ -11,7 +11,20 @@ import type { AudienceView, MkaViewerAttributes } from '../audience/types'
  */
 export type CopyPolicy = { kind: 'all' } | { kind: 'none' } | { kind: 'viewer'; viewer: MkaViewerAttributes | null }
 
+/** Viewer state published by the section controllers (React, but mounted reliably) for the plain-TS driver. */
+export type ViewingState = {
+  state: 'loading' | 'ready' | 'error'
+  viewer: MkaViewerAttributes | null
+  canViewAll: boolean
+  /** EditorContext `isEditable`: true only for the authoring editor. */
+  providerEditable: boolean
+}
+
 export type AudienceStoreState = {
+  /** Null until a section controller has mounted. */
+  viewing: ViewingState | null
+  /** Copy for learner notes, published by the chrome when /options has loaded (constants are used until then). */
+  copy: { unrecognized_note: string; empty_lesson: string } | null
   view: AudienceView
   /** Editor-local view setting, never saved to content. */
   collapsed: Record<string, true>
@@ -36,6 +49,8 @@ export type AudienceStore = {
 
 export function createAudienceStore(opts: { editableDoc?: boolean } = {}): AudienceStore {
   let state: AudienceStoreState = {
+    viewing: null,
+    copy: null,
     view: { kind: 'author' },
     collapsed: {},
     openPickerFor: null,
@@ -81,4 +96,11 @@ export function getAudienceStore(editor: { storage?: Record<string, any> } | nul
 export function useAudienceStore(editor: { storage?: Record<string, any> } | null | undefined): AudienceStoreState {
   const store = getAudienceStore(editor)
   return useSyncExternalStore(store.subscribe, store.get, store.get)
+}
+
+/** Publishes viewer state; a no-op when nothing changed (every section controller publishes the same value). */
+export function publishViewing(store: AudienceStore, next: ViewingState): void {
+  const cur = store.get().viewing
+  if (cur && cur.state === next.state && cur.viewer === next.viewer && cur.canViewAll === next.canViewAll && cur.providerEditable === next.providerEditable) return
+  store.set({ viewing: next })
 }

@@ -64,7 +64,7 @@ const SHAPES = {
   }),
   counterparts: exact({
     counterparts: [exact({ level, role_title: "string", email: "string", name: "string?", department: "string?" })],
-    reason: "string?",
+    reason: { enum: [null, "unrecognized", "no_department", "not_applicable"] },
   }),
 };
 const expectedShape = exact({ matching: "number", total: "number", cycle_id: "number" });
@@ -86,7 +86,7 @@ describe("shapes: API fixtures satisfy components/mka/audience/types.ts", () => 
     expect(validate(SHAPES.count, b, "count_no_cycle")).toEqual([]);
     expect(b.expected).toBeNull();
   });
-  for (const n of ["counterparts", "counterparts_atfal", "counterparts_unrecognized", "counterparts_no_department"])
+  for (const n of ["counterparts", "counterparts_atfal", "counterparts_unrecognized", "counterparts_no_department", "counterparts_not_applicable"])
     test(n, () => expect(validate(SHAPES.counterparts, ok(n), n)).toEqual([]));
 });
 
@@ -154,7 +154,8 @@ describe("invariants the UI relies on", () => {
       for (const c of ok(n).counterparts) expect(c.email).toMatch(/^[^@\s]+@[^@\s]+$/);
     }
     expect(ok("counterparts_unrecognized")).toEqual({ counterparts: [], reason: "unrecognized" });
-    expect(ok("counterparts_no_department")).toEqual({ counterparts: [], reason: "no_department" });
+    expect(ok("counterparts_no_department")).toEqual({ counterparts: [], reason: "no_department" }); // partial: department not known yet
+    expect(ok("counterparts_not_applicable")).toEqual({ counterparts: [], reason: "not_applicable" }); // recognized, no department contacts
     expect(ok("counterparts").reason).toBeNull();
   });
 });

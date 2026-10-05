@@ -164,27 +164,46 @@ jobs:
               echo "::error::reminders/run call $i returned HTTP $status but the answer is not the expected JSON"
               exit 1
             fi
+            # The counts feed shell arithmetic: anything that is not a non-negative integer (or null) is a broken answer.
+            if ! jq -e '[.sent, .would_send, .failed, .remaining, .newly_quarantined] | all(. == null or (type == "number" and . == floor and . >= 0))' reminders-response.json >/dev/null 2>&1; then
+              rm -f reminders-response.json
+              echo "::error::reminders/run call $i returned HTTP $status but a count is not an integer"
+              exit 1
+            fi
             sent=$(jq -r '.sent // 0' reminders-response.json)
             would=$(jq -r '.would_send // 0' reminders-response.json)
             failed=$(jq -r '.failed // 0' reminders-response.json)
             remaining=$(jq -r '.remaining // 0' reminders-response.json)
             newq=$(jq -r '.newly_quarantined // 0' reminders-response.json)
             budget_hit=$(jq -r '.time_budget_hit // false' reminders-response.json)
-            stopped=$(jq -r '.stopped // "none"' reminders-response.json)
+            # Free-text fields are reduced to [a-z0-9_] before they reach a log or workflow-command line.
+            stopped=$(jq -r '.stopped // "none"' reminders-response.json | tr -cd 'a-z0-9_')
+            [ -n "$stopped" ] || stopped=none
             last_day=$(jq -r '.last_window_day // false' reminders-response.json)
-            disabled_reason=$(jq -r '.disabled_reason // ""' reminders-response.json)
+            disabled_reason=$(jq -r '.disabled_reason // ""' reminders-response.json | tr -cd 'a-z0-9_')
             rm -f reminders-response.json
             echo "call $i: HTTP $status sent=$sent would_send=$would failed=$failed newly_quarantined=$newq remaining=$remaining stopped=$stopped time_budget_hit=$budget_hit"
             tot_sent=$((tot_sent + sent)); tot_failed=$((tot_failed + failed)); tot_newq=$((tot_newq + newq))
             if [ "$DRY_RUN" = "true" ]; then
               exit 0
             fi
-            if [ -n "$disabled_reason" ]; then
-              echo "::notice::Reminders are switched off on the server ($disabled_reason), so nothing was sent. Green by design."
-              exit 0
-            fi
             if [ "$sent" -eq 0 ] && [ "$failed" -gt 0 ]; then
               echo "::error::Nothing could be sent: $failed attempts failed (stopped=$stopped). Look at the provider and at GET /mka/automation/status (send_log.failing_addresses)."
+              exit 1
+            fi
+            if [ -n "$disabled_reason" ]; then
+              if [ "$disabled_reason" = "invalid_test_recipient" ]; then
+                echo "::error::Reminders are refused on the server ($disabled_reason): the test recipient setting is invalid, so nothing was sent. Fix MKA_AUTOMATION_TEST_RECIPIENT."
+                exit 1
+              fi
+              echo "::notice::Reminders are switched off on the server ($disabled_reason), so nothing was sent for that part. Green by design unless something else failed."
+              # run_all can mix organisations: still apply the failure / quarantine rules to the rest of the answer.
+              conclude "$last_day" false
+            fi
+            # On the LAST window day there is no next run: any early stop (send cap, repeated failures) with people left
+            # means they will not be reminded in this window. (A time-budget stop is not final: the loop calls again.)
+            if [ "$last_day" = "true" ] && [ "$remaining" -gt 0 ] && [ "$stopped" != "none" ] && [ "$stopped" != "time_budget_reached" ]; then
+              echo "::error::The run stopped early ($stopped) on the LAST day of the reminder window with $remaining people still left: there is no next run in this window. Re-run the workflow or remind them manually."
               exit 1
             fi
             case "$stopped" in

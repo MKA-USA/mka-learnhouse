@@ -55,7 +55,7 @@ export const MOCK_PERSONAS: Persona[] = [
     label: 'Regional Nazim Tabligh · Northeast',
     attributes: { status: 'matched', is_officeholder: true, level: 'regional', department: 'tabligh', role: 'regional_nazim_dept', role_title: 'Regional Nazim Tabligh', majlis: null, region: 'Northeast' },
   },
-  { id: 'unrecognized-account', label: 'Unrecognized account', attributes: { ...NULLS } },
+  { id: 'unrecognized', label: 'Unrecognized account', attributes: { ...NULLS } },
   {
     id: 'not-an-officeholder',
     label: 'Not an officeholder',
@@ -91,8 +91,8 @@ const rule = (g: Rule['groups'][number]): Rule => ({ v: 1, mode: 'show', groups:
 const PRESETS: Preset[] = [
   { id: 'local', label: 'Local officeholders', rule: rule({ level: ['local'] }) },
   { id: 'regional-qaids', label: 'Regional Qaids', rule: rule({ level: ['regional'], role: ['regional_qaid'] }) },
-  { id: 'national', label: 'National team', rule: rule({ level: ['national'] }) },
-  { id: 'qaids', label: 'Qaids & Naib Qaids', rule: rule({ role: ['qaid', 'naib_qaid'] }) },
+  { id: 'national-team', label: 'National team', rule: rule({ level: ['national'] }) },
+  { id: 'qaids-naib-qaids', label: 'Qaids & Naib Qaids', rule: rule({ role: ['qaid', 'naib_qaid'] }) },
   { id: 'motamids', label: 'Motamids', rule: rule({ role: ['motamid', 'regional_motamid'] }) },
   { id: 'my-department', label: 'My department', rule: rule({}), needs_author_department: true },
 ]
@@ -139,10 +139,20 @@ function search(): URLSearchParams {
   return new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '')
 }
 
+const warnedViewers = new Set<string>()
+
 export function mockMe(): MkaMeResponse {
   const q = search()
   const id = q.get('mka_viewer') || MOCK_PERSONAS[0].id
-  const persona = MOCK_PERSONAS.find((p) => p.id === id) ?? MOCK_PERSONAS[0]
+  let persona = MOCK_PERSONAS.find((p) => p.id === id)
+  if (!persona) {
+    // A typo must not silently look like a different viewer: fall back to the UNRECOGNIZED path and say so.
+    if (!warnedViewers.has(id)) {
+      warnedViewers.add(id)
+      console.warn(`[mka-audience mock] unknown ?mka_viewer=${id}; valid ids: ${MOCK_PERSONAS.map((p) => p.id).join(', ')}. Using "unrecognized".`)
+    }
+    persona = MOCK_PERSONAS.find((p) => p.id === 'unrecognized') ?? MOCK_PERSONAS[0]
+  }
   return {
     attributes: persona.attributes,
     stale: false,
@@ -158,7 +168,7 @@ const POPULATION: [string, number][] = [
   ['regional-qaid-northeast', 6],
   ['mohtamim-tabligh-national', 8],
   ['regional-nazim-tabligh-northeast', 12],
-  ['unrecognized-account', 3],
+  ['unrecognized', 3],
   ['not-an-officeholder', 40],
 ]
 

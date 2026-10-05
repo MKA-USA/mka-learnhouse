@@ -91,14 +91,23 @@ class MailboxProvider:
 
     # -- rows ---------------------------------------------------------------------------------------------
     @staticmethod
-    def _regional_office_mailbox(rules: IdentityRules, region: str) -> Optional[tuple[str, str]]:
+    def _regional_office_mailbox(rules: IdentityRules, region: str) -> Optional[tuple[str, str, dict]]:
         """A national mailbox the rules mark as ALSO being the office of ``region`` (``region`` key on a ``national_exact`` entry):
         Muqami is its own region and chapter, and its Qaid mailbox is the national ``muqami@`` (there is no ``qaid.muqami@``)."""
         for domain, dom in rules.domains.items():
             for key, entry in dom.get("national_exact", {}).items():
                 if entry.get("region") == region and entry.get("status", "matched") == "matched":
-                    return domain, key
+                    return domain, key, entry
         return None
+
+    @staticmethod
+    def _holds(attrs: dict, entry: dict) -> bool:
+        """Is the viewer THE holder of this national office (same level, role and department)? Their account address may differ
+        from the role mailbox, so the address check alone is not enough."""
+        return (
+            attrs.get("level") == "national" and attrs.get("role") == entry.get("role")
+            and (attrs.get("department") or None) == (entry.get("department") or None)
+        )
 
     def _regional_row(self, attrs: dict, rules: IdentityRules) -> Optional[dict]:
         region = attrs.get("region")
@@ -110,7 +119,7 @@ class MailboxProvider:
             domain, prefix, role = found
             return _row("regional", rules.title(role, "regional", None), f"{prefix}.{slug}@{domain}", None)
         office = self._regional_office_mailbox(rules, region)
-        if office:
+        if office and not self._holds(attrs, office[2]):  # the Muqami office holder is not their own counterpart
             return _row("regional", rules.title("regional_qaid", "regional", None), f"{office[1]}@{office[0]}", None)
         return None
 
@@ -126,7 +135,7 @@ class MailboxProvider:
 
         rows: list[dict] = []
         national = self._national_mailbox(rules, department)
-        if national:
+        if national and not self._holds(attrs, national[2]):  # never a row for the viewer's OWN office
             domain, key, entry = national
             rows.append(_row("national", rules.title(entry.get("role"), "national", department), f"{key}@{domain}", department))
         region_slug = self._region_slug(rules, attrs["region"]) if isinstance(attrs.get("region"), str) else None
@@ -171,7 +180,9 @@ def counterparts_for(
     if attrs.get("status") not in RECOGNIZED:
         return {"counterparts": [], "reason": "unrecognized"}
     if not attrs.get("department") and attrs.get("role") not in LOCAL_EXECUTIVE_ROLES:
-        return {"counterparts": [], "reason": "no_department"}
+        # partial (department unknown yet): may be fixed by review. Recognized executives (regional Qaid, Sadr, ...) simply have
+        # no department contacts: 'not_applicable'.
+        return {"counterparts": [], "reason": "no_department" if attrs.get("status") == "partial" else "not_applicable"}
     own = _address_key(own_email)
     rows: list[dict] = []
     seen: set[str] = set()
