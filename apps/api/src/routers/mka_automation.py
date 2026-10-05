@@ -59,3 +59,9 @@ async def api_status(
         "send_log": {"total": sum(send_status.values()), "by_status": send_status, "test_mode_rows": int(test_rows)},
         "events": {"total": sum(event_status.values()), "by_status": event_status},
     }
+
+
+# --- seam B: webhook/receipts ---
+from src.routers.mka_automation_receipts import router as _receipts_router  # noqa: E402
+
+router.include_router(_receipts_router)
