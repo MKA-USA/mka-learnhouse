@@ -162,7 +162,7 @@ async def test_concurrent_calls_do_not_duplicate(db, org, factory):
 
 @pytest.mark.asyncio
 async def test_losing_the_insert_race_is_harmless(db, org, factory):
-    """A TrailRun inserted by someone else between plan and insert (ON CONFLICT DO NOTHING) must not error."""
+    """A TrailRun inserted by someone else between plan and insert must not error or be duplicated."""
     cyc = await make_cycle(db, org.id, 100)
     await roster(db, org.id, cyc.id)
     u = await learner(db, org.id)
@@ -282,19 +282,21 @@ async def test_failure_during_enrolment_is_contained_rolled_back_and_recorded(db
     cyc = await make_cycle(db, org.id, 100)
     await roster(db, org.id, cyc.id)
     u = await learner(db, org.id)
-    real = enroll._insert_do_nothing
     calls = {"n": 0}
-    def boom(session, model):
+
+    def boom(mapper, connection, target):
         calls["n"] += 1
         if calls["n"] == 2:  # fail on the SECOND course: the first must roll back too (fail-closed)
             raise RuntimeError("boom")
-        return real(session, model)
-    monkeypatch.setattr(enroll, "_insert_do_nothing", boom)
-    plan = await enroll.autoenroll_user(factory, u)  # does not raise
+
+    event.listen(TrailRun, "before_insert", boom)
+    try:
+        plan = await enroll.autoenroll_user(factory, u)  # does not raise
+    finally:
+        event.remove(TrailRun, "before_insert", boom)
     assert plan.orgs[0].reason == "error"
     assert await enrolled(db, u.id) == []
-    assert [e.note for e in await events(db, "error")] == ["enrol_failed"]
-    monkeypatch.setattr(enroll, "_insert_do_nothing", real)
+    assert [e.note for e in await events(db, "error")] == ["enrol_failed:RuntimeError"]  # a class name, never data
     await enroll.autoenroll_user(factory, u)
     assert await enrolled(db, u.id) == [101, 102]
 

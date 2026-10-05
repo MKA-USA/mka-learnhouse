@@ -9,19 +9,24 @@ Contract
   for the org's default cycle (``compliance_scope.get_cycle``), and only for orgs the user is a member of;
 * enrol into the cycle's General course and the department course of EACH of the person's roster rows (deduped;
   executive / national-only rows have no department course -> General only);
-* enrolment = the learner's ``Trail`` (advisory lock around get-or-create, Trail has no unique constraint) plus an
-  ``INSERT ... ON CONFLICT DO NOTHING`` ``TrailRun`` per course, in its OWN session (never the login session);
+* enrolment = the learner's ``Trail`` plus one ``TrailRun`` per course, in its OWN session (never the login session).
+  Idempotency does NOT lean on a unique constraint (review M1: ``uq_trailrun_trail_course_user`` exists only in the
+  model; ``create_all`` never adds it to a table that predates it, and no migration runs here). Under the per-
+  (user, org) lock (Postgres advisory transaction lock + in-process lock) we ``SELECT`` for an existing run and
+  insert only when there is none, so the same code is correct with or without the constraint;
 * courses that are not published are SKIPPED and recorded (``skipped_unpublished``), a later login or ``reconcile``
   picks them up (enrolment does not grant access to a draft);
 * events go to ``mka_automation_event`` with a generated delivery id; no payload bodies, no email addresses;
 * NEVER raises into the login path (fail-open for login, fail-closed for enrolment: an org's enrolment is one
-  transaction that rolls back whole on error).
+  transaction that rolls back whole on error). A failed org is VISIBLE: an ``error`` event with a short reason
+  (``enrol_failed:<ExceptionName>``) that ``GET /mka/automation/status`` counts (``autoenroll.errors_recent``).
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import weakref
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Callable, Optional
@@ -34,7 +39,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from src.db.courses.courses import Course  # noqa: F401  (table registration for the cycle-course join)
 from src.db.mka_automation import MkaAutomationEvent
 from src.db.mka_compliance import MkaComplianceExpected
-from src.db.trail_runs import TrailRun
+from src.db.trail_runs import StatusEnum, TrailRun
 from src.db.trails import Trail
 from src.db.user_organizations import UserOrganization
 from src.services.mka import attributes as attrs
@@ -138,22 +143,20 @@ async def plan_autoenroll(db: AsyncSession, user: Any, today: Optional[str] = No
 # execution
 # ---------------------------------------------------------------------------------------------------------------
 
-def _insert_do_nothing(session: AsyncSession, model):
-    name = session.get_bind().dialect.name
-    if name == "postgresql":
-        from sqlalchemy.dialects.postgresql import insert
-    else:
-        from sqlalchemy.dialects.sqlite import insert
-    return insert(model)
+# In-process striped locks: serialise the Trail + TrailRun get-or-create within one API process on every database (the
+# Postgres advisory lock below covers other processes/replicas; SQLite has none). An asyncio.Lock binds to the event
+# loop that first has to WAIT on it, so the stripes are kept per running loop (one loop in production; one per test).
+_LOCKS: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, list[asyncio.Lock]]" = weakref.WeakKeyDictionary()
+_STRIPES = 64
 
 
-# In-process striped locks: serialise the Trail get-or-create within one API process on every database (the
-# Postgres advisory lock below covers other processes/replicas; SQLite has none).
-_LOCKS = [asyncio.Lock() for _ in range(64)]
+def _lock_for(user_id: int, org_id: int) -> asyncio.Lock:
+    stripes = _LOCKS.setdefault(asyncio.get_running_loop(), [asyncio.Lock() for _ in range(_STRIPES)])
+    return stripes[hash((user_id, org_id)) % _STRIPES]
 
 
 async def _enrol_org(s: AsyncSession, user_id: int, op: OrgPlan) -> int:
-    async with _LOCKS[hash((user_id, op.org_id)) % len(_LOCKS)]:
+    async with _lock_for(user_id, op.org_id):
         return await _enrol_org_locked(s, user_id, op)
 
 
@@ -175,16 +178,23 @@ async def _enrol_org_locked(s: AsyncSession, user_id: int, op: OrgPlan) -> int:
         await s.flush()
     created = 0
     for course_id, _uuid in op.enroll:
-        stmt = (
-            _insert_do_nothing(s, TrailRun)
-            .values(
-                trail_id=trail.id, course_id=course_id, org_id=op.org_id, user_id=user_id,
-                status="STATUS_IN_PROGRESS", data={}, creation_date=now, update_date=now,
+        existing = (
+            await s.execute(
+                select(TrailRun.id).where(
+                    TrailRun.trail_id == trail.id, TrailRun.course_id == course_id, TrailRun.user_id == user_id  # type: ignore[arg-type]
+                ).limit(1)
             )
-            .on_conflict_do_nothing(index_elements=["trail_id", "course_id", "user_id"])
+        ).first()
+        if existing is not None:  # already enrolled (earlier login, or the learner enrolled themselves)
+            continue
+        s.add(
+            TrailRun(
+                trail_id=trail.id, course_id=course_id, org_id=op.org_id, user_id=user_id,  # type: ignore[arg-type]
+                status=StatusEnum.STATUS_IN_PROGRESS, data={}, creation_date=now, update_date=now,
+            )
         )
-        res = await s.execute(stmt)
-        created += max(res.rowcount or 0, 0)  # type: ignore[attr-defined]
+        created += 1
+    await s.flush()
     await s.commit()
     return created
 
@@ -219,8 +229,8 @@ async def autoenroll_user(db_factory: Callable[[], AsyncSession], user: Any, tod
         if not cfg.autoenroll_enabled():
             return empty
         return await asyncio.wait_for(_run(db_factory, user, today), timeout=TIMEOUT_SECONDS)
-    except Exception:  # noqa: BLE001 - fail-open for LOGIN by design (also covers the timeout)
-        logger.exception("MKA auto-enrol failed (login unaffected)")
+    except Exception as exc:  # noqa: BLE001 - fail-open for LOGIN by design (also covers the timeout)
+        logger.error("MKA auto-enrol failed (login unaffected): %s", type(exc).__name__)  # no traceback: SQL params can hold PII
         return Plan(user_id=getattr(user, "id", 0), reason="error")
 
 
@@ -241,13 +251,15 @@ async def _run(db_factory: Callable[[], AsyncSession], user: Any, today: Optiona
                     await _record(s, op.org_id, user.id, "skipped_unpublished", course_uuid=uuid_, dedupe=True)
                 if created:
                     await _record(s, op.org_id, user.id, "processed", note=f"enrolled:{created}")
-            except Exception:  # noqa: BLE001 - fail-closed for enrolment: this org's transaction rolls back whole
-                logger.exception("MKA auto-enrol failed for one org (rolled back)")
+            except Exception as exc:  # noqa: BLE001 - fail-closed for enrolment: this org's transaction rolls back whole
+                reason = type(exc).__name__
+                logger.error("MKA auto-enrol failed for one org (rolled back): %s", reason)
                 op.enroll = []
                 op.reason = "error"
                 try:
                     await s.rollback()
-                    await _record(s, op.org_id, user.id, "error", note="enrol_failed")
-                except Exception:  # noqa: BLE001
-                    logger.exception("MKA auto-enrol could not record the failure")
+                    # visible to operators: counted by GET /mka/automation/status (a class name only: no PII)
+                    await _record(s, op.org_id, user.id, "error", note=f"enrol_failed:{reason}"[:120])
+                except Exception as rec_exc:  # noqa: BLE001
+                    logger.error("MKA auto-enrol could not record the failure: %s", type(rec_exc).__name__)
         return plan

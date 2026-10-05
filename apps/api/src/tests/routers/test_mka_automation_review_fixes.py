@@ -230,3 +230,40 @@ async def test_a_digest_is_bound_to_its_course_and_garbage_is_refused(db, org, w
         too_long = await c.post(GENERAL, params=q(org, dry_run="false", preview_digest="x" * 500))
     assert wrong_course.status_code == garbage.status_code == 409 and too_long.status_code == 422
     assert transport.calls == []
+
+
+# ---------------------------------------------------------------------------------------------------------
+# M1: a failed auto-enrolment is visible on /status
+# ---------------------------------------------------------------------------------------------------------
+
+STATUS = "/api/v1/mka/automation/status"
+
+
+async def test_status_counts_recent_autoenrol_errors_for_this_org_only(db, org, other_org, world, transport):  # noqa: F811
+    from datetime import datetime
+
+    def err(org_id, when, note="enrol_failed:ProgrammingError", status="error", event="autoenroll", did=[0]):
+        did[0] += 1
+        return MkaAutomationEvent(org_id=org_id, delivery_id=f"autoenroll:{did[0]}", event=event, status=status,
+                                  note=note, received_at=when)
+
+    now = datetime.utcnow()
+    db.add_all([
+        err(org.id, now), err(org.id, now - timedelta(days=2)),
+        err(org.id, now - timedelta(days=30)),  # too old to matter
+        err(other_org.id, now),  # another org's problem
+        err(org.id, now, status="processed", note="enrolled:2"),  # a success
+        err(org.id, now, event="manual_remind"),  # not an auto-enrol event
+    ])
+    await db.commit()
+    async with client_for(db, 1) as c:
+        r = await c.get(STATUS, params=q(org))
+    assert r.status_code == 200
+    assert r.json()["autoenroll"] == {"errors_recent": 2, "window_days": 7}
+    assert "ProgrammingError" not in r.text  # counts only
+
+
+async def test_status_shows_zero_enrol_errors_when_nothing_failed(db, org, world, transport):  # noqa: F811
+    async with client_for(db, 1) as c:
+        r = await c.get(STATUS, params=q(org))
+    assert r.json()["autoenroll"]["errors_recent"] == 0

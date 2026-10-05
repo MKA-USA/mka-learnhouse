@@ -12,6 +12,7 @@ The org is never taken on trust: sessions must be admins of the ``org_id`` they 
 org. Responses are ``Cache-Control: private, no-store`` and carry no secrets and no recipient addresses.
 """
 
+from datetime import timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query, Response
@@ -20,13 +21,15 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.core.events.database import get_db_session
-from src.db.mka_automation import MkaAutomationEvent, MkaAutomationSendLog
+from src.db.mka_automation import MkaAutomationEvent, MkaAutomationSendLog, utcnow
 from src.routers.mka_attributes import _resolve_admin
 from src.security.auth import get_authenticated_user
 from src.services.mka import automation_config as cfg
 from src.services.mka.token_rights import TOKEN_READ
 
 router = APIRouter()
+
+AUTOENROLL_ERROR_WINDOW_DAYS = 7
 
 
 async def _counts(db: AsyncSession, column, org_column, org_id: int) -> dict:
@@ -42,7 +45,8 @@ async def api_status(
     current_user=Depends(get_authenticated_user),
     db_session: AsyncSession = Depends(get_db_session),
 ) -> dict:
-    """Which automation flags are on, whether test mode is on (masked address) and send-log / event counts."""
+    """Which automation flags are on, whether test mode is on (masked address), send-log / event counts and the number
+    of recent auto-enrol errors (``autoenroll.errors_recent``: should be 0 after a test login)."""
     response.headers["Cache-Control"] = "private, no-store"
     admin = await _resolve_admin(current_user, org_id, org_slug, db_session, allow_token=True, token_right=TOKEN_READ)
     send_status = await _counts(db_session, MkaAutomationSendLog.status, MkaAutomationSendLog.org_id, admin.org_id)
@@ -54,10 +58,22 @@ async def api_status(
         )
     ).scalar_one()
     event_status = await _counts(db_session, MkaAutomationEvent.status, MkaAutomationEvent.org_id, admin.org_id)
+    # Auto-enrol fails open (login must never break), so a broken enrolment is only visible here (review M1).
+    enrol_errors = (
+        await db_session.execute(
+            select(func.count()).where(
+                MkaAutomationEvent.org_id == admin.org_id,
+                MkaAutomationEvent.event == "autoenroll",
+                MkaAutomationEvent.status == "error",
+                MkaAutomationEvent.received_at >= utcnow() - timedelta(days=AUTOENROLL_ERROR_WINDOW_DAYS),
+            )
+        )
+    ).scalar_one()
     return {
         "config": cfg.status_snapshot(),
         "send_log": {"total": sum(send_status.values()), "by_status": send_status, "test_mode_rows": int(test_rows)},
         "events": {"total": sum(event_status.values()), "by_status": event_status},
+        "autoenroll": {"errors_recent": int(enrol_errors), "window_days": AUTOENROLL_ERROR_WINDOW_DAYS},
     }
 
 
