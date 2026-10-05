@@ -19,6 +19,7 @@ import {
 import { mkaAudienceEnabled, mkaAudienceMock } from '@services/mka/flags'
 import type { AudienceView } from '../audience/types'
 import { AudienceBar } from './AudienceBar'
+import type { PreviewPerson } from './PreviewMenu'
 import { MkaErrorBoundary } from './MkaErrorBoundary'
 import { getAudienceStore, useAudienceStore } from './store'
 import { computeLearnerNotes, DEFAULT_COPY } from './logic'
@@ -77,7 +78,7 @@ function Inner({ editor, options }: Props) {
 
   const onChangeView = useCallback((view: AudienceView) => getAudienceStore(editor).set({ view }), [editor])
   const searchPeople = useCallback(
-    async (q: string) => {
+    async (q: string): Promise<PreviewPerson[]> => {
       if (!scope.orgId) return []
       const res = await searchPreviewPeople(auth.token, scope.orgId, q)
       res.people.forEach((p) => people.current.set(p.user_id, p.display_name))
@@ -86,8 +87,9 @@ function Inner({ editor, options }: Props) {
     [auth.token, scope.orgId],
   )
   const pickPerson = useCallback(
-    async (id: number) => {
+    async (rawId: number | string) => {
       if (!scope.orgId) return
+      const id = Number(rawId)
       try {
         const res = await fetchPreviewPerson(auth.token, scope.orgId, id)
         getAudienceStore(editor).set({
@@ -120,7 +122,7 @@ function Inner({ editor, options }: Props) {
           onChangeView={onChangeView}
           personas={orgOptions?.personas ?? []}
           canPickPerson={canPickPerson}
-          searchPeople={async (q) => (await searchPeople(q)) as any}
+          searchPeople={searchPeople}
           pickPerson={pickPerson}
           options={orgOptions}
         />

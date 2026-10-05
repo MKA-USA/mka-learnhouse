@@ -104,7 +104,7 @@ describe("learner (default mock viewer: local Nazim Tabligh)", () => {
     expect(container.innerHTML).not.toContain("NOT-LOCAL-TEXT");
     expect(container.textContent).not.toContain("Visible to");
     expect(container.textContent).not.toContain("Hidden for this viewer");
-    expect(container.querySelector('[data-testid="mka-audience-bar"]')).toBeNull();
+    expect(container.querySelector('[aria-label="Audience preview"]')).toBeNull();
   });
 });
 
@@ -133,9 +133,9 @@ describe("can_view_all viewer on the learner page", () => {
     const { container } = await mount(content, { search: "?mka_admin=1", flag: "1" });
     await settle();
     for (const t of ["LOCAL-ONLY-TEXT", "REGIONAL-ONLY-TEXT", "NOT-LOCAL-TEXT"]) expect(container.textContent).toContain(t);
-    expect(container.querySelectorAll('[data-testid="mka-audience-badge"]').length).toBe(3);
-    expect(container.querySelector('[data-testid="mka-audience-header"]')).toBeNull(); // read-only: no author header
-    const bar = container.querySelector('[data-testid="mka-audience-bar"]');
+    expect((container.textContent.match(/you can see this because of your role/g) ?? []).length).toBe(3);
+    expect(container.querySelector('button[aria-label="Collapse section"]')).toBeNull(); // read-only: no author header
+    const bar = container.querySelector('[aria-label="Audience preview"]');
     expect(bar).not.toBeNull();
     expect(bar.textContent).toContain("3 audience sections");
   });
@@ -143,7 +143,7 @@ describe("can_view_all viewer on the learner page", () => {
   test("bar is an authoring entry point: hidden when the feature flag is off", async () => {
     const { container } = await mount(content, { search: "?mka_admin=1", flag: "0" });
     await settle();
-    expect(container.querySelector('[data-testid="mka-audience-bar"]')).toBeNull();
+    expect(container.querySelector('[aria-label="Audience preview"]')).toBeNull();
     expect(container.textContent).toContain("REGIONAL-ONLY-TEXT"); // evaluation itself is not flag-gated
   });
 
@@ -158,8 +158,7 @@ describe("can_view_all viewer on the learner page", () => {
     await settle();
     expect(m.container.textContent).toContain("REGIONAL-ONLY-TEXT");
     expect(m.container.innerHTML).not.toContain("LOCAL-ONLY-TEXT");
-    expect(m.container.textContent).toContain("Hidden for this viewer · Visible to");
-    expect(m.container.querySelectorAll('[data-testid="mka-audience-placeholder"]').length).toBe(1);
+    expect((m.container.textContent.match(/Hidden for this viewer/g) ?? []).length).toBe(1);
   });
 });
 
@@ -168,8 +167,8 @@ describe("authoring", () => {
     const m = await mount(content, { editable: true, flag: "1" });
     await settle();
     for (const t of ["LOCAL-ONLY-TEXT", "REGIONAL-ONLY-TEXT", "NOT-LOCAL-TEXT"]) expect(m.container.textContent).toContain(t);
-    expect(m.container.querySelectorAll('[data-testid="mka-audience-header"]').length).toBe(3);
-    expect(m.container.querySelector('[data-testid="mka-audience-bar"]')).not.toBeNull();
+    expect(m.container.querySelectorAll('button[aria-label="Collapse section"]').length).toBe(3);
+    expect(m.container.querySelector('[aria-label="Audience preview"]')).not.toBeNull();
     expect(m.editor().isEditable).toBe(true);
   });
 
@@ -194,7 +193,7 @@ describe("authoring", () => {
     await settle();
     await act(async () => { m.editor().commands.setTextSelection(2); m.editor().commands.setMkaAudience(); });
     await settle();
-    expect(document.body.querySelector('[data-testid="mka-audience-picker"]')).not.toBeNull();
+    expect(document.body.querySelector('[aria-label="Who should see this section?"]')).not.toBeNull();
   });
 
   test("rule written by a newer editor is read-only for authors (no Edit)", async () => {
@@ -202,9 +201,8 @@ describe("authoring", () => {
     const m = await mount(newer, { editable: true, flag: "1" });
     await settle();
     expect(m.container.textContent).toContain("NEWER-TEXT");
-    const header = m.container.querySelector('[data-testid="mka-audience-header"]');
-    expect(header.textContent).toContain("newer_version");
-    expect([...header.querySelectorAll("button")].some((b) => b.textContent === "Edit")).toBe(false);
+    expect(m.container.textContent).toContain("Made with a newer editor");
+    expect([...m.container.querySelectorAll("button")].some((b) => b.textContent.trim() === "Edit")).toBe(false);
   });
 });
 
