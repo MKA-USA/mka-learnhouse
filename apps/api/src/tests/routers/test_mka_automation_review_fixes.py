@@ -329,3 +329,61 @@ async def test_status_lists_claims_stuck_in_queued_past_the_lease(db, org, other
     async with client_for(db, 1) as c:
         r = await c.get(STATUS, params=q(org))
     assert r.json()["send_log"]["stale_queued"] == 2
+
+
+# ---------------------------------------------------------------------------------------------------------
+# round 2 test gaps
+# ---------------------------------------------------------------------------------------------------------
+
+
+@pytest.fixture
+def before_the_cycle(monkeypatch):
+    """The likely state until Nov 1: the org's ONLY cycle (2026-11-01 ..) has not started yet."""
+    from datetime import datetime, timezone
+
+    from src.services.mka import compliance as svc
+
+    before = datetime(2026, 10, 20, 15, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(svc, "today", lambda: "2026-10-20")
+    monkeypatch.setattr(rem, "current_instant", lambda: before)
+    monkeypatch.setenv("MKA_AUTOMATION_CRON_SECRET", "s3cret-for-tests-only")
+    monkeypatch.setenv("MKA_REMINDER_SCHEDULE", "10-20")  # even a scheduled day must not send for a cycle not started
+    return before
+
+
+async def test_an_org_whose_only_cycle_has_not_started_behaves_sanely(db, org, world, transport, on, before_the_cycle):  # noqa: F811
+    from src.tests.routers.test_mka_automation_reminders_router import RUN, anon
+
+    async with client_for(db, 1) as c:
+        scope = await c.get(f"{BASE}/scope", params=q(org))
+        overview = await c.get(f"{BASE}/overview", params=q(org))
+        dry = await c.post(TABLIGH, params=q(org))
+        real_send = await c.post(TABLIGH, params=q(org, dry_run="false", preview_digest="0" * 40))
+    assert scope.status_code == 200 and scope.json()["cycle"]["label"] == "2026-27"
+    assert overview.status_code == 200
+    for r in (dry, real_send):
+        assert r.status_code == 409 and "not started" in r.json()["detail"] and "current cycle" in r.json()["detail"]
+    async with anon(db) as c:
+        run = await c.post(RUN, params={"dry_run": "false"}, headers={"X-MKA-Cron-Secret": "s3cret-for-tests-only"})
+        sweep = await c.post("/api/v1/mka/automation/receipts/sweep", params={"dry_run": "false"},
+                             headers={"X-MKA-Cron-Secret": "s3cret-for-tests-only"})
+    assert run.status_code == 200 and sweep.status_code == 200
+    mine = next(o for o in run.json()["orgs"] if o["org_id"] == org.id)
+    assert mine["reminder"] == {"ran": False, "reason": "cycle_not_started"} and run.json()["sent"] == 0
+    assert transport.calls == [] and await count(db, MkaAutomationSendLog) == 0 and await count(db, MkaAutomationEvent) == 0
+
+
+async def test_a_preview_is_bound_to_the_day_a_real_change_of_day_refuses_the_send(db, org, world, transport, on, monkeypatch):  # noqa: F811
+    from src.services.mka import compliance as svc
+
+    async with client_for(db, 1) as c:
+        shown = await preview(c, org)  # MON 2026-11-16
+        tomorrow = MON + timedelta(days=1)
+        monkeypatch.setattr(svc, "today", lambda: "2026-11-17")
+        monkeypatch.setattr(rem, "current_instant", lambda: tomorrow)
+        stale = await c.post(TABLIGH, params=q(org, dry_run="false", preview_digest=shown["preview_digest"]))
+        fresh = await preview(c, org)  # the same list, but a new day: a new digest
+        assert stale.status_code == 409 and "changed since the preview" in stale.json()["detail"]
+        assert fresh["would_send"] == shown["would_send"] and fresh["preview_digest"] != shown["preview_digest"]
+        ok = await c.post(TABLIGH, params=q(org, dry_run="false", preview_digest=fresh["preview_digest"]))
+    assert ok.status_code == 200 and ok.json()["sent"] == 4 and len(transport.calls) == 4

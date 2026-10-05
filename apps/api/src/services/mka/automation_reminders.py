@@ -591,7 +591,9 @@ async def remind_course(
     # default-cycle rule as the cron run. The cycle the client asked for is only checked against it, never trusted.
     today = cycle_today(moment)
     current = await _org_cycle(db, org.id, today)  # type: ignore[arg-type]
-    if current is None or current.id != cycle.id or cycle.starts_on > today:
+    if cycle.starts_on > today:
+        raise ManualRemindBlocked(409, "Reminders only apply to the current cycle, and this one has not started yet")
+    if current is None or current.id != cycle.id:
         raise ManualRemindBlocked(409, "Reminders only apply to the current cycle")
     last = await _last_manual(db, org.id, link.course_uuid, naive_now - MANUAL_WINDOW)  # type: ignore[arg-type]
     if last is not None:
