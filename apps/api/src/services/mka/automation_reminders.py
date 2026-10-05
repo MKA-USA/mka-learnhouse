@@ -231,7 +231,17 @@ async def select_pending(
     # remind never spends the scheduled weekly slot (those are the separate checks above) but it does start a cooldown,
     # so the person is not mailed again within days, and the scheduled reminder follows later in the window / week.
     cool_cut = _naive_utc(now) - timedelta(days=cfg.reminder_cooldown_days())
-    any_last = await reminder_rows_by_person(db, org_id, key_like="%", test_mode=test_mode)
+    # Round 3 M1: on the LAST day of a reminder window a scheduled run ignores the cooldown that comes from a MANUAL
+    # reminder. The manual mail covers one course; the scheduled mail lists everything outstanding, and there is no
+    # later run in this window, so nobody who is still outstanding may fall through. (Cost: that person can get two
+    # emails about 3 days apart. The weekly cap, the scheduled-vs-scheduled cooldown and the quarantine still apply.)
+    last_window_day = (
+        manual_course_id is None and window_start is not None
+        and today >= window_start + timedelta(days=cfg.reminder_window_days() - 1)
+    )
+    any_last = await reminder_rows_by_person(
+        db, org_id, key_like=f"{SCHEDULED_KEY_PREFIX}%" if last_window_day else "%", test_mode=test_mode
+    )
     cooled = {e for e, last in any_last.items() if last is not None and last > cool_cut} - excluded_people
     fails = await failing_addresses(db, org_id, test_mode=test_mode, now=now)
     limit = cfg.reminder_max_address_failures()
