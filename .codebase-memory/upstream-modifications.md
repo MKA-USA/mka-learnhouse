@@ -653,3 +653,22 @@ diff --git a/apps/web/components/Auth/TurnstileWidget.tsx b/apps/web/components/
 - **Fork-owned file changed (no upstream edit)**: `apps/api/src/services/auth/mka_google_only.py` (fork, added in 4ca921bd) now records the verified `hd` of every Google login in a request-scoped ContextVar (`take_verified_hd`), set inside the existing `require_workspace_hd` call that upstream `signWithGoogle` already makes. The attribute login hook uses it as proof of Workspace ownership (per address). Behaviour of `require_workspace_hd` (accept/reject) is unchanged.
 - **Not touched**: `cli.py` (backfill is `python -m src.services.mka.backfill`), `MKA_GOOGLE_ONLY_DOMAINS` / any SSO setting.
 - Re-apply test command also includes `src/tests/routers/test_mka_attributes_review_fixes.py`.
+
+
+### MKA native compliance analytics API (hook H4)
+
+- **Date**: 2026-10-04
+- **Reason**: org-scoped compliance cycles / expected roster / read endpoints. All logic is fork-only (`routers/mka_compliance.py`, `services/mka/compliance*.py`, `db/mka_compliance.py`, migration `mka_20261004_compliance`, tests, runbook). Spec: `docs/superpowers/specs/2026-10-04-mka-native-compliance-analytics-design.md`.
+- **Re-apply after pulling upstream**: `grep -n "MKA fork" apps/api/src/router.py`; run `uv run --with greenlet pytest src/tests/services/mka src/tests/routers/test_mka_compliance_router.py`.
+
+`apps/api/src/router.py` (import + mount; same pattern as the mka_attributes block; per-handler gating, tokens admitted):
+```diff
++from src.routers import mka_compliance as mka_compliance_router_module  # MKA fork
+@@ after the mka_attributes include_router block
++v1_router.include_router(  # MKA fork: compliance analytics; session (scope-gated) or org API token, gated per handler
++    mka_compliance_router_module.router,
++    prefix="/mka/compliance",
++    tags=["mka-compliance"],
++    dependencies=[Depends(require_authenticated_user_or_api_token)],
++)
+```
