@@ -51,6 +51,7 @@ site calls `mkaEditorExtensions`.
   anything in a section that a learner must not be able to read by other means.
 - Course AI / RAG. Course AI chat indexes every section's text course-wide, so it can quote another audience's
   instructions. Consider turning course AI chat off on audience-targeted courses.
+- Per-activity "ask AI" is filtered by section (fork hook in `ai.py`: a learner's prompt only contains the sections they see); course RAG chat (`/rag/chat`, `rag/content_extraction.py`) still indexes all section text.
 - Unrecognized users. An account whose email local part matches no identity rule, including unmatched `@atfalusa.org`
   addresses, is `unrecognized`: it never matches a "Show to" section, still sees untargeted and "Hide from" sections,
   and sees a one-line note that parts of the lesson are tailored by role. If every section is hidden it sees "Nothing in

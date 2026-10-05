@@ -188,7 +188,7 @@ async def test_input_is_never_mutated_and_output_is_independent(db, people, mock
 async def test_documents_without_audience_sections_need_no_database(db):
     plain = doc(para("a"), {"type": "heading", "attrs": {"level": 1}, "content": [{"type": "text", "text": "h"}]})
     got = await mka_content_for_ai(plain, as_user(7), None, None)  # no session: any query would raise
-    assert got == plain and got is not plain
+    assert got == plain
     for scalar in (None, "x", 3, [], {}):
         assert await mka_content_for_ai(scalar, None, None) == scalar
 
@@ -314,3 +314,64 @@ async def test_admin_prompt_content_keeps_every_section_unwrapped(db, org, cours
     assert [n["type"] for n in seen[0]["content"]] == ["paragraph"] * 5
     for needle in ("SECRET-LOCAL-TABLIGH", "HIDDEN-FROM-NATIONAL", "SECRET-NATIONAL"):
         assert needle in text
+
+
+async def test_deeply_nested_document_without_audience_nodes_is_returned_untouched(db):
+    node = para("deep text")
+    for _ in range(5000):  # far beyond MAX_DEPTH and the interpreter recursion limit
+        node = {"type": "blockquote", "content": [node]}
+    deep = doc(node)
+    got = await mka_content_for_ai(deep, as_user(7), db, None)
+    assert got is deep  # not blanked, not copied
+    # ... and an audience node buried that deep is still found (iterative scan) and fails closed
+    buried = doc(para("kept"))
+    cur = buried
+    for _ in range(5000):
+        nxt = {"type": "blockquote", "content": []}
+        cur["content"].append(nxt)
+        cur = nxt
+    cur["content"].append(aud(LOCAL, para("S-BURIED")))
+    got = await mka_content_for_ai(buried, as_user(7), db, None)
+    assert got == {"type": "doc", "content": []}  # too deep to walk: empty document, never the original
+
+
+async def test_viewer_database_work_runs_in_a_savepoint_that_rolls_back_on_failure(db, org, people, mock_request):
+    from sqlmodel import select
+
+    from src.db.organizations import Organization
+
+    seen = {}
+    real = db.begin_nested
+
+    def spy():
+        cm = real()
+
+        class Wrapper:
+            async def __aenter__(self):
+                return await cm.__aenter__()
+
+            async def __aexit__(self, exc_type, exc, tb):
+                seen["exc"] = exc_type
+                return await cm.__aexit__(exc_type, exc, tb)
+
+        return Wrapper()
+
+    async def failing(*_a, **_k):
+        db.add(Organization(id=77, name="Leaked", slug="leaked", email="l@x.invalid", org_uuid="org_leaked",
+                            creation_date="x", update_date="x"))
+        await db.flush()
+        raise RuntimeError("statement failed")
+
+    with patch.object(db, "begin_nested", new=spy), patch.object(audience_strip.audience_svc, "course_view_all", new=failing):
+        got = await strip(db, 1, request=mock_request)
+    assert texts(got) == sorted(["PUBLIC", "PUBLIC-END"])        # fail closed
+    assert seen["exc"] is RuntimeError                            # the savepoint saw the failure and rolled back
+    assert (await db.execute(select(Organization).where(Organization.id == 77))).scalars().first() is None  # its writes are gone
+    assert (await db.execute(select(Organization).where(Organization.id == org.id))).scalars().first() is not None  # session still usable
+
+
+async def test_successful_viewer_lookup_keeps_the_session_usable(db, people, mock_request):
+    from sqlmodel import select
+
+    await strip(db, 10, request=mock_request)
+    assert (await db.execute(select(User).where(User.id == 10))).scalars().first() is not None
