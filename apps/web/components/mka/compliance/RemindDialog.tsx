@@ -10,7 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@components/ui/dialog'
-import { MKA_COMPLIANCE_REMIND, errorStatus, remindCourse, useComplianceAuth } from '@services/mka/compliance'
+import { MKA_COMPLIANCE_REMIND, errorDetail, errorStatus, remindCourse, useComplianceAuth } from '@services/mka/compliance'
 import type { RemindResponse } from '@services/mka/compliance.types'
 import { canSendReminders, remindErrorMessage, remindHeadline, remindSkipped } from './format'
 
@@ -18,7 +18,7 @@ export type RemindPhase =
   | { kind: 'loading' }
   | { kind: 'preview'; data: RemindResponse }
   | { kind: 'sending'; data: RemindResponse }
-  | { kind: 'error'; status: number | null }
+  | { kind: 'error'; status: number | null; detail?: string | null; sending?: boolean }
 
 /**
  * Presentational body of the dialog (no hooks, no Radix context) so every phase can be rendered in tests.
@@ -50,7 +50,7 @@ export function RemindDialogView({
     return (
       <div className="space-y-4">
         <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
-          {remindErrorMessage(phase.status)}
+          {remindErrorMessage(phase.status, { sending: phase.sending, detail: phase.detail })}
         </p>
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <Button type="button" variant="outline" onClick={onClose}>
@@ -132,7 +132,7 @@ export function RemindButton({
       const data = await remindCourse(auth, courseUuid, cycleId, true)
       if (seq.current === mine) setPhase({ kind: 'preview', data })
     } catch (err) {
-      if (seq.current === mine) setPhase({ kind: 'error', status: errorStatus(err) })
+      if (seq.current === mine) setPhase({ kind: 'error', status: errorStatus(err), detail: errorDetail(err) })
     }
   }, [auth, courseUuid, cycleId])
 
@@ -155,12 +155,13 @@ export function RemindButton({
       const result = await remindCourse(auth, courseUuid, cycleId, false)
       if (seq.current !== mine) return
       setOpen(false)
-      toast.success(remindHeadline(result))
+      toast.success(remindHeadline(result), { duration: result.remaining > 0 ? 8000 : undefined })
     } catch (err) {
       if (seq.current !== mine) return
       const status = errorStatus(err)
       setOpen(false)
-      toast.error(remindErrorMessage(status))
+      // a real send that died half way (timeout, dropped connection) may have mailed people: say so, truthfully
+      toast.error(remindErrorMessage(status, { sending: true, detail: errorDetail(err) }), { duration: 10000 })
     }
   }
 

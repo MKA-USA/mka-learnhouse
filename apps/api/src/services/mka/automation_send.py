@@ -21,8 +21,8 @@ Nothing else in the codebase may call ``send_email`` for automation mail; seams 
    person per course per week) is refused (``capped``) when the person already has
    ``MKA_AUTOMATION_WEEKLY_REMINDER_CAP`` real reminders in the ISO week. Build the reminder dedupe key with
    :func:`reminder_dedupe_key` so the unique constraint also makes the cap atomic under concurrency.
-6. **Budget.** An optional :class:`SendBudget` enforces the per-run cap, an inter-send delay and a hard stop after N
-   consecutive failures; it is checked BEFORE claiming so an exhausted run leaves no ``queued`` rows.
+6. **Budget.** An optional :class:`SendBudget` enforces the per-run cap, a wall-clock budget
+   (``MKA_AUTOMATION_RUN_TIME_BUDGET_SECONDS``), an inter-send delay and a hard stop after N consecutive failures; it is checked BEFORE claiming so an exhausted run leaves no ``queued`` rows.
 7. **No PII in logs** (ids/status only); caller HTML is sent as given (templates escape), the test banner escapes.
 """
 
@@ -32,6 +32,7 @@ import asyncio
 import html
 import logging
 import re
+import time
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Awaitable, Callable, Optional
@@ -82,10 +83,12 @@ class SendResult:
 
 
 class SendBudget:
-    """Per-run guard: send cap, pause between sends, stop after N consecutive failures.
+    """Per-run guard: send cap, a wall-clock budget, pause between sends, stop after N consecutive failures.
 
     ``SendBudget()`` takes its limits from the environment at construction time; pass explicit values to
-    override. ``sleep`` is injectable for tests."""
+    override. ``sleep`` and ``clock`` (monotonic seconds) are injectable for tests. The clock starts at construction
+    and the budget is checked BEFORE each send (with the pause that precedes it counted), so a run never starts a
+    send it has no time for."""
 
     def __init__(
         self,
@@ -93,13 +96,18 @@ class SendBudget:
         delay_seconds: Optional[float] = None,
         max_consecutive_failures: Optional[int] = None,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        time_budget_seconds: Optional[float] = None,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.max_sends = cfg.run_send_cap() if max_sends is None else max_sends
         self.delay_seconds = cfg.send_delay_seconds() if delay_seconds is None else delay_seconds
         self.max_consecutive_failures = (
             cfg.max_consecutive_failures() if max_consecutive_failures is None else max_consecutive_failures
         )
+        self.time_budget_seconds = cfg.run_time_budget_seconds() if time_budget_seconds is None else time_budget_seconds
         self._sleep = sleep
+        self._clock = clock
+        self._started = clock()
         self.attempts = 0
         self.sent = 0
         self.failed = 0
@@ -111,6 +119,8 @@ class SendBudget:
             return "too_many_consecutive_failures"
         if self.attempts >= self.max_sends:
             return "send_cap_reached"
+        if self._clock() - self._started + (self.delay_seconds if self.attempts else 0.0) >= self.time_budget_seconds:
+            return "time_budget_reached"
         return None
 
     def can_send(self) -> bool:
@@ -166,7 +176,7 @@ def manual_dedupe_key(course_id: int, iso_week: str, email: str) -> str:
 SCHEDULED_KEY_PREFIX = "reminder:"
 
 
-def _week_window_utc(iso_week: str) -> tuple[datetime, datetime]:
+def week_window_utc(iso_week: str) -> tuple[datetime, datetime]:
     m = _ISO_WEEK.match(iso_week or "")
     if not m:
         raise ValueError("iso_week must look like 2026-W45")
@@ -183,7 +193,7 @@ def _week_window_utc(iso_week: str) -> tuple[datetime, datetime]:
 async def reminders_this_week(db: AsyncSession, org_id: int, email: str, iso_week: str) -> int:
     """Real (non-test) SCHEDULED reminders queued/sent to ``email`` in the ISO week. Org-scoped. Manual-button rows
     (``manual:`` keys) are a separate allowance and are not counted."""
-    start, end = _week_window_utc(iso_week)
+    start, end = week_window_utc(iso_week)
     stmt = select(func.count()).select_from(MkaAutomationSendLog).where(
         MkaAutomationSendLog.org_id == org_id,
         MkaAutomationSendLog.kind == "reminder",

@@ -17,7 +17,7 @@ const fx = (name) => JSON.parse(readFileSync(join(import.meta.dir, "fixtures", "
 const SHAPE = {
   dry_run: "boolean", enabled: "boolean", test_mode: "boolean", candidates: "number", would_send: "number", sent: "number",
   skipped_recent: "number", skipped_attested: "number", skipped_excluded: "number", suppressed: "number", failed: "number",
-  disabled: "number", stopped: "string?",
+  disabled: "number", stopped: "string?", remaining: "number", time_budget_hit: "boolean",
 };
 function problems(body) {
   const out = [];
@@ -78,11 +78,23 @@ describe("wording", () => {
     expect(remindHeadline({ ...base, dry_run: false, sent: 0 })).toBe("No reminders were sent");
   });
   test("403 / 404 / 409 / 429 / anything else each get their own sentence", () => {
-    const m = [403, 404, 409, 429, 500, null].map(remindErrorMessage);
+    const m = [403, 404, 409, 429, 500, null].map((s) => remindErrorMessage(s));
     expect(new Set(m).size).toBe(5); // 500 and an unknown (null) status share the generic sentence
     expect(m[4]).toBe(m[5]);
     expect(m[3]).toContain("24 hours");
-    expect(m[4]).toContain("Nothing was sent");
+  });
+  test("a failed PREVIEW never sent anything; a failed real send must not claim that (review H2e)", () => {
+    expect(remindErrorMessage(500)).toContain("Nothing was sent");
+    const sending = remindErrorMessage(500, { sending: true });
+    expect(sending).not.toContain("Nothing was sent");
+    expect(sending).toContain("some reminders may already have gone out");
+    expect(remindErrorMessage(null, { sending: true })).toBe(sending);
+  });
+  test("a run the server stopped early says how much is done and that it can simply be run again", () => {
+    const base = { dry_run: false, would_send: 0, sent: 3, remaining: 5 };
+    expect(remindHeadline(base)).toBe("Sent 3 so far; 5 remaining. Run it again to send the rest.");
+    expect(remindHeadline({ ...base, remaining: 0 })).toBe("Reminded 3 people");
+    expect(remindHeadline({ dry_run: false, would_send: 0, sent: 3 })).toBe("Reminded 3 people"); // older responses
   });
   test("confirm needs someone to remind and the feature on", () => {
     expect(canSendReminders({ enabled: true, would_send: 3 })).toBe(true);

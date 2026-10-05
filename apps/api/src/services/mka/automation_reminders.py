@@ -42,14 +42,16 @@ from src.services.mka import compliance as svc
 from src.services.mka import compliance_scope as scope_svc
 from src.services.mka.automation_gdpr import is_role_mailbox
 from src.services.mka.automation_send import (
+    SCHEDULED_KEY_PREFIX,
     SendBudget,
     current_iso_week,
     current_mode_is_test,
+    iso_week_label,
     manual_dedupe_key,
-    reminded_this_week,
     reminder_dedupe_key,
     reminder_rows_by_person,
     send_automation_email,
+    week_window_utc,
 )
 
 logger = logging.getLogger(__name__)
@@ -175,29 +177,54 @@ def _blank_counts() -> dict:
     return {
         "would_send": 0, "sent": 0, "skipped_recent": 0, "skipped_attested": 0, "skipped_excluded": 0,
         "suppressed": 0, "failed": 0, "disabled": 0, "stopped": None, "disabled_reason": None,
+        "remaining": 0, "time_budget_hit": False,
     }
+
+
+def _local_midnight_utc(day: date) -> datetime:
+    """Start of ``day`` in the cycle timezone as naive UTC (the send log stores naive UTC)."""
+    start = datetime(day.year, day.month, day.day, tzinfo=cfg.cycle_tz())
+    return start.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 async def _send_reminders(
     db: AsyncSession, *, org_id: int, cycle: MkaComplianceCycle, people: dict, url: str, today: date,
     dry_run: bool, budget: SendBudget, now: datetime, counts: dict, manual_course_id: Optional[int] = None,
+    window_start: Optional[date] = None,
 ) -> dict:
+    """Send (or preview) the reminders for ``people``.
+
+    Selection (review H2): people who already got THIS window's / week's reminder are dropped BEFORE the per-run cap
+    or time budget is spent, and the rest go least-recently-reminded first (then by address), so every run makes
+    progress through the not-yet-reminded remainder instead of re-walking the same alphabetical head. When the
+    budget stops the run ``remaining`` says how many are left and ``time_budget_hit`` whether it was the clock.
+
+    ``window_start`` (scheduled runs) is the scheduled date whose reminder window we are in: its ISO week is the
+    dedupe-key week, so a window that straddles two ISO weeks still reminds each person once.
+    ``manual_course_id`` (the Remind button) switches to the per-course manual key space."""
     week = current_iso_week(now)
-    manual_done: dict = {}
+    test_mode = current_mode_is_test()
+    last_sent: dict = {}
     if manual_course_id is not None:  # one query: who already got THIS course's manual reminder this week
-        manual_done = await reminder_rows_by_person(
-            db, org_id, key_like=manual_dedupe_key(manual_course_id, week, "%"), test_mode=current_mode_is_test()
+        done = await reminder_rows_by_person(
+            db, org_id, key_like=manual_dedupe_key(manual_course_id, week, "%"), test_mode=test_mode
         )
-    for email in sorted(people):
+        excluded_people = set(done)
+    else:
+        key_week = iso_week_label(window_start) if window_start is not None else week
+        cutoff = min(week_window_utc(week)[0], _local_midnight_utc(window_start or today))
+        last_sent = await reminder_rows_by_person(db, org_id, key_like=f"{SCHEDULED_KEY_PREFIX}%", test_mode=test_mode)
+        excluded_people = {e for e, last in last_sent.items() if last is not None and last >= cutoff}
+    pending = sorted(
+        (e for e in people if e not in excluded_people),
+        key=lambda e: (last_sent.get(e) or datetime.min, e),
+    )
+    counts["skipped_recent"] += len(people) - len(pending)
+    for index, email in enumerate(pending):
         p = people[email]
-        if manual_course_id is None and await reminded_this_week(db, org_id, email, week):
-            counts["skipped_recent"] += 1
-            continue
-        if email in manual_done:
-            counts["skipped_recent"] += 1
-            continue
         dedupe_key = (
-            reminder_dedupe_key(email, week) if manual_course_id is None else manual_dedupe_key(manual_course_id, week, email)
+            reminder_dedupe_key(email, key_week) if manual_course_id is None
+            else manual_dedupe_key(manual_course_id, week, email)
         )
         mail = tpl.render_reminder(
             addressee=addressee_for(p), cycle_label=cycle.label, outstanding=p.items, deadline=cycle.deadline_on,
@@ -219,6 +246,8 @@ async def _send_reminders(
             counts[status] += 1
         elif status == "budget_exhausted":
             counts["stopped"] = result.reason
+            counts["remaining"] += len(pending) - index
+            counts["time_budget_hit"] = counts["time_budget_hit"] or result.reason == "time_budget_reached"
             break
         elif status == "disabled":
             counts["disabled"] += 1
@@ -297,9 +326,11 @@ async def _send_digests(
     dry_run: bool, budget: SendBudget, now: datetime, excluded: frozenset,
 ) -> dict:
     counts = {"would_send": 0, "sent": 0, "skipped_recent": 0, "skipped_nothing_outstanding": 0, "failed": 0,
-              "suppressed": 0, "disabled": 0, "stopped": None, "disabled_reason": None}
+              "suppressed": 0, "disabled": 0, "stopped": None, "disabled_reason": None, "remaining": 0,
+              "time_budget_hit": False}
+    targets = digest_targets(ds.roster, excluded)
     week = current_iso_week(now)
-    for target in digest_targets(ds.roster, excluded):
+    for index, target in enumerate(targets):
         view, nudge = digest_view(target, ds.roster, per_course, ds.user_map, excluded)
         if not nudge:
             counts["skipped_nothing_outstanding"] += 1
@@ -327,6 +358,8 @@ async def _send_digests(
             counts[status] += 1
         elif status == "budget_exhausted":
             counts["stopped"] = result.reason
+            counts["remaining"] += len(targets) - index
+            counts["time_budget_hit"] = counts["time_budget_hit"] or result.reason == "time_budget_reached"
             break
         elif status == "disabled":
             counts["disabled"] += 1
@@ -353,7 +386,10 @@ async def run_org(
                 out[k] = {"ran": False, "reason": reason}
         return out
     out["cycle"] = cycle.label
-    reminder_day = cfg.is_reminder_day(today, cycle.deadline_on, cfg.reminder_schedule())
+    # a scheduled date opens a reminder WINDOW (MKA_REMINDER_WINDOW_DAYS): a run on any day inside it continues with
+    # the people not yet reminded; outside every window the run does nothing
+    window_start = cfg.reminder_window_start(today, cycle.deadline_on, cfg.reminder_schedule(), cfg.reminder_window_days())
+    reminder_day = window_start is not None
     digest_day = today.weekday() == 0
     want_reminder = kind in ("reminder", "all")
     want_digest = kind in ("digest", "all")
@@ -385,9 +421,10 @@ async def run_org(
         counts = {**_blank_counts(), **counts}
         counts = await _send_reminders(
             db, org_id=org.id, cycle=cycle, people=people, url=url, today=today, dry_run=dry_run, budget=budget,
-            now=now, counts=counts,
+            now=now, counts=counts, window_start=window_start,
         )
-        out["reminder"] = {"ran": True, "candidates": len(people), **counts}
+        out["reminder"] = {"ran": True, "window_start": window_start.isoformat() if window_start else None,
+                           "candidates": len(people), **counts}
     if want_digest:
         res = await _send_digests(
             db, org=org, cycle=cycle, ds=ds, per_course=per_course, url=url, dry_run=dry_run, budget=budget,
@@ -413,7 +450,18 @@ async def run_all(db: AsyncSession, *, dry_run: bool, kind: str, now: Optional[d
             await db.rollback()
             logger.error("reminders: org=%s failed (%s)", org_id, type(exc).__name__)
             reports.append({"org_id": org_id, "error": type(exc).__name__})
-    return {"dry_run": dry_run, "kind": kind, "test_mode": cfg.status_snapshot()["test_mode"], "orgs": reports}
+    totals = {"sent": 0, "would_send": 0, "skipped_recent": 0, "failed": 0, "remaining": 0}
+    time_budget_hit = False
+    for report in reports:
+        for part in ("reminder", "digest"):
+            block = report.get(part) or {}
+            for key in totals:
+                totals[key] += int(block.get(key) or 0)
+            time_budget_hit = time_budget_hit or bool(block.get("time_budget_hit"))
+    return {
+        "dry_run": dry_run, "kind": kind, "test_mode": cfg.status_snapshot()["test_mode"], **totals,
+        "time_budget_hit": time_budget_hit, "orgs": reports,
+    }
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -503,9 +551,13 @@ async def remind_course(
     if event_id is not None:
         event = await db.get(MkaAutomationEvent, event_id)
         nothing_went = counts["sent"] + counts["failed"] + counts["suppressed"] == 0 and counts["disabled"] > 0
+        partial = counts["remaining"] > 0  # the budget stopped the run: do not hold the 24 h slot, run it again
         if event is not None:
-            event.status = "ignored" if nothing_went else "processed"
-            event.note = f"sent={counts['sent']} failed={counts['failed']} skipped_recent={counts['skipped_recent']}"
+            event.status = "ignored" if (nothing_went or partial) else "processed"
+            event.note = (
+                f"sent={counts['sent']} failed={counts['failed']} skipped_recent={counts['skipped_recent']}"
+                + (f" partial remaining={counts['remaining']}" if partial else "")
+            )
             await db.commit()
         if nothing_went:
             raise ManualRemindBlocked(409, "Reminders are not switched on")

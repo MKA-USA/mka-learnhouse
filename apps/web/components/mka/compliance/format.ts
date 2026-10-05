@@ -298,11 +298,14 @@ export function truncationNotice(truncated: string | null | undefined, limit: st
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
 
 /** "12 people will be reminded" (preview) / "Reminded 12 people" (after sending). */
-export function remindHeadline(r: Pick<RemindResponse, 'dry_run' | 'would_send' | 'sent'>): string {
+export function remindHeadline(r: Pick<RemindResponse, 'dry_run' | 'would_send' | 'sent'> & { remaining?: number }): string {
   if (r.dry_run) {
     if (r.would_send === 0) return 'Nobody needs a reminder right now'
     return `${plural(r.would_send, 'person', 'people')} will be reminded`
   }
+  const left = r.remaining ?? 0
+  // The server stops a long run on purpose (time or send cap); what is left is NOT lost, it is sent by running it again.
+  if (left > 0) return `Sent ${r.sent} so far; ${left} remaining. Run it again to send the rest.`
   return r.sent === 0 ? 'No reminders were sent' : `Reminded ${plural(r.sent, 'person', 'people')}`
 }
 
@@ -343,19 +346,43 @@ export function remindBlockedReason(viewed: ComplianceCycle, cycles: ComplianceC
   return null
 }
 
+/** What a 409 from the remind endpoint means. The API words them; the web keys off these stable fragments. */
+export type RemindConflict = 'preview_changed' | 'not_current' | 'disabled'
+export function remindConflict(detail: string | null | undefined): RemindConflict {
+  const d = (detail ?? '').toLowerCase()
+  if (d.includes('changed since the preview')) return 'preview_changed'
+  if (d.includes('current cycle')) return 'not_current'
+  return 'disabled'
+}
+
 /** Calm, specific wording for each status the remind endpoint can answer with. */
-export function remindErrorMessage(status: number | null): string {
+export function remindErrorMessage(
+  status: number | null,
+  ctx: { sending?: boolean; detail?: string | null } = {},
+): string {
   switch (status) {
     case 403:
       return "You don't have permission to send reminders for this course."
     case 404:
       return "This course isn't available to you."
     case 409:
-      return "Reminders aren't switched on yet, so nothing was sent."
+      switch (remindConflict(ctx.detail)) {
+        case 'preview_changed':
+          return 'The list of people changed since the preview, so nothing more was sent. Please review it again.'
+        case 'not_current':
+          return 'Reminders only go out for the current cycle. Switch to it and try again.'
+        default:
+          return "Reminders aren't switched on yet, so nothing was sent."
+      }
+    case 422:
+      return 'Please review the list again before sending.'
     case 429:
       return 'This course was already reminded in the last 24 hours. Try again tomorrow.'
     default:
-      return "Couldn't reach the reminder service. Nothing was sent. Please try again."
+      // A preview never sends, so only a REAL send can leave reminders half done; never claim "nothing was sent" then.
+      return ctx.sending
+        ? 'The request timed out or was interrupted, so some reminders may already have gone out. Check before trying again.'
+        : "Couldn't reach the reminder service. Nothing was sent. Please try again."
   }
 }
 

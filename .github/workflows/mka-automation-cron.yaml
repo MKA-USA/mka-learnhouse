@@ -3,13 +3,18 @@ name: MKA Automation Cron
 # Daily trigger for the compliance automation (spec 2026-10-05, seam C). There is no scheduler inside LearnHouse in our
 # mode, so GitHub calls two protected endpoints on the dev deployment:
 #   1. POST /api/v1/mka/automation/reminders/run   (the endpoint decides whether today is a reminder day / Monday)
-#   2. POST /api/v1/mka/automation/receipts/sweep   (seam B; a 404 is logged and skipped until that endpoint ships)
+#   2. POST /api/v1/mka/automation/receipts/sweep   (seam B; any non-2xx answer, a 404 included, fails the job)
 #
 # Safety: every run is a DRY RUN unless the operator turns it off.
 #   * workflow_dispatch: input `dry_run` defaults to true.
 #   * schedule: dry-run unless the repository VARIABLE MKA_AUTOMATION_CRON_DRY_RUN is exactly `false`.
 # The server independently needs MKA_AUTOMATION_ENABLED + the feature flags, and redirects all mail to
 # MKA_AUTOMATION_TEST_RECIPIENT while that is set. See docs/runbooks/automation/reminders.md.
+#
+# A reminder run is resumable: the server stops after MKA_AUTOMATION_RUN_TIME_BUDGET_SECONDS (default 90 s) or its
+# send cap and returns `remaining` / `time_budget_hit`. The job calls again (at most 10 times) while the server ran out
+# of time and has more to do. "More to do" is not a failure; a non-2xx answer is. The log shows counts only.
+# The cron secret must be alphanumeric: it is quoted inside a curl config line, where `"` and `\` are escapes.
 #
 # `schedule` only fires from the default branch (`dev`).
 on:
@@ -68,17 +73,45 @@ jobs:
           DRY_RUN: ${{ steps.params.outputs.dry_run }}
           KIND: ${{ steps.params.outputs.kind }}
         run: |
-          set -eu
+          set -u
           if [ -z "$MKA_AUTOMATION_CRON_SECRET" ]; then
             echo "::notice::MKA_AUTOMATION_CRON_SECRET is not set (secrets are not available to forks or unconfigured environments). Skipping: nothing was called."
             exit 0
           fi
           echo "::add-mask::$MKA_AUTOMATION_CRON_SECRET"
-          # The header goes through curl's config on stdin so the secret never appears in a process list or in the log.
-          printf 'header = "X-MKA-Cron-Secret: %s"\n' "$MKA_AUTOMATION_CRON_SECRET" | curl --config - \
-            --silent --show-error --fail-with-body --max-time 120 -X POST \
-            "$BASE_URL/reminders/run?dry_run=$DRY_RUN&kind=$KIND"
-          echo
+          # A long run stops itself (time budget / send cap) and reports `remaining`. Call again while the SERVER says it
+          # ran out of time and there is more to do. Being unfinished is not a failure; a non-2xx answer is. Only the
+          # counts are printed: never the response body (it is not meant to hold addresses, but we do not rely on it).
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            rc=0
+            # The header goes through curl's config on stdin so the secret never appears in a process list or in the log.
+            status=$(printf 'header = "X-MKA-Cron-Secret: %s"\n' "$MKA_AUTOMATION_CRON_SECRET" | curl --config - \
+              --silent --show-error --max-time 150 -X POST --output reminders-response.json --write-out '%{http_code}' \
+              "$BASE_URL/reminders/run?dry_run=$DRY_RUN&kind=$KIND") || rc=$?
+            if [ "$rc" -ne 0 ]; then
+              rm -f reminders-response.json
+              echo "::error::reminders/run call $i failed before an HTTP answer (curl exit $rc). Some reminders may already have been sent: check the send log before re-running."
+              exit 1
+            fi
+            case "$status" in
+              2??) ;;
+              *) rm -f reminders-response.json; echo "::error::reminders/run call $i returned HTTP $status"; exit 1 ;;
+            esac
+            sent=$(jq -r '.sent // 0' reminders-response.json)
+            would=$(jq -r '.would_send // 0' reminders-response.json)
+            remaining=$(jq -r '.remaining // 0' reminders-response.json)
+            budget_hit=$(jq -r '.time_budget_hit // false' reminders-response.json)
+            rm -f reminders-response.json
+            echo "call $i: HTTP $status sent=$sent would_send=$would remaining=$remaining time_budget_hit=$budget_hit"
+            if [ "$remaining" -gt 0 ] && [ "$budget_hit" = "true" ]; then
+              continue
+            fi
+            if [ "$remaining" -gt 0 ]; then
+              echo "::notice::$remaining reminders are left (the run hit its send cap, not the clock). The next daily run continues while the reminder window is open."
+            fi
+            exit 0
+          done
+          echo "::notice::Stopped after 10 calls; the rest continues on the next run while the reminder window is open."
 
       - name: Sweep receipts (seam B)
         if: ${{ !cancelled() }}
@@ -92,14 +125,20 @@ jobs:
             exit 0
           fi
           echo "::add-mask::$MKA_AUTOMATION_CRON_SECRET"
+          rc=0
           status=$(printf 'header = "X-MKA-Cron-Secret: %s"\n' "$MKA_AUTOMATION_CRON_SECRET" | curl --config - \
-            --silent --show-error --fail-with-body --max-time 120 -X POST \
-            --output sweep-response.txt --write-out '%{http_code}' \
+            --silent --show-error --max-time 150 -X POST \
+            --output sweep-response.json --write-out '%{http_code}' \
             "$BASE_URL/receipts/sweep?dry_run=$DRY_RUN") || rc=$?
-          if [ "$status" = "404" ]; then
-            echo "::notice::receipts/sweep returned 404: that endpoint is not deployed yet (seam B). Skipping, not a failure."
-            exit 0
+          if [ "$rc" -ne 0 ]; then
+            rm -f sweep-response.json
+            echo "::error::receipts/sweep failed before an HTTP answer (curl exit $rc)"
+            exit 1
           fi
-          cat sweep-response.txt
-          echo
-          exit "${rc:-0}"
+          # Seam B is deployed: a 404 here means a broken deploy or route, so it fails like any other non-2xx answer.
+          case "$status" in
+            2??) ;;
+            *) rm -f sweep-response.json; echo "::error::receipts/sweep returned HTTP $status"; exit 1 ;;
+          esac
+          echo "receipts/sweep: HTTP $status $(jq -c '{dry_run, candidates, results}' sweep-response.json)"
+          rm -f sweep-response.json

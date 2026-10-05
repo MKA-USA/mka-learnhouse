@@ -201,4 +201,7 @@ export interface RemindResponse {
   failed: number
   disabled: number
   stopped: string | null
+  /** Still to do when the run stopped early (time budget or send cap). Run it again; nobody is mailed twice. */
+  remaining: number
+  time_budget_hit: boolean
 }

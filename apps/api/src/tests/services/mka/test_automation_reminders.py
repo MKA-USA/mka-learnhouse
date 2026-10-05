@@ -23,7 +23,8 @@ FLAGS = (
     "MKA_AUTOMATION_ENABLED", "MKA_RECEIPTS_ENABLED", "MKA_REMINDERS_ENABLED", "MKA_AUTOMATION_TEST_RECIPIENT",
     "MKA_AUTOMATION_CONTACT_EMAIL", "MKA_AUTOMATION_WEEKLY_REMINDER_CAP", "MKA_COMPLIANCE_TZ",
     "MKA_REMINDER_SCHEDULE", "MKA_AUTOMATION_RUN_SEND_CAP", "MKA_AUTOMATION_MAX_CONSECUTIVE_FAILURES",
-    "MKA_REMINDER_EXCLUDED_DEPARTMENTS", "LEARNHOUSE_PLATFORM_URL",
+    "MKA_REMINDER_EXCLUDED_DEPARTMENTS", "LEARNHOUSE_PLATFORM_URL", "MKA_REMINDER_WINDOW_DAYS",
+    "MKA_AUTOMATION_RUN_TIME_BUDGET_SECONDS",
 )
 CANDIDATES = 8  # everybody on org 1's roster except l1 and ex (attested)
 
@@ -51,6 +52,9 @@ def env(monkeypatch):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("MKA_AUTOMATION_SEND_DELAY_SECONDS", "0")
     monkeypatch.setenv("LEARNHOUSE_PLATFORM_URL", "https://ilm.example.invalid")
+    # these tests are about the per-date schedule: one-day windows. Windows have their own tests
+    # (test_automation_reminders_windows.py).
+    monkeypatch.setenv("MKA_REMINDER_WINDOW_DAYS", "1")
 
 
 @pytest.fixture

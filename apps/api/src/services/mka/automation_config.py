@@ -17,7 +17,7 @@ import math
 import os
 import re
 from dataclasses import dataclass
-from datetime import date, timezone
+from datetime import date, timedelta, timezone
 from typing import Optional
 from zoneinfo import ZoneInfo
 
@@ -167,6 +167,22 @@ def weekly_reminder_cap() -> int:
     return _int("MKA_AUTOMATION_WEEKLY_REMINDER_CAP", 1, 1)
 
 
+def run_time_budget_seconds() -> float:
+    """Wall-clock budget of one reminder run (default 90 s). The run stops sending once it is spent, so the HTTP
+    call returns well inside the caller's timeout; the caller simply calls again for the rest."""
+    return _float("MKA_AUTOMATION_RUN_TIME_BUDGET_SECONDS", 90.0, 0.0, 3600.0)
+
+
+def reminder_window_days() -> int:
+    """How many days (the scheduled date included) a reminder date stays open for catching up (default 4)."""
+    return min(_int("MKA_REMINDER_WINDOW_DAYS", 4, 1), 7)
+
+
+def claim_lease_seconds() -> int:
+    """A ``queued`` send-log claim older than this is presumed crashed and may be re-claimed once (default 900)."""
+    return _int("MKA_AUTOMATION_CLAIM_LEASE_SECONDS", 900, 1)
+
+
 def cycle_tz() -> ZoneInfo | timezone:
     """The cycle timezone: ``MKA_COMPLIANCE_TZ`` (default America/New_York), UTC when the name is unknown."""
     name = _env("MKA_COMPLIANCE_TZ") or "America/New_York"
@@ -242,6 +258,18 @@ def is_reminder_day(today: date, deadline: Optional[date], schedule: ReminderSch
     return False
 
 
+def reminder_window_start(
+    today: date, deadline: Optional[date], schedule: ReminderSchedule, window_days: int
+) -> Optional[date]:
+    """The scheduled reminder date that has ``today`` inside its window (the window is the date itself plus the
+    following ``window_days - 1`` days), the latest one when several qualify; ``None`` outside every window."""
+    for back in range(max(window_days, 1)):
+        day = today - timedelta(days=back)
+        if is_reminder_day(day, deadline, schedule):
+            return day
+    return None
+
+
 # ---------------------------------------------------------------------------------------------------------
 # status (no secrets, no full addresses)
 # ---------------------------------------------------------------------------------------------------------
@@ -270,5 +298,8 @@ def status_snapshot() -> dict:
         "webhook_secret_configured": bool(webhook_secret()),
         "cron_secret_configured": bool(cron_secret()),
         "run_send_cap": run_send_cap(),
+        "run_time_budget_seconds": run_time_budget_seconds(),
+        "reminder_window_days": reminder_window_days(),
+        "claim_lease_seconds": claim_lease_seconds(),
         "weekly_reminder_cap": weekly_reminder_cap(),
     }

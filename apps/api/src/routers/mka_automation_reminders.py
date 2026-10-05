@@ -24,6 +24,10 @@ async def api_run_reminders(
     kind: Literal["reminder", "digest", "all"] = Query("all"),
     db_session: AsyncSession = Depends(get_db_session),
 ) -> dict:
-    """Decide from the schedule whether today is a reminder day / Monday and (dry-)run it for every org."""
+    """Decide from the schedule whether today is inside a reminder window / is a Monday and (dry-)run it for every org.
+
+    A run is bounded (``MKA_AUTOMATION_RUN_TIME_BUDGET_SECONDS``, ``MKA_AUTOMATION_RUN_SEND_CAP``) and RESUMABLE: it
+    returns ``{sent, would_send, skipped_recent, failed, remaining, time_budget_hit, orgs}``; call again while
+    ``remaining > 0`` (people already reminded are skipped, so a repeat never mails anyone twice)."""
     response.headers["Cache-Control"] = "private, no-store"
     return await reminders.run_all(db_session, dry_run=dry_run, kind=kind)

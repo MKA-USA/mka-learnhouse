@@ -42,10 +42,13 @@ export const complianceToday = (): string => (MKA_COMPLIANCE_MOCK ? MOCK_TODAY :
 
 export class ComplianceApiError extends Error {
   status: number
-  constructor(status: number, message: string) {
+  /** The API's `detail` string when it sent one (used to tell the different 409s apart). Never shown as is. */
+  detail: string | null
+  constructor(status: number, message: string, detail: string | null = null) {
     super(message)
     this.name = 'ComplianceApiError'
     this.status = status
+    this.detail = detail
   }
 }
 
@@ -131,7 +134,16 @@ export async function remindCourse(
     `${getAPIUrl()}mka/compliance/courses/${seg(courseUuid)}/remind?${qs}`,
     RequestBodyWithAuthHeader('POST', null, { revalidate: 0 }, auth.token),
   )
-  if (!res.ok) throw new ComplianceApiError(res.status, `Remind request failed (${res.status})`)
+  if (!res.ok) {
+    let detail: string | null = null
+    try {
+      const body = (await res.json()) as { detail?: unknown }
+      detail = typeof body?.detail === 'string' ? body.detail : null
+    } catch {
+      /* no JSON body: the status alone decides the wording */
+    }
+    throw new ComplianceApiError(res.status, `Remind request failed (${res.status})`, detail)
+  }
   return (await res.json()) as RemindResponse
 }
 
@@ -247,4 +259,10 @@ export function useLearners(courseUuid: string, filters: LearnerFilters, cycleId
 export const errorStatus = (err: unknown): number | null => {
   const s = (err as { status?: unknown })?.status
   return typeof s === 'number' ? s : null
+}
+
+/** The API's `detail` string behind a failed remind call, when it sent one. */
+export const errorDetail = (err: unknown): string | null => {
+  const d = (err as { detail?: unknown })?.detail
+  return typeof d === 'string' ? d : null
 }
