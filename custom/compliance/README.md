@@ -58,3 +58,15 @@ assignment/task uuids of the final sign-off and the contact self-check, for the 
 
 ## Unconfirmed
 Regional department mailboxes `{dept}.{region}@mkausa.org` (200 roster rows, source `formula-unconfirmed`) come from the Thinkific directories and are not yet confirmed by the user. Atfal has none (no evidence).
+
+## Fork compliance API (push to the in-LearnHouse analytics)
+Not deployed anywhere yet; nothing here has been applied. All commands are dry-run by default and refuse non-staging hosts.
+```
+bun run lh push-cycle [--apply --confirm-staging] [--starts-on 2026-11-01 --deadline-on 2026-12-01]
+bun run lh push-roster --all|--pilot|--only a,b [--apply --confirm-staging] [--batch-size 1000] [--server-dry-run]
+bun run lh assign-authors --map mohtamims.csv [--apply --confirm-staging]
+```
+Cycle dates are config, not code: flags > `cycle` table row > built-in default for known labels (`roster --starts-on ... --deadline-on ...` stores them).
+`push-cycle` sends `out/cycle-courses.json` to `POST /mka/compliance/cycles`; `push-roster` sends the expected roster (every role, regional included,
+`formula_unconfirmed` flagged) to `POST /mka/compliance/expected/import` in batches (API limit 2000). Auth: org API token plus `org_slug`.
+Per-row errors go to `out/push-roster-report.json`; console shows counts only. Runbook: `docs/runbooks/cycle-rollout.md`.

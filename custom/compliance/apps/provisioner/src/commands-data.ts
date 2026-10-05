@@ -6,7 +6,7 @@ import {
   loadPlans, loadRoster, parseDeptPlans, parseNames, parseOverrides, seedPlansFromThinkific, upsertDeptPlans, upsertOverrides, upsertRoster, type Issue,
 } from "@mka/compliance-core";
 import type { Args } from "./args";
-import { DEFAULT_CYCLE, cycleDef } from "./cycles";
+import { DEFAULT_CYCLE, loadCycleDef } from "./cycles";
 
 export const OUT_DIR = fileURLToPath(new URL("../../../out", import.meta.url));
 export function ensureOut() { mkdirSync(OUT_DIR, { recursive: true }); }
@@ -17,7 +17,7 @@ const summarize = (issues: Issue[]) => { const c: Record<string, number> = {}; f
 export async function cmdRoster(a: Args) {
   const label = a.str("cycle", DEFAULT_CYCLE)!; const { db, sql } = connect();
   try {
-    const cid = await ensureCycle(db, cycleDef(label));
+    const def = await loadCycleDef(db, label, a); const cid = await ensureCycle(db, def, def.fromFlags);
     const n = await upsertRoster(db, cid, generateRoster());
     const ov = await applyStoredOverrides(db, cid);
     console.log(`cycle ${label}: ${n} roster roles upserted; ${ov.changed} rows changed by stored overrides`);
@@ -29,7 +29,7 @@ export async function cmdImport(a: Args) {
   if (!kind || !file) throw new Error("usage: import <dept-plans|overrides|names> <file.csv> [--cycle 2026-27]");
   const label = a.str("cycle", DEFAULT_CYCLE)!; const { db, sql } = connect();
   try {
-    const cid = await ensureCycle(db, cycleDef(label));
+    const def = await loadCycleDef(db, label, a); const cid = await ensureCycle(db, def, def.fromFlags);
     const text = read(file);
     if (kind === "dept-plans") {
       const r = parseDeptPlans(text, "dept_plans.csv"); const n = await upsertDeptPlans(db, cid, r.rows);
@@ -50,7 +50,7 @@ export async function cmdSeedThinkific(a: Args) {
   if (!existsSync(dir)) throw new Error(`Thinkific data dir not found: ${dir}`);
   const { db, sql } = connect();
   try {
-    const cid = await ensureCycle(db, cycleDef("2025-26"));
+    const cid = await ensureCycle(db, await loadCycleDef(db, "2025-26"));
     const seed = seedPlansFromThinkific(listTkCourses(dir));
     await upsertDeptPlans(db, cid, seed.plans);
     const lines = ["# Thinkific content flags (review before publishing)", "", ...seed.flags.filter((f) => f.flag.severity === "warn").map((f) => `- [${f.department}] ${f.lesson}: ${f.flag.detail}`),

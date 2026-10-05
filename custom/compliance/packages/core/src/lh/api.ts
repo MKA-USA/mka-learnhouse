@@ -39,6 +39,9 @@ export class LhApi {
   getCourseAnalytics(courseUuid: string) { return this.client.get<T.CourseAnalytics>(`${this.a}/courses/${courseUuid}/analytics`); }
   listUserGroupMembers(usergroupUuid: string) { return this.client.get<unknown[]>(`${this.a}/usergroups/${usergroupUuid}/members`); }
 
+  getCourseContributors(courseUuid: string) {
+    return this.client.get<{ user_id: number; authorship: string; authorship_status: string }[]>(`/courses/${courseUuid}/contributors`);
+  }
   // ---- WRITE (not used in milestone 0) -----------------------------------
   createCourse(orgId: number, input: T.CreateCourseInput) {
     const f = new FormData();
@@ -60,6 +63,12 @@ export class LhApi {
   createChapter(input: T.CreateChapterInput) { return this.client.post<T.LhChapter>("/chapters/", input); }
   createActivity(input: T.CreateActivityInput) { assertDraftOnly(input); return this.client.post<T.LhActivity>("/activities/", input); }
   updateActivity(activityUuid: string, input: T.UpdateActivityInput) { assertDraftOnly(input); return this.client.put<T.LhActivity>(`/activities/${activityUuid}`, input); }
+  addContributors(courseUuid: string, usernames: string[]) {
+    return this.client.post<{ successful: unknown[]; failed: unknown[] }>(`/courses/${courseUuid}/bulk-add-contributors`, usernames);
+  }
+  setContributor(courseUuid: string, userId: number, authorship: string, status: "ACTIVE" | "PENDING" | "INACTIVE") {
+    return this.client.request("PUT", `/courses/${courseUuid}/contributors/${userId}`, { query: { authorship, authorship_status: status } });
+  }
   createVideoActivity(chapterId: number, name: string, absPath: string) {
     const f = new FormData(); f.set("name", name); f.set("chapter_id", String(chapterId)); f.set("details", "{}");
     f.set("video_file", Bun.file(absPath), absPath.split("/").pop());

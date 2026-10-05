@@ -47,3 +47,11 @@ bun run start seed-thinkific [--dir <thinkific data>]    # 2025-26 stale plans, 
 bun run start gap-report [--cycle] [--data <dir with the CSVs>] [--carry-over 2025-26]
 ```
 (run from `apps/provisioner`; outputs go to `custom/compliance/out/`)
+
+## mohtamims.csv  (`assign-authors --map mohtamims.csv`)
+`department,email`: one row per department course; `department` accepts slug, name or alias. The user at `email` must already be an org member
+(they have signed in once); others are reported as `not_signed_in` and skipped (re-run after they sign in). The command makes them an **ACTIVE CONTRIBUTOR** of
+that department's course in two calls (`POST /courses/{uuid}/bulk-add-contributors` creates CONTRIBUTOR/PENDING, then
+`PUT /courses/{uuid}/contributors/{user_id}?authorship=CONTRIBUTOR&authorship_status=ACTIVE`; source: `apps/api/src/routers/courses/courses.py`,
+`services/courses/contributors.py`, enums in `db/resource_authors.py`). Existing CREATOR rows are never touched; ACTIVE rows are left unchanged.
+The report (`out/assign-authors-report.json`) holds per-department statuses only, no emails.

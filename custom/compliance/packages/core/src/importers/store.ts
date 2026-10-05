@@ -4,8 +4,9 @@ import { cycle, deptPlan, directoryOverride, personRole } from "../schema";
 import type { DeptPlanInput } from "./dept-plans";
 import type { OverrideInput } from "./overrides";
 
-export async function ensureCycle(db: PostgresJsDatabase<any>, c: { label: string; startsOn: string; deadlineOn: string }): Promise<number> {
-  await db.insert(cycle).values(c).onConflictDoNothing({ target: cycle.label });
+export async function ensureCycle(db: PostgresJsDatabase<any>, c: { label: string; startsOn: string; deadlineOn: string }, update = false): Promise<number> {
+  if (update) await db.insert(cycle).values(c).onConflictDoUpdate({ target: cycle.label, set: { startsOn: c.startsOn, deadlineOn: c.deadlineOn } });
+  else await db.insert(cycle).values(c).onConflictDoNothing({ target: cycle.label });
   const [row] = await db.select().from(cycle).where(eq(cycle.label, c.label));
   return row!.id;
 }
@@ -75,4 +76,9 @@ export async function upsertEnrollmentLog(db: PostgresJsDatabase<any>, cycleId: 
     await db.insert(enrollmentLog).values({ cycleId, lhCourseUuid: r.courseUuid, learnerEmail: r.email, lhUserId: r.userId, status: r.status })
       .onConflictDoUpdate({ target: [enrollmentLog.cycleId, enrollmentLog.lhCourseUuid, enrollmentLog.learnerEmail], set: { lhUserId: r.userId, status: r.status, updatedAt: sql`now()` } });
   }
+}
+
+export async function getCycleRow(db: PostgresJsDatabase<any>, label: string) {
+  const [row] = await db.select().from(cycle).where(eq(cycle.label, label));
+  return row ?? null;
 }

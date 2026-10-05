@@ -23,8 +23,8 @@ describe("publish (explicit command only)", () => {
 
 describe("cycle-courses.json", () => {
   test("lists courses with signoff and contact-check assignment/task ids", () => {
-    const f = buildCycleCourses("2026-27", "2026-12-01", [row], new Date("2026-10-05T00:00:00Z"));
-    expect(f.cycle).toBe("2026-27"); expect(f.deadline).toBe("2026-12-01");
+    const f = buildCycleCourses("2026-27", "2026-11-01", "2026-12-01", [row], new Date("2026-10-05T00:00:00Z"));
+    expect(f.cycle).toBe("2026-27"); expect(f.deadline).toBe("2026-12-01"); expect(f.deadline_on).toBe("2026-12-01"); expect(f.starts_on).toBe("2026-11-01");
     const c = f.courses[0]!;
     expect(c).toMatchObject({ kind: "department", department: "tabligh", course_uuid: "course_t" });
     expect(c.signoff).toEqual({ activity_uuid: "activity_3", assignment_uuid: "assignment_3", task_uuids: { confirm: "task_c", "full-name": "task_d" } });

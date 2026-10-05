@@ -5,7 +5,7 @@ import {
 } from "@mka/compliance-core";
 import { eq } from "drizzle-orm";
 import type { Args } from "./args";
-import { cycleDef } from "./cycles";
+import { loadCycleDef } from "./cycles";
 import { OUT_DIR, ensureOut, writeOut } from "./commands-data";
 import { DEFAULT_CYCLE } from "./cycles";
 import { PILOT, buildWorld } from "./world";
@@ -118,8 +118,8 @@ export async function cmdReconcile(a: Args) {
 
 async function exportCycleCourses(db: any, cycleId: number, cycle: string) {
   const rows = await dbMapStoreRows(db, cycleId);
-  const def = cycleDef(cycle);
-  writeOut("cycle-courses.json", JSON.stringify(buildCycleCourses(cycle, def.deadlineOn, rows), null, 1));
+  const def = await loadCycleDef(db, cycle);
+  writeOut("cycle-courses.json", JSON.stringify(buildCycleCourses(cycle, def.startsOn, def.deadlineOn, rows), null, 1));
   return rows.length;
 }
 async function dbMapStoreRows(db: any, cycleId: number) {

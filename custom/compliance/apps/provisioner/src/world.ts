@@ -2,7 +2,7 @@ import {
   DEFAULT_THINKIFIC_DIR, DEPARTMENTS, THINKIFIC_SOURCE, buildDepartmentCourse, buildGeneralCourse, foundationCourse, getCycleId, listTkCourses, loadFoundation, loadPlans, loadRoster,
   thinkificPlanRefs, type Db, type CourseSpec, type PlanInput, type RosterRow,
 } from "@mka/compliance-core";
-import { cycleDef } from "./cycles";
+import { loadCycleDef } from "./cycles";
 
 export const PILOT = ["aitmad", "tabligh"];
 export interface WorldSpec { spec: CourseSpec; thinkificCourseId?: number }
@@ -12,7 +12,7 @@ const toPlan = (p: any): PlanInput => ({ departmentSlug: p.departmentSlug, level
 export async function buildWorld(db: Db, o: { cycle: string; only?: string[]; includeGeneral: boolean; thinkificDir?: string; carryOver?: string }): Promise<{ cycleId: number; specs: WorldSpec[]; warnings: string[] }> {
   const cycleId = await getCycleId(db, o.cycle);
   if (cycleId === null) throw new Error(`cycle ${o.cycle} not found; run roster/import first`);
-  const def = cycleDef(o.cycle); const warnings: string[] = [];
+  const def = await loadCycleDef(db, o.cycle); const warnings: string[] = [];
   const deadline = new Date(def.deadlineOn + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
   const roster = (await loadRoster(db, cycleId)).map((r) => ({ ...r, level: r.level as RosterRow["level"] })) as RosterRow[];
   if (!roster.length) throw new Error("roster is empty; run `roster` first");
