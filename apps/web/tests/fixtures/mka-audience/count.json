@@ -1,0 +1,19 @@
+{
+  "body": {
+    "by_level": {
+      "local": 6,
+      "national": 0,
+      "regional": 0
+    },
+    "count": 6,
+    "expected": {
+      "cycle_id": 1,
+      "matching": 6,
+      "total": 10
+    },
+    "total_officeholders": 16,
+    "unrecognized": 11
+  },
+  "path": "audience/count",
+  "status": 200
+}

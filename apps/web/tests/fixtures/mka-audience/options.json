@@ -1,0 +1,642 @@
+{
+  "body": {
+    "copy": {
+      "count_tooltip": "Counts members of this organization who have signed in at least once (or were added to the roster), using their current role.",
+      "empty_lesson": "Nothing in this lesson applies to your role. You can mark it complete and continue.",
+      "not_secret": "Visibility is for convenience, not secrecy. Anyone enrolled can technically access this section, so don't put confidential information in it.",
+      "unrecognized_note": "Parts of this lesson are tailored by role. We couldn't recognise your role from your sign-in, so you may not see everything meant for you. Contact your administrator."
+    },
+    "departments": [
+      {
+        "aka": [
+          "General Secretary"
+        ],
+        "key": "aitmad",
+        "name": "Aitmad"
+      },
+      {
+        "aka": [],
+        "key": "tabligh",
+        "name": "Tabligh"
+      },
+      {
+        "aka": [],
+        "key": "tarbiyyat",
+        "name": "Tarbiyyat"
+      },
+      {
+        "aka": [],
+        "key": "maal",
+        "name": "Maal"
+      },
+      {
+        "aka": [],
+        "key": "sanat_o_tijarat",
+        "name": "Sanat-o-Tijarat"
+      },
+      {
+        "aka": [],
+        "key": "sehat_e_jismani",
+        "name": "Sehat-e-Jismani"
+      },
+      {
+        "aka": [],
+        "key": "ishaat",
+        "name": "Ishaat"
+      },
+      {
+        "aka": [],
+        "key": "khidmat_e_khalq",
+        "name": "Khidmat-e-Khalq"
+      },
+      {
+        "aka": [],
+        "key": "tahrik_e_jadid",
+        "name": "Tahrik-e-Jadid"
+      },
+      {
+        "aka": [],
+        "key": "tajneed",
+        "name": "Tajneed"
+      },
+      {
+        "aka": [],
+        "key": "taleem",
+        "name": "Taleem"
+      },
+      {
+        "aka": [],
+        "key": "nau_mubaeen",
+        "name": "Nau Mubaeen"
+      },
+      {
+        "aka": [],
+        "key": "amoomi",
+        "name": "Amoomi"
+      },
+      {
+        "aka": [],
+        "key": "amoor_e_tuluba",
+        "name": "Amoor-e-Tuluba"
+      },
+      {
+        "aka": [],
+        "key": "waqar_e_amal",
+        "name": "Waqar-e-Amal"
+      },
+      {
+        "aka": [],
+        "key": "mohasib",
+        "name": "Mohasib"
+      },
+      {
+        "aka": [],
+        "key": "rishta_nata",
+        "name": "Rishta Nata"
+      },
+      {
+        "aka": [],
+        "key": "wasiyyat",
+        "name": "Wasiyyat"
+      },
+      {
+        "aka": [],
+        "key": "waqf_e_nau",
+        "name": "Waqf-e-Nau"
+      },
+      {
+        "aka": [],
+        "key": "new_immigrants",
+        "name": "New Immigrants"
+      },
+      {
+        "aka": [],
+        "key": "atfal",
+        "name": "Atfal"
+      }
+    ],
+    "levels": [
+      {
+        "key": "national",
+        "label": "National"
+      },
+      {
+        "key": "regional",
+        "label": "Regional"
+      },
+      {
+        "key": "local",
+        "label": "Local"
+      }
+    ],
+    "majlis": [
+      {
+        "name": "Baltimore",
+        "region": "East"
+      },
+      {
+        "name": "Central Jersey",
+        "region": "East"
+      },
+      {
+        "name": "Harrisburg",
+        "region": "East"
+      },
+      {
+        "name": "North Jersey",
+        "region": "East"
+      },
+      {
+        "name": "Philadelphia",
+        "region": "East"
+      },
+      {
+        "name": "Willingboro",
+        "region": "East"
+      },
+      {
+        "name": "Cleveland",
+        "region": "Great Lakes"
+      },
+      {
+        "name": "Columbus",
+        "region": "Great Lakes"
+      },
+      {
+        "name": "Dayton",
+        "region": "Great Lakes"
+      },
+      {
+        "name": "Detroit",
+        "region": "Great Lakes"
+      },
+      {
+        "name": "Indiana",
+        "region": "Great Lakes"
+      },
+      {
+        "name": "Kentucky",
+        "region": "Great Lakes"
+      },
+      {
+        "name": "Austin",
+        "region": "Gulf"
+      },
+      {
+        "name": "Dallas",
+        "region": "Gulf"
+      },
+      {
+        "name": "Fort Worth",
+        "region": "Gulf"
+      },
+      {
+        "name": "Houston",
+        "region": "Gulf"
+      },
+      {
+        "name": "Tulsa",
+        "region": "Gulf"
+      },
+      {
+        "name": "Chicago",
+        "region": "Midwest"
+      },
+      {
+        "name": "Kansas City",
+        "region": "Midwest"
+      },
+      {
+        "name": "Milwaukee",
+        "region": "Midwest"
+      },
+      {
+        "name": "Minnesota",
+        "region": "Midwest"
+      },
+      {
+        "name": "Oshkosh",
+        "region": "Midwest"
+      },
+      {
+        "name": "Saint Louis",
+        "region": "Midwest"
+      },
+      {
+        "name": "Zion",
+        "region": "Midwest"
+      },
+      {
+        "name": "Muqami",
+        "region": "Muqami"
+      },
+      {
+        "name": "Bronx",
+        "region": "New York Metro"
+      },
+      {
+        "name": "Brooklyn",
+        "region": "New York Metro"
+      },
+      {
+        "name": "Long Island",
+        "region": "New York Metro"
+      },
+      {
+        "name": "Queens",
+        "region": "New York Metro"
+      },
+      {
+        "name": "Albany",
+        "region": "Northeast"
+      },
+      {
+        "name": "Boston",
+        "region": "Northeast"
+      },
+      {
+        "name": "Connecticut",
+        "region": "Northeast"
+      },
+      {
+        "name": "Rochester",
+        "region": "Northeast"
+      },
+      {
+        "name": "Syracuse-Binghamton",
+        "region": "Northeast"
+      },
+      {
+        "name": "Bay Point",
+        "region": "Northwest"
+      },
+      {
+        "name": "Portland",
+        "region": "Northwest"
+      },
+      {
+        "name": "Sacramento",
+        "region": "Northwest"
+      },
+      {
+        "name": "Seattle",
+        "region": "Northwest"
+      },
+      {
+        "name": "Silicon Valley",
+        "region": "Northwest"
+      },
+      {
+        "name": "Atlanta",
+        "region": "Southeast"
+      },
+      {
+        "name": "Charlotte",
+        "region": "Southeast"
+      },
+      {
+        "name": "Miami",
+        "region": "Southeast"
+      },
+      {
+        "name": "Orlando",
+        "region": "Southeast"
+      },
+      {
+        "name": "Tennessee",
+        "region": "Southeast"
+      },
+      {
+        "name": "Las Vegas",
+        "region": "Southwest"
+      },
+      {
+        "name": "Los Angeles",
+        "region": "Southwest"
+      },
+      {
+        "name": "Phoenix",
+        "region": "Southwest"
+      },
+      {
+        "name": "Tucson",
+        "region": "Southwest"
+      },
+      {
+        "name": "North Virginia",
+        "region": "Virginia"
+      },
+      {
+        "name": "South Virginia",
+        "region": "Virginia"
+      },
+      {
+        "name": "Richmond",
+        "region": "Virginia"
+      },
+      {
+        "name": "RTP",
+        "region": "Virginia"
+      }
+    ],
+    "personas": [
+      {
+        "attributes": {
+          "department": "tabligh",
+          "is_officeholder": true,
+          "level": "local",
+          "majlis": "Albany",
+          "region": "Northeast",
+          "role": "nazim_dept",
+          "role_title": "Nazim Tabligh",
+          "status": "matched"
+        },
+        "id": "local-nazim-tabligh-albany",
+        "label": "Local Nazim Tabligh · Albany"
+      },
+      {
+        "attributes": {
+          "department": null,
+          "is_officeholder": true,
+          "level": "local",
+          "majlis": "Houston",
+          "region": "Gulf",
+          "role": "qaid",
+          "role_title": "Qaid",
+          "status": "matched"
+        },
+        "id": "local-qaid-houston",
+        "label": "Local Qaid · Houston"
+      },
+      {
+        "attributes": {
+          "department": null,
+          "is_officeholder": true,
+          "level": "regional",
+          "majlis": null,
+          "region": "Northeast",
+          "role": "regional_qaid",
+          "role_title": "Regional Qaid",
+          "status": "matched"
+        },
+        "id": "regional-qaid-northeast",
+        "label": "Regional Qaid · Northeast"
+      },
+      {
+        "attributes": {
+          "department": "tabligh",
+          "is_officeholder": true,
+          "level": "national",
+          "majlis": null,
+          "region": null,
+          "role": "mohtamim",
+          "role_title": "Mohtamim Tabligh",
+          "status": "matched"
+        },
+        "id": "mohtamim-tabligh-national",
+        "label": "Mohtamim Tabligh (National)"
+      },
+      {
+        "attributes": {
+          "department": "atfal",
+          "is_officeholder": true,
+          "level": "local",
+          "majlis": "Syracuse-Binghamton",
+          "region": "Northeast",
+          "role": "nazim_atfal",
+          "role_title": "Nazim Atfal",
+          "status": "matched"
+        },
+        "id": "atfal-nazim-syracuse-binghamton",
+        "label": "Atfal Nazim · Syracuse-Binghamton"
+      },
+      {
+        "attributes": {
+          "department": null,
+          "is_officeholder": null,
+          "level": null,
+          "majlis": null,
+          "region": null,
+          "role": null,
+          "role_title": null,
+          "status": "unrecognized"
+        },
+        "id": "unrecognized",
+        "label": "Unrecognized account"
+      },
+      {
+        "attributes": {
+          "department": null,
+          "is_officeholder": false,
+          "level": null,
+          "majlis": null,
+          "region": null,
+          "role": null,
+          "role_title": null,
+          "status": "not_applicable"
+        },
+        "id": "not-an-officeholder",
+        "label": "Not an officeholder"
+      }
+    ],
+    "presets": [
+      {
+        "id": "local",
+        "label": "Local officeholders",
+        "rule": {
+          "groups": [
+            {
+              "level": [
+                "local"
+              ]
+            }
+          ],
+          "mode": "show",
+          "v": 1
+        }
+      },
+      {
+        "id": "regional-qaids",
+        "label": "Regional Qaids",
+        "rule": {
+          "groups": [
+            {
+              "level": [
+                "regional"
+              ],
+              "role": [
+                "regional_qaid"
+              ]
+            }
+          ],
+          "mode": "show",
+          "v": 1
+        }
+      },
+      {
+        "id": "national-team",
+        "label": "National team",
+        "rule": {
+          "groups": [
+            {
+              "level": [
+                "national"
+              ]
+            }
+          ],
+          "mode": "show",
+          "v": 1
+        }
+      },
+      {
+        "id": "qaids-naib-qaids",
+        "label": "Qaids & Naib Qaids",
+        "rule": {
+          "groups": [
+            {
+              "role": [
+                "qaid",
+                "naib_qaid"
+              ]
+            }
+          ],
+          "mode": "show",
+          "v": 1
+        }
+      },
+      {
+        "id": "motamids",
+        "label": "Motamids",
+        "rule": {
+          "groups": [
+            {
+              "role": [
+                "motamid",
+                "regional_motamid"
+              ]
+            }
+          ],
+          "mode": "show",
+          "v": 1
+        }
+      },
+      {
+        "id": "my-department",
+        "label": "My department",
+        "needs_author_department": true,
+        "rule": {
+          "groups": [
+            {}
+          ],
+          "mode": "show",
+          "v": 1
+        }
+      }
+    ],
+    "regions": [
+      {
+        "name": "East"
+      },
+      {
+        "name": "Great Lakes"
+      },
+      {
+        "name": "Gulf"
+      },
+      {
+        "name": "Midwest"
+      },
+      {
+        "name": "New York Metro"
+      },
+      {
+        "name": "Northeast"
+      },
+      {
+        "name": "Northwest"
+      },
+      {
+        "name": "Southeast"
+      },
+      {
+        "name": "Southwest"
+      },
+      {
+        "name": "Virginia"
+      },
+      {
+        "name": "Muqami"
+      }
+    ],
+    "roles": [
+      {
+        "key": "sadr",
+        "plural": "Sadrs",
+        "title": "Sadr"
+      },
+      {
+        "key": "naib_sadr",
+        "plural": "Naib Sadrs",
+        "title": "Naib Sadr"
+      },
+      {
+        "key": "mohtamim",
+        "plural": "Mohtamims",
+        "title": "Mohtamim (department)"
+      },
+      {
+        "key": "nazim_dept",
+        "plural": "Nazims",
+        "title": "Nazim (department)"
+      },
+      {
+        "key": "qaid",
+        "plural": "Qaids",
+        "title": "Qaid"
+      },
+      {
+        "key": "naib_qaid",
+        "plural": "Naib Qaids",
+        "title": "Naib Qaid"
+      },
+      {
+        "key": "regional_qaid",
+        "plural": "Regional Qaids",
+        "title": "Regional Qaid"
+      },
+      {
+        "key": "motamid",
+        "plural": "Motamids",
+        "title": "Motamid"
+      },
+      {
+        "key": "regional_nazim_dept",
+        "plural": "Regional Nazims",
+        "title": "Regional Nazim (department)"
+      },
+      {
+        "key": "regional_motamid",
+        "plural": "Regional Motamids",
+        "title": "Regional Motamid"
+      },
+      {
+        "key": "nazim_atfal",
+        "plural": "Nazims Atfal",
+        "title": "Nazim Atfal"
+      },
+      {
+        "key": "murabbi_atfal",
+        "plural": "Murabbis Atfal",
+        "title": "Murabbi Atfal"
+      },
+      {
+        "key": "national_staff",
+        "plural": "National staff",
+        "title": "National staff"
+      }
+    ],
+    "rules_version": "2026.1"
+  },
+  "path": "options?org_id=1",
+  "status": 200
+}

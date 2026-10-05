@@ -1,0 +1,8 @@
+{
+  "body": {
+    "counterparts": [],
+    "reason": "no_department"
+  },
+  "path": "me/counterparts",
+  "status": 200
+}

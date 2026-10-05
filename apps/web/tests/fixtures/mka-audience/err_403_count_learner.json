@@ -1,0 +1,7 @@
+{
+  "body": {
+    "detail": "Not allowed to use the audience tools here"
+  },
+  "path": "audience/count",
+  "status": 403
+}
