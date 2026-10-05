@@ -69,7 +69,7 @@ const DEPARTMENTS: [string, string][] = [
   ['khidmat_e_khalq', 'Khidmat-e-Khalq'], ['tahrik_e_jadid', 'Tahrik-e-Jadid'], ['tajneed', 'Tajneed'],
   ['taleem', 'Taleem'], ['nau_mubaeen', 'Nau Mubaeen'], ['amoomi', 'Amoomi'], ['amoor_e_tuluba', 'Amoor-e-Tuluba'],
   ['waqar_e_amal', 'Waqar-e-Amal'], ['mohasib', 'Mohasib'], ['rishta_nata', 'Rishta Nata'], ['wasiyyat', 'Wasiyyat'],
-  ['waqf_e_nau', 'Waqf-e-Nau'], ['new_immigrants', 'New Immigrants'], ['atfal', 'Atfal'],
+  ['waqf_e_nau', 'Waqf-e-Nau'], ['new_immigrants', 'New Immigrants'], ['atfal', 'Atfal'], ['muqami', 'Muqami'],
 ]
 
 const MAJLIS_REGION: [string, string][] = [
@@ -99,7 +99,7 @@ const PRESETS: Preset[] = [
 
 export function mockOptions(): AudienceOptions {
   return {
-    rules_version: '2026.1',
+    rules_version: '2026.3',
     levels: [
       { key: 'national', label: 'National' },
       { key: 'regional', label: 'Regional' },
@@ -147,7 +147,7 @@ export function mockMe(): MkaMeResponse {
     attributes: persona.attributes,
     stale: false,
     can_view_all: q.get('mka_admin') === '1',
-    rules_version: '2026.1',
+    rules_version: '2026.3',
   }
 }
 

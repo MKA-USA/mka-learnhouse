@@ -108,7 +108,7 @@ describe("invariants the UI relies on", () => {
     const regions = new Set(o.regions.map((r) => r.name));
     const majlis = new Map(o.majlis.map((m) => [m.name, m.region]));
     expect(o.levels.map((l) => l.key)).toEqual(LEVELS);
-    expect(o.departments.length).toBe(21);
+    expect(o.departments.length).toBe(22);
     for (const r of o.roles) expect(r.key).not.toContain(":");
     for (const m of o.majlis) expect(regions.has(m.region)).toBe(true);
     for (const p of o.presets) for (const g of p.rule.groups) {

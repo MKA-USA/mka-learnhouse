@@ -120,7 +120,7 @@ def test_build_options_shape_and_sources():
     assert o["rules_version"] == RULES.version
     assert o["levels"] == [{"key": "national", "label": "National"}, {"key": "regional", "label": "Regional"}, {"key": "local", "label": "Local"}]
     assert [d["key"] for d in o["departments"]] == [d["key"] for d in RULES.raw["departments"]]  # rules order
-    assert len(o["departments"]) == 21 and o["departments"][0] == {"key": "aitmad", "name": "Aitmad", "aka": ["General Secretary"]}
+    assert len(o["departments"]) == len(RULES.raw["departments"]) == 22 and o["departments"][0] == {"key": "aitmad", "name": "Aitmad", "aka": ["General Secretary"]}
     assert next(d for d in o["departments"] if d["key"] == "tabligh")["aka"] == []
     role_keys = [r["key"] for r in o["roles"]]
     assert role_keys == [k for k in RULES.role_titles if ":" not in k]

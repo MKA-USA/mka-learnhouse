@@ -90,14 +90,29 @@ class MailboxProvider:
         return slugify_majlis(majlis)
 
     # -- rows ---------------------------------------------------------------------------------------------
+    @staticmethod
+    def _regional_office_mailbox(rules: IdentityRules, region: str) -> Optional[tuple[str, str]]:
+        """A national mailbox the rules mark as ALSO being the office of ``region`` (``region`` key on a ``national_exact`` entry):
+        Muqami is its own region and chapter, and its Qaid mailbox is the national ``muqami@`` (there is no ``qaid.muqami@``)."""
+        for domain, dom in rules.domains.items():
+            for key, entry in dom.get("national_exact", {}).items():
+                if entry.get("region") == region and entry.get("status", "matched") == "matched":
+                    return domain, key
+        return None
+
     def _regional_row(self, attrs: dict, rules: IdentityRules) -> Optional[dict]:
         region = attrs.get("region")
-        found = self._regional_qaid_prefix(rules)
-        slug = self._region_slug(rules, region) if isinstance(region, str) else None
-        if not found or not slug:
+        if not isinstance(region, str) or not region:
             return None
-        domain, prefix, role = found
-        return _row("regional", rules.title(role, "regional", None), f"{prefix}.{slug}@{domain}", None)
+        found = self._regional_qaid_prefix(rules)
+        slug = self._region_slug(rules, region)
+        if found and slug:
+            domain, prefix, role = found
+            return _row("regional", rules.title(role, "regional", None), f"{prefix}.{slug}@{domain}", None)
+        office = self._regional_office_mailbox(rules, region)
+        if office:
+            return _row("regional", rules.title("regional_qaid", "regional", None), f"{office[1]}@{office[0]}", None)
+        return None
 
     def for_viewer(self, attrs: dict, rules: IdentityRules) -> list[dict]:
         if attrs.get("status") not in RECOGNIZED:
@@ -158,6 +173,13 @@ def counterparts_for(
     if not attrs.get("department") and attrs.get("role") not in LOCAL_EXECUTIVE_ROLES:
         return {"counterparts": [], "reason": "no_department"}
     own = _address_key(own_email)
-    rows = [r for r in provider.for_viewer(attrs, rules) if _address_key(r["email"]) != own or not own]
+    rows: list[dict] = []
+    seen: set[str] = set()
+    for r in provider.for_viewer(attrs, rules):
+        key = _address_key(r["email"])
+        if (own and key == own) or key in seen:  # own address, or a mailbox already listed (muqami@ is national AND chapter Qaid)
+            continue
+        seen.add(key)
+        rows.append(r)
     return {"counterparts": rows, "reason": None}
 

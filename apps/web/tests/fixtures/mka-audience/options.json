@@ -113,6 +113,11 @@
         "aka": [],
         "key": "atfal",
         "name": "Atfal"
+      },
+      {
+        "aka": [],
+        "key": "muqami",
+        "name": "Muqami"
       }
     ],
     "levels": [
@@ -635,7 +640,7 @@
         "title": "National staff"
       }
     ],
-    "rules_version": "2026.1"
+    "rules_version": "2026.3"
   },
   "path": "options?org_id=1",
   "status": 200

@@ -11,7 +11,7 @@
       "status": "matched"
     },
     "can_view_all": false,
-    "rules_version": "2026.1",
+    "rules_version": "2026.3",
     "stale": false
   },
   "path": "me?course_uuid=course_tabligh",

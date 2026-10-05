@@ -108,6 +108,38 @@ def test_regional_nazim_row_omits_own_address():
     assert "maal.gulf@mkausa.org" in emails(local)
 
 
+def test_muqami_chapter_qaid_is_the_national_muqami_mailbox_from_the_rules():
+    # Muqami is its own region and chapter; its Qaid mailbox is muqami@ (no qaid.muqami@): the rules' national_exact region key says so
+    attrs = {"status": "matched", "department": "tabligh", "role": "nazim_dept", "level": "local", "majlis": "Muqami", "region": "Muqami"}
+    res = counterparts_for(attrs, RULES, own_email="x@example.invalid")
+    assert [(r["level"], r["email"]) for r in res["counterparts"]] == [("national", "tabligh@mkausa.org"), ("regional", "muqami@mkausa.org")]
+    parsed = parse_identity("muqami@mkausa.org", RULES)
+    assert (parsed.status, parsed.level, parsed.region, parsed.majlis, parsed.department) == ("matched", "national", "Muqami", "Muqami", "muqami")
+    # a local Qaid in Muqami: regional-Qaid row only
+    qaid = counterparts_for({"status": "matched", "role": "qaid", "level": "local", "majlis": "Muqami", "region": "Muqami"}, RULES, own_email="x@example.invalid")
+    assert emails(qaid) == ["muqami@mkausa.org"] and qaid["counterparts"][0]["role_title"] == "Regional Qaid"
+
+
+def test_muqami_department_viewers_get_national_mohtamim_muqami_once():
+    attrs = {"status": "matched", "department": "muqami", "role": "mohtamim", "level": "national", "majlis": "Muqami", "region": "Muqami"}
+    assert counterparts_for(attrs, RULES, own_email="x@example.invalid")["counterparts"] == [
+        {"level": "national", "role_title": "Mohtamim Muqami", "email": "muqami@mkausa.org", "name": None, "department": "muqami"}]  # not twice
+    assert counterparts_for(attrs, RULES, own_email="muqami@mkausa.org") == {"counterparts": [], "reason": None}  # the office holder: nobody else to contact
+    assert emails(result("muqami@mkausa.org")) == []
+
+
+def test_new_york_metro_regional_qaid_mailbox_is_qaid_newyorkmetro():
+    attrs = {"status": "matched", "department": "maal", "role": "national_staff", "level": "local", "majlis": "Brooklyn", "region": "New York Metro"}
+    assert MAJLIS_TO_REGION["Brooklyn"] == "New York Metro"
+    got = counterparts_for(attrs, RULES, own_email="x@example.invalid")["counterparts"]
+    assert [(r["level"], r["email"]) for r in got] == [
+        ("national", "maal@mkausa.org"), ("regional", "maal.newyorkmetro@mkausa.org"), ("regional", "qaid.newyorkmetro@mkausa.org"), ("local", "maal.brooklyn@mkausa.org")]
+    for r in got:
+        assert parse_identity(r["email"], RULES).status == "matched", r  # all parse; newyorkmetro.region@ is an extra alias, never emitted
+    assert parse_identity("newyorkmetro.region@mkausa.org", RULES).role == "regional_qaid"
+    assert all("newyorkmetro.region" not in r["email"] for r in got)
+
+
 def test_atfal_never_gets_a_regional_department_row():
     attrs = {"status": "matched", "department": "atfal", "role": "murabbi_atfal", "level": "local", "majlis": "Houston", "region": "Gulf"}
     rows = counterparts_for(attrs, RULES, own_email="x@example.invalid")["counterparts"]
@@ -141,9 +173,8 @@ def test_own_address_omission_ignores_case_and_plus_tag():
     assert len(res["counterparts"]) == 2
 
 
-def test_region_without_a_mailbox_slug_gets_no_regional_row():
-    attrs = {"status": "matched", "department": "tabligh", "role": "nazim_dept", "level": "local", "majlis": "Muqami", "region": "Muqami"}
-    assert MAJLIS_TO_REGION["Muqami"] == "Muqami"
+def test_region_without_a_mailbox_slug_or_office_gets_no_regional_row():
+    attrs = {"status": "matched", "department": "tabligh", "role": "nazim_dept", "level": "local", "majlis": "Nowhere", "region": "Unmapped Region"}
     res = counterparts_for(attrs, RULES, own_email="x@example.invalid")
     assert emails(res) == ["tabligh@mkausa.org"]
 
@@ -153,6 +184,7 @@ def test_every_emitted_mailbox_parses_back_to_the_row_it_describes():
     provider = MailboxProvider()
     checked = 0
     emitted_regional_dept: set[str] = set()
+    emitted_office: set[str] = set()
     for majlis, region in MAJLIS_TO_REGION.items():
         for dept in RULES.department_names:
             attrs = {"status": "matched", "department": dept, "role": "murabbi_atfal" if dept == "atfal" else "regional_nazim_dept",
@@ -160,19 +192,24 @@ def test_every_emitted_mailbox_parses_back_to_the_row_it_describes():
             for row in provider.for_viewer(attrs, RULES):
                 parsed = parse_identity(row["email"], RULES)
                 assert parsed.status == "matched", row
-                assert parsed.level == row["level"], row
+                office = row["level"] == "regional" and row["email"].split("@")[0] in RULES.domains["mkausa.org"]["national_exact"]
+                assert parsed.level == ("national" if office else row["level"]), row  # muqami@: national Mohtamim AND the Muqami chapter Qaid
                 if row["level"] == "national":
                     assert parsed.department == dept
                 elif row["level"] == "regional" and row["department"]:
                     assert parsed.role in ("regional_nazim_dept", "regional_motamid") and parsed.department == dept and parsed.region == region
                     emitted_regional_dept.add(dept)
+                elif office:
+                    assert parsed.region == region == "Muqami" and parsed.majlis == "Muqami"
+                    emitted_office.add(row["email"])
                 elif row["level"] == "regional":
                     assert parsed.role == "regional_qaid" and parsed.region == region
                 else:
                     assert parsed.department == dept and parsed.majlis == majlis
-                assert row["role_title"] == parsed.role_title, row
+                assert office or row["role_title"] == parsed.role_title, row
                 checked += 1
     assert checked > 100
+    assert emitted_office == {"muqami@mkausa.org"}
     assert "atfal" not in emitted_regional_dept and "tabligh" in emitted_regional_dept and len(emitted_regional_dept) == 20
 
 

@@ -21,7 +21,7 @@ const DEPARTMENTS: [string, string][] = [
   ['khidmat_e_khalq', 'Khidmat-e-Khalq'], ['tahrik_e_jadid', 'Tahrik-e-Jadid'], ['tajneed', 'Tajneed'],
   ['taleem', 'Taleem'], ['nau_mubaeen', 'Nau Mubaeen'], ['amoomi', 'Amoomi'], ['amoor_e_tuluba', 'Amoor-e-Tuluba'],
   ['waqar_e_amal', 'Waqar-e-Amal'], ['mohasib', 'Mohasib'], ['rishta_nata', 'Rishta Nata'], ['wasiyyat', 'Wasiyyat'],
-  ['waqf_e_nau', 'Waqf-e-Nau'], ['new_immigrants', 'New Immigrants'], ['atfal', 'Atfal'],
+  ['waqf_e_nau', 'Waqf-e-Nau'], ['new_immigrants', 'New Immigrants'], ['atfal', 'Atfal'], ['muqami', 'Muqami'],
 ]
 
 const ROLES: [string, string, string][] = [
@@ -48,7 +48,7 @@ export const MOCK_PERSONAS: Persona[] = [
 ]
 
 export const MOCK_OPTIONS: AudienceOptions = {
-  rules_version: '2026.1',
+  rules_version: '2026.3',
   levels: [{ key: 'national', label: 'National' }, { key: 'regional', label: 'Regional' }, { key: 'local', label: 'Local' }],
   departments: DEPARTMENTS.map(([key, name]) => ({ key, name, aka: [] })),
   roles: ROLES.map(([key, title, plural]) => ({ key, title, plural })),
