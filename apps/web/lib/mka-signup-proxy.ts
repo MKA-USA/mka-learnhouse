@@ -56,39 +56,13 @@ export function mkaInternalApiUrl(env: Record<string, string | undefined> = proc
   return url.endsWith('/') ? url : `${url}/`
 }
 
-// Errors raised while ESTABLISHING the connection: the request never reached
-// the API, so a second attempt cannot create a duplicate account. Resets,
-// socket errors and timeouts are excluded (the API may have received the body).
-const CONNECT_ERROR_CODES = new Set([
-  'ECONNREFUSED',
-  'ENOTFOUND',
-  'EAI_AGAIN',
-  'EHOSTUNREACH',
-  'ENETUNREACH',
-  'EADDRNOTAVAIL',
-  'UND_ERR_CONNECT_TIMEOUT',
-])
-
-/** True when a fetch rejection is a connection-establishment failure. */
-export function isMkaConnectError(err: unknown): boolean {
-  if (!err || typeof err !== 'object') return false
-  const seen: unknown[] = [err]
-  const cause = (err as { cause?: unknown }).cause
-  if (cause && typeof cause === 'object') {
-    seen.push(cause)
-    const nested = (cause as { errors?: unknown }).errors
-    if (Array.isArray(nested)) seen.push(...nested)
-  }
-  return seen.some(
-    (e) => !!e && typeof e === 'object' && CONNECT_ERROR_CODES.has(String((e as { code?: unknown }).code)),
-  )
-}
-
 /**
  * fetch() for the signup gateway. SaaS: plain fetch(url) (upstream). Non-SaaS:
- * when `url` starts with `publicBase`, call the loopback equivalent; on a
- * connection-establishment error fall back ONCE to the original public URL.
- * HTTP responses (any status) and other errors are returned/thrown as-is.
+ * when `url` starts with `publicBase`, call the loopback equivalent ONLY. There
+ * is deliberately no fallback to the public URL: it would silently reintroduce
+ * the shared edge-IP rate-limit bucket, and a refused loopback means the API is
+ * down anyway. Errors propagate to the route's existing 502 handling; there is
+ * never a second request.
  */
 export async function mkaSignupFetch(
   saas: boolean,
@@ -99,13 +73,5 @@ export async function mkaSignupFetch(
 ): Promise<Response> {
   const fetchImpl = opts.fetchImpl ?? fetch
   if (saas || !url.startsWith(publicBase)) return fetchImpl(url, init)
-  const internalUrl = (opts.internalBase ?? mkaInternalApiUrl()) + url.slice(publicBase.length)
-  if (internalUrl === url) return fetchImpl(url, init)
-  try {
-    return await fetchImpl(internalUrl, init)
-  } catch (err) {
-    if (!isMkaConnectError(err)) throw err
-    console.warn('[signup] loopback API unreachable, falling back to public URL') // eslint-disable-line no-console
-    return fetchImpl(url, init)
-  }
+  return fetchImpl((opts.internalBase ?? mkaInternalApiUrl()) + url.slice(publicBase.length), init)
 }

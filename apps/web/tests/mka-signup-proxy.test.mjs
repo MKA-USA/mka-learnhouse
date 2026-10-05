@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
+import * as proxy from "../lib/mka-signup-proxy.ts";
 import {
-  isMkaConnectError,
   mkaInternalApiUrl,
   mkaSignupFetch,
   mkaSignupForwardHeaders,
@@ -64,21 +64,8 @@ describe("mka internal api url", () => {
   });
 });
 
-describe("mka connect error classification", () => {
-  test("connection-establishment failures fall back", () => {
-    for (const code of ["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "EHOSTUNREACH", "ENETUNREACH", "UND_ERR_CONNECT_TIMEOUT"]) {
-      expect(isMkaConnectError(connectErr(code))).toBe(true);
-    }
-    const agg = Object.assign(new TypeError("fetch failed"), { cause: { errors: [{ code: "ECONNREFUSED" }] } });
-    expect(isMkaConnectError(agg)).toBe(true);
-  });
-  test("anything that may have reached the API does not", () => {
-    expect(isMkaConnectError(connectErr("ECONNRESET"))).toBe(false);
-    expect(isMkaConnectError(connectErr("UND_ERR_SOCKET"))).toBe(false);
-    expect(isMkaConnectError(Object.assign(new Error("t"), { name: "TimeoutError" }))).toBe(false);
-    expect(isMkaConnectError(new TypeError("fetch failed"))).toBe(false);
-    expect(isMkaConnectError(null)).toBe(false);
-  });
+test("no public-URL fallback helper is exported", () => {
+  expect(proxy.isMkaConnectError).toBeUndefined();
 });
 
 describe("mka signup fetch", () => {
@@ -122,24 +109,10 @@ describe("mka signup fetch", () => {
     expect(calls[0][1]["X-Forwarded-For"]).toBe("8.8.4.4");
   });
 
-  test("connect error on loopback falls back ONCE to the public url", async () => {
-    const calls = [];
-    const res = await mkaSignupFetch(false, PUBLIC, PUBLIC + invitePath, init(), {
-      internalBase: INTERNAL,
-      fetchImpl: async (u) => {
-        calls.push(u);
-        if (u.startsWith(INTERNAL)) throw connectErr("ECONNREFUSED");
-        return new Response("{}", { status: 200 });
-      },
-    });
-    expect(res.status).toBe(200);
-    expect(calls).toEqual([INTERNAL + invitePath, PUBLIC + invitePath]);
-  });
-
-  test("a failing fallback is not retried again", async () => {
+  test("loopback connect error propagates; no second request to the public url", async () => {
     const calls = [];
     await expect(
-      mkaSignupFetch(false, PUBLIC, PUBLIC + "users/", init(), {
+      mkaSignupFetch(false, PUBLIC, PUBLIC + invitePath, init(), {
         internalBase: INTERNAL,
         fetchImpl: async (u) => {
           calls.push(u);
@@ -147,7 +120,7 @@ describe("mka signup fetch", () => {
         },
       }),
     ).rejects.toThrow();
-    expect(calls.length).toBe(2);
+    expect(calls).toEqual([INTERNAL + invitePath]);
   });
 
   test("HTTP error responses are never retried", async () => {
