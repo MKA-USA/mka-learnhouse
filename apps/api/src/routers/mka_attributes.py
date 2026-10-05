@@ -330,7 +330,7 @@ async def api_delete_override(
 
 def _roster_view(row: MkaRosterOverride) -> dict:
     return {
-        "email": row.email, "attributes": row.attributes, "source": row.source, "note": row.note,
+        "org_id": row.org_id, "email": row.email, "attributes": row.attributes, "source": row.source, "note": row.note,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
         "updated_by": row.updated_by,
     }
@@ -345,10 +345,10 @@ async def api_list_roster(
     current_user=Depends(get_authenticated_user),
     db_session: AsyncSession = Depends(get_db_session),
 ) -> dict:
-    await _resolve_admin(current_user, org_id, org_slug, db_session)
+    admin = await _resolve_admin(current_user, org_id, org_slug, db_session)
     rows = (
         await db_session.execute(
-            select(MkaRosterOverride).order_by(MkaRosterOverride.email)  # type: ignore[arg-type]
+            select(MkaRosterOverride).where(MkaRosterOverride.org_id == admin.org_id).order_by(MkaRosterOverride.email)  # type: ignore[arg-type]
             .offset((page - 1) * page_size).limit(page_size)
         )
     ).scalars().all()
@@ -367,7 +367,7 @@ async def api_import_roster(
     gets ``ok`` / ``error``. ``dry_run`` validates without writing."""
     admin = await _resolve_admin(current_user, org_id, org_slug, db_session)
     return await svc.import_roster(
-        db_session,
+        db_session, admin.org_id,
         [r.model_dump() for r in body.rows],
         source=admin.source, actor_user_id=admin.actor_user_id, dry_run=body.dry_run,
     )
@@ -385,7 +385,7 @@ async def api_put_roster(
     admin = await _resolve_admin(current_user, org_id, org_slug, db_session)
     try:
         row = await svc.upsert_roster(
-            db_session, email, body.attributes, source=admin.source, note=body.note,
+            db_session, admin.org_id, email, body.attributes, source=admin.source, note=body.note,
             actor_user_id=admin.actor_user_id,
         )
     except ValueError as exc:
@@ -402,7 +402,7 @@ async def api_delete_roster(
     db_session: AsyncSession = Depends(get_db_session),
 ) -> dict:
     admin = await _resolve_admin(current_user, org_id, org_slug, db_session)
-    if not await svc.delete_roster(db_session, email, admin.actor_user_id):
+    if not await svc.delete_roster(db_session, admin.org_id, email, admin.actor_user_id):
         raise HTTPException(status_code=404, detail="No roster override for that email")
     return {"deleted": True}
 

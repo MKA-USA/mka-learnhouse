@@ -195,10 +195,10 @@ async def test_override_requires_reason_and_valid_layer(db):
 
 
 @pytest.mark.asyncio
-async def test_roster_before_user_exists_applies_at_first_login(db):
-    await svc.upsert_roster(db, "M.Kauser@mkausa.org",
+async def test_roster_before_user_exists_applies_at_first_login(db, org):
+    await svc.upsert_roster(db, org.id, "M.Kauser@mkausa.org",
                             {"level": "national", "role": "naib_sadr"}, source="companion")
-    u = await _user(db, 17, "m.kauser@mkausa.org")
+    u = await _user(db, 17, "m.kauser@mkausa.org", org=org)
     await svc.mka_refresh_on_login(db, u, "google")
     row = await svc.get_row(db, 17)
     assert row.derived["status"] == "unrecognized"          # parser alone cannot classify
@@ -207,42 +207,43 @@ async def test_roster_before_user_exists_applies_at_first_login(db):
 
 
 @pytest.mark.asyncio
-async def test_roster_change_updates_existing_row_and_audits(db):
-    u = await _user(db, 18, "john.smith@mkausa.org")
+async def test_roster_change_updates_existing_row_and_audits(db, org):
+    u = await _user(db, 18, "john.smith@mkausa.org", org=org)
     await svc.refresh_attributes(db, u)
     await db.commit()
-    await svc.upsert_roster(db, "john.smith@mkausa.org", {"level": "regional", "region": "Gulf",
+    await svc.upsert_roster(db, org.id, "john.smith@mkausa.org", {"level": "regional", "region": "Gulf",
                                                           "role": "regional_qaid"}, source="admin")
     row = await svc.get_row(db, 18)
     assert (row.eff_level, row.eff_region, row.eff_role) == ("regional", "Gulf", "regional_qaid")
     assert (await _audit(db, 18))[-1].action == "roster_apply"
-    assert await svc.delete_roster(db, "JOHN.SMITH@mkausa.org") is True
+    assert await svc.delete_roster(db, org.id, "JOHN.SMITH@mkausa.org") is True
     assert (await svc.get_row(db, 18)).eff_status == "unrecognized"
-    assert await svc.delete_roster(db, "john.smith@mkausa.org") is False
+    assert await svc.delete_roster(db, org.id, "john.smith@mkausa.org") is False
 
 
 @pytest.mark.asyncio
-async def test_roster_validation_and_bad_email(db):
+async def test_roster_validation_and_bad_email(db, org):
     with pytest.raises(ValueError):
-        await svc.upsert_roster(db, "not-an-email", {"level": "local"}, source="admin")
+        await svc.upsert_roster(db, org.id, "not-an-email", {"level": "local"}, source="admin")
     with pytest.raises(ValueError):
-        await svc.upsert_roster(db, "a@b.org", {"level": "bogus"}, source="admin")
+        await svc.upsert_roster(db, org.id, "a@b.org", {"level": "bogus"}, source="admin")
 
 
 @pytest.mark.asyncio
-async def test_import_roster_partial_failure_and_dry_run(db):
+async def test_import_roster_partial_failure_and_dry_run(db, org):
+    oid = org.id
     rows = [
         {"email": "a.one@mkausa.org", "attributes": {"level": "national", "role": "naib_sadr"}},
         {"email": "bad", "attributes": {"level": "national"}},
         {"email": "b.two@mkausa.org", "attributes": {"level": "nope"}},
     ]
-    dry = await svc.import_roster(db, rows, source="companion", dry_run=True)
+    dry = await svc.import_roster(db, oid, rows, source="companion", dry_run=True)
     assert (dry["valid"], dry["failed"], dry["applied"]) == (1, 2, 0)
-    assert await svc.get_roster_row(db, "a.one@mkausa.org") is None
-    res = await svc.import_roster(db, rows, source="companion")
+    assert await svc.get_roster_row(db, oid, "a.one@mkausa.org") is None
+    res = await svc.import_roster(db, oid, rows, source="companion")
     assert (res["applied"], res["failed"]) == (1, 2)
     assert res["results"][1]["ok"] is False and "error" in res["results"][1]
-    stored = await svc.get_roster_row(db, "a.one@mkausa.org")
+    stored = await svc.get_roster_row(db, oid, "a.one@mkausa.org")
     assert stored.source == "companion"
 
 
@@ -379,7 +380,7 @@ async def test_gdpr_export_and_delete(db, org):
     victim = await _user(db, 40, "john.smith@mkausa.org", "google", org)
     other = await _user(db, 41, "tabligh.albany@mkausa.org", "google", org)
     await svc.recompute_users(db)
-    await svc.upsert_roster(db, "john.smith@mkausa.org", {"level": "national"}, source="admin",
+    await svc.upsert_roster(db, org.id, "john.smith@mkausa.org", {"level": "national"}, source="admin",
                             actor_user_id=victim.id)
     await svc.set_override(db, other, {"majlis": "Boston"}, "r", victim.id)   # victim acted on `other`
     await svc.set_override(db, victim, {"role": "sadr"}, "r", admin.id)
@@ -392,7 +393,7 @@ async def test_gdpr_export_and_delete(db, org):
     await svc.delete_attributes(db, 40)
     await db.commit()
     assert await svc.get_row(db, 40) is None
-    assert await svc.get_roster_row(db, "john.smith@mkausa.org") is None
+    assert await svc.get_roster_row(db, org.id, "john.smith@mkausa.org") is None
     assert await _audit(db, 40) == []
     # the victim is anonymised as an actor on someone else's history
     other_audit = await _audit(db, 41)

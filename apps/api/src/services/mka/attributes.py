@@ -164,10 +164,38 @@ async def get_row(db: AsyncSession, user_id: int) -> Optional[MkaUserAttributes]
     ).scalars().first()
 
 
-async def get_roster_row(db: AsyncSession, email: str) -> Optional[MkaRosterOverride]:
+async def get_roster_row(db: AsyncSession, org_id: int, email: str) -> Optional[MkaRosterOverride]:
+    """The roster row of ONE org for an email (admin routes are always org-scoped)."""
     return (
-        await db.execute(select(MkaRosterOverride).where(MkaRosterOverride.email == normalize_email(email)))
+        await db.execute(
+            select(MkaRosterOverride).where(
+                MkaRosterOverride.org_id == org_id, MkaRosterOverride.email == normalize_email(email)
+            )
+        )
     ).scalars().first()
+
+
+async def roster_for_user(db: AsyncSession, user_id: int, email: str) -> Optional[MkaRosterOverride]:
+    """Roster row that applies to a user: only rows of orgs the USER belongs to count.
+    If several of the user's orgs have a row for the email, the lowest org_id wins
+    (deterministic; the winning org is recorded as ``roster_org_id`` in the effective
+    value and therefore in the audit snapshot)."""
+    return (
+        await db.execute(
+            select(MkaRosterOverride)
+            .join(UserOrganization, UserOrganization.org_id == MkaRosterOverride.org_id)
+            .where(UserOrganization.user_id == user_id, MkaRosterOverride.email == normalize_email(email))
+            .order_by(MkaRosterOverride.org_id)  # type: ignore[arg-type]
+            .limit(1)
+        )
+    ).scalars().first()
+
+
+def _effective(derived: dict, roster_row: Optional[MkaRosterOverride], override: Optional[dict], rules: IdentityRules) -> dict:
+    eff = compute_effective(derived, roster_row.attributes if roster_row else None, override, rules)
+    if roster_row is not None:
+        eff["roster_org_id"] = roster_row.org_id
+    return eff
 
 
 def _add_audit(
@@ -228,12 +256,11 @@ async def refresh_attributes(
     rules = rules or get_rules()
     email = normalize_email(user.email)
     derived = parse_identity(email, rules).to_dict()
-    roster_row = await get_roster_row(db, email)
-    roster = roster_row.attributes if roster_row else None
+    roster_row = await roster_for_user(db, user.id, email)
 
     row = await get_row(db, user.id)
     if row is None:
-        eff = compute_effective(derived, roster, None, rules)
+        eff = _effective(derived, roster_row, None, rules)
         row = MkaUserAttributes(
             user_id=user.id, email_seen=email, derived=derived, rules_version=rules.version,
             derived_at=_now(),
@@ -243,7 +270,7 @@ async def refresh_attributes(
         _add_audit(db, user.id, action, None, _snapshot(row), actor_user_id=actor_user_id)
         return row, True
 
-    eff = compute_effective(derived, roster, row.override, rules)
+    eff = _effective(derived, roster_row, row.override, rules)
     derived_changed = row.derived != derived
     eff_changed = row.effective != eff
     version_changed = row.rules_version != rules.version
@@ -372,13 +399,13 @@ async def set_override(
         db.add(row)
         await db.flush()
     before = _snapshot(row)
-    roster_row = await get_roster_row(db, row.email_seen)
+    roster_row = await roster_for_user(db, user.id, row.email_seen)
     row.override = layer
     row.override_reason = reason
     row.override_by = actor_user_id
     row.override_at = _now()
     _apply_effective_columns(
-        row, compute_effective(row.derived, roster_row.attributes if roster_row else None, layer, rules)
+        row, _effective(row.derived, roster_row, layer, rules)
     )
     db.add(row)
     _add_audit(db, user.id, "override_set", before, _snapshot(row), actor_user_id=actor_user_id, reason=reason)
@@ -394,13 +421,13 @@ async def clear_override(
         return row
     rules = get_rules()
     before = _snapshot(row)
-    roster_row = await get_roster_row(db, row.email_seen)
+    roster_row = await roster_for_user(db, user.id, row.email_seen)
     row.override = None
     row.override_reason = None
     row.override_by = None
     row.override_at = None
     _apply_effective_columns(
-        row, compute_effective(row.derived, roster_row.attributes if roster_row else None, None, rules)
+        row, _effective(row.derived, roster_row, None, rules)
     )
     db.add(row)
     _add_audit(db, user.id, "override_clear", before, _snapshot(row), actor_user_id=actor_user_id, reason=reason)
@@ -413,11 +440,16 @@ async def clear_override(
 # ---------------------------------------------------------------------------
 
 async def _reapply_roster_to_user(
-    db: AsyncSession, email: str, actor_user_id: Optional[int], rules: IdentityRules
+    db: AsyncSession, org_id: int, email: str, actor_user_id: Optional[int], rules: IdentityRules
 ) -> None:
-    """After a roster change, refresh the matching user's effective values (if any)."""
+    """After a roster change in ``org_id``, refresh the matching user's effective values,
+    but ONLY a user who is a member of that org (a roster row never reaches other orgs)."""
     user = (
-        await db.execute(select(User).where(func.lower(User.email) == email))
+        await db.execute(
+            select(User)
+            .join(UserOrganization, UserOrganization.user_id == User.id)  # type: ignore[arg-type]
+            .where(func.lower(User.email) == email, UserOrganization.org_id == org_id)
+        )
     ).scalars().first()
     if user is None:
         return
@@ -428,6 +460,7 @@ async def _reapply_roster_to_user(
 
 async def upsert_roster(
     db: AsyncSession,
+    org_id: int,
     email: str,
     attributes: dict,
     *,
@@ -441,9 +474,9 @@ async def upsert_roster(
     if not email or "@" not in email or any(c.isspace() for c in email):
         raise ValueError("Invalid email")
     layer = validate_layer(attributes, rules)
-    row = await get_roster_row(db, email)
+    row = await get_roster_row(db, org_id, email)
     if row is None:
-        row = MkaRosterOverride(email=email, attributes=layer, source=source, note=note,
+        row = MkaRosterOverride(org_id=org_id, email=email, attributes=layer, source=source, note=note,
                                 updated_at=_now(), updated_by=actor_user_id)
     else:
         row.attributes = layer
@@ -453,23 +486,23 @@ async def upsert_roster(
         row.updated_by = actor_user_id
     db.add(row)
     await db.flush()
-    await _reapply_roster_to_user(db, email, actor_user_id, rules)
+    await _reapply_roster_to_user(db, org_id, email, actor_user_id, rules)
     if commit:
         await db.commit()
     return row
 
 
 async def delete_roster(
-    db: AsyncSession, email: str, actor_user_id: Optional[int] = None, commit: bool = True
+    db: AsyncSession, org_id: int, email: str, actor_user_id: Optional[int] = None, commit: bool = True
 ) -> bool:
     rules = get_rules()
     email = normalize_email(email)
-    row = await get_roster_row(db, email)
+    row = await get_roster_row(db, org_id, email)
     if row is None:
         return False
     await db.delete(row)
     await db.flush()
-    await _reapply_roster_to_user(db, email, actor_user_id, rules)
+    await _reapply_roster_to_user(db, org_id, email, actor_user_id, rules)
     if commit:
         await db.commit()
     return True
@@ -477,6 +510,7 @@ async def delete_roster(
 
 async def import_roster(
     db: AsyncSession,
+    org_id: int,
     rows: Iterable[dict],
     *,
     source: str,
@@ -489,7 +523,7 @@ async def import_roster(
     for i, r in enumerate(rows):
         try:
             await upsert_roster(
-                db, r.get("email", ""), r.get("attributes") or {}, source=source,
+                db, org_id, r.get("email", ""), r.get("attributes") or {}, source=source,
                 note=r.get("note"), actor_user_id=actor_user_id, commit=False,
             )
             results.append({"index": i, "email": normalize_email(r.get("email")), "ok": True})
@@ -661,7 +695,15 @@ async def delete_attributes(db: AsyncSession, user_id: int) -> None:
     (Hard-deleting a user needs no call: the FKs cascade / set NULL.)"""
     row = await get_row(db, user_id)
     if row is not None:
-        await db.execute(delete(MkaRosterOverride).where(MkaRosterOverride.email == row.email_seen))  # type: ignore[arg-type]
+        # Only roster rows of orgs the departing user belongs to; other orgs' rows for
+        # the same email are not ours to delete.
+        member_orgs = select(UserOrganization.org_id).where(UserOrganization.user_id == user_id)
+        await db.execute(
+            delete(MkaRosterOverride).where(
+                MkaRosterOverride.email == row.email_seen,
+                MkaRosterOverride.org_id.in_(member_orgs),  # type: ignore[attr-defined]
+            )
+        )
     await db.execute(delete(MkaUserAttributesAudit).where(MkaUserAttributesAudit.user_id == user_id))  # type: ignore[arg-type]
     await db.execute(
         update(MkaUserAttributesAudit)

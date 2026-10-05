@@ -34,12 +34,17 @@ def _keys(obj):
     return out
 
 
-async def _user(db, uid, email, signup="google"):
+async def _user(db, uid, email, signup="google", org=None):
     now = str(datetime.now())
     u = User(id=uid, username=f"u{uid}", first_name="F", last_name="L", email=email, password="x",
              user_uuid=f"user_{uid}", signup_method=signup, creation_date=now, update_date=now)
     db.add(u)
     await db.commit()
+    if org is not None:
+        from src.db.user_organizations import UserOrganization
+
+        db.add(UserOrganization(user_id=uid, org_id=org.id, role_id=4, creation_date=now, update_date=now))
+        await db.commit()
     return u
 
 
@@ -122,7 +127,7 @@ SPOOF = "nazim.albany@atfalusa.org"
 
 @pytest.mark.asyncio
 async def test_password_user_gets_no_attributes_via_any_path(db, org):
-    u = await _user(db, 400, SPOOF, signup="password")
+    u = await _user(db, 400, SPOOF, signup="password", org=org)
     # login hook (even if a caller wrongly passed google amr for this user, the gate holds)
     await svc.mka_refresh_on_login(db, u, "password")
     assert await svc.get_row(db, 400) is None
@@ -135,9 +140,9 @@ async def test_password_user_gets_no_attributes_via_any_path(db, org):
     c = await svc.recompute_users(db)
     assert c["processed"] == 0 and await svc.get_row(db, 400) is None
     # roster reapply
-    await svc.upsert_roster(db, SPOOF, {"level": "local", "role": "nazim_atfal"}, source="admin")
+    await svc.upsert_roster(db, org.id, SPOOF, {"level": "local", "role": "nazim_atfal"}, source="admin")
     assert await svc.get_row(db, 400) is None
-    await svc.delete_roster(db, SPOOF)
+    await svc.delete_roster(db, org.id, SPOOF)
     assert await svc.get_row(db, 400) is None
 
 
@@ -162,13 +167,144 @@ async def test_explicit_operator_opt_in_derives_for_non_google(db):
 
 
 @pytest.mark.asyncio
-async def test_admin_override_on_unverified_account_uses_blank_derived(db):
+async def test_admin_override_on_unverified_account_uses_blank_derived(db, org):
     admin = await _user(db, 1, "admin@test.com")
-    u = await _user(db, 404, SPOOF, signup="password")
+    u = await _user(db, 404, SPOOF, signup="password", org=org)
     row = await svc.set_override(db, u, {"level": "local", "role": "nazim_atfal", "department": "atfal"},
                                  "verified by phone", admin.id)
     assert row.derived["status"] == "unrecognized"        # never parsed from the unverified email
     assert row.eff_role == "nazim_atfal" and row.effective["source"] == "admin"
     # later recompute/roster do not derive from the address either
-    await svc.upsert_roster(db, SPOOF, {"majlis": "Albany"}, source="admin")
+    await svc.upsert_roster(db, org.id, SPOOF, {"majlis": "Albany"}, source="admin")
     assert (await svc.get_row(db, 404)).derived["status"] == "unrecognized"
+
+
+# --- cross-tenant: roster is per org ---------------------------------------------------------
+
+from src.db.api_tokens import APIToken  # noqa: E402
+from src.db.organization_config import OrganizationConfig  # noqa: E402
+from src.db.mka_user_attributes import MkaRosterOverride  # noqa: E402
+from src.db.user_organizations import UserOrganization  # noqa: E402
+from src.services.api_tokens.api_tokens import generate_api_token  # noqa: E402
+from sqlmodel import select  # noqa: E402
+
+BASE = "/api/v1/mka/attributes"
+
+
+async def _two_orgs(db, org, other_org):
+    for o in (org, other_org):
+        db.add(OrganizationConfig(org_id=o.id, config={"config_version": "2.0"},
+                                  creation_date=str(datetime.now()), update_date=str(datetime.now())))
+    await db.commit()
+    a_user = await _user(db, 501, "john.smith@mkausa.org", org=org)            # only in A
+    b_user = await _user(db, 502, "jane.doe@mkausa.org", org=other_org)        # only in B
+    return a_user, b_user
+
+
+async def _roster_rows(db):
+    return {(r.org_id, r.email): r.attributes for r in (await db.execute(select(MkaRosterOverride))).scalars().all()}
+
+
+@pytest.fixture
+async def token_a(db, org, other_org, admin_user):
+    full, prefix, hashed = generate_api_token()
+    db.add(APIToken(name="a", token_uuid="apitoken_a", token_prefix=prefix, token_hash=hashed, org_id=org.id,
+                    created_by_user_id=admin_user.id, rights={},
+                    creation_date=str(datetime.now()), update_date=str(datetime.now())))
+    await db.commit()
+    from src.router import v1_router
+
+    app = FastAPI()
+    app.include_router(v1_router)
+    app.dependency_overrides[get_db_session] = lambda: db
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t",
+                           headers={"Authorization": f"Bearer {full}"}) as c:
+        yield c
+
+
+@pytest.mark.asyncio
+async def test_token_of_org_a_cannot_touch_org_b_roster(db, org, other_org, admin_user, token_a):
+    a_user, b_user = await _two_orgs(db, org, other_org)
+    oa, ob = org.id, other_org.id
+    await svc.recompute_users(db)
+    await svc.upsert_roster(db, ob, "jane.doe@mkausa.org", {"level": "national", "role": "sadr"}, source="admin")
+    before = await _roster_rows(db)
+    assert (await svc.get_row(db, 502)).eff_role == "sadr"
+    p = {"org_slug": org.slug}
+
+    # cannot list B's roster
+    r = await token_a.get(f"{BASE}/roster", params=p)
+    assert r.status_code == 200 and r.json()["items"] == []
+    # cannot PUT over, DELETE, or import over B's email: it only ever writes org A's table
+    r = await token_a.put(f"{BASE}/roster/jane.doe@mkausa.org", params=p, json={"attributes": {"level": "local"}})
+    assert r.status_code == 200 and r.json()["org_id"] == oa
+    assert (await token_a.delete(f"{BASE}/roster/jane.doe@mkausa.org", params=p)).status_code == 200
+    assert (await token_a.delete(f"{BASE}/roster/jane.doe@mkausa.org", params=p)).status_code == 404
+    imp = await token_a.post(f"{BASE}/roster/import", params=p, json={"rows": [
+        {"email": "jane.doe@mkausa.org", "attributes": {"level": "regional", "region": "Gulf", "role": "regional_qaid"}}]})
+    assert imp.status_code == 200
+    rows = await _roster_rows(db)
+    assert rows[(ob, "jane.doe@mkausa.org")] == before[(ob, "jane.doe@mkausa.org")]   # B untouched
+    assert {k for k in rows if k[0] == ob} == {k for k in before if k[0] == ob}
+    # B's user attributes never changed
+    eff = (await svc.get_row(db, 502)).effective
+    assert (eff["role"], eff["level"]) == ("sadr", "national")
+    # org-B slug / id is a hard 403
+    assert (await token_a.get(f"{BASE}/roster", params={"org_slug": other_org.slug})).status_code == 403
+    assert (await token_a.get(f"{BASE}/roster", params={"org_slug": org.slug, "org_id": ob})).status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_roster_row_of_a_never_changes_user_only_in_b(db, org, other_org):
+    a_user, b_user = await _two_orgs(db, org, other_org)
+    oa = org.id
+    await svc.recompute_users(db)
+    await svc.upsert_roster(db, oa, "jane.doe@mkausa.org", {"level": "national", "role": "sadr"}, source="admin")
+    assert (await svc.get_row(db, 502)).eff_status == "unrecognized"
+    # also at (re)derivation time
+    _, changed = await svc.refresh_attributes(db, b_user, action="recompute")
+    assert changed is False and (await svc.get_row(db, 502)).eff_role is None
+
+
+@pytest.mark.asyncio
+async def test_multi_org_user_uses_lowest_org_id_and_records_it(db, org, other_org):
+    a_user, _ = await _two_orgs(db, org, other_org)
+    oa, ob = org.id, other_org.id
+    db.add(UserOrganization(user_id=501, org_id=ob, role_id=4, creation_date="x", update_date="x"))
+    await db.commit()
+    await svc.upsert_roster(db, ob, "john.smith@mkausa.org", {"level": "regional", "region": "Gulf", "role": "regional_qaid"}, source="admin")
+    await svc.upsert_roster(db, oa, "john.smith@mkausa.org", {"level": "national", "role": "sadr"}, source="admin")
+    row, _ = await svc.refresh_attributes(db, a_user, action="recompute")
+    assert row.effective["role"] == "sadr" and row.effective["roster_org_id"] == min(oa, ob)
+
+
+@pytest.mark.asyncio
+async def test_gdpr_delete_only_removes_rosters_of_users_orgs(db, org, other_org):
+    a_user, _ = await _two_orgs(db, org, other_org)
+    oa, ob = org.id, other_org.id
+    await svc.recompute_users(db)
+    await svc.upsert_roster(db, oa, "john.smith@mkausa.org", {"level": "national"}, source="admin")
+    await svc.upsert_roster(db, ob, "john.smith@mkausa.org", {"level": "regional", "region": "Gulf"}, source="admin")
+    await svc.delete_attributes(db, 501)
+    await db.commit()
+    rows = await _roster_rows(db)
+    assert (oa, "john.smith@mkausa.org") not in rows and (ob, "john.smith@mkausa.org") in rows
+
+
+@pytest.mark.asyncio
+async def test_per_user_routes_404_for_user_only_in_other_org(db, org, other_org, admin_user, token_a):
+    await _two_orgs(db, org, other_org)
+    await svc.recompute_users(db)
+    p = {"org_slug": org.slug}
+    for path in ("users/502", "users/502/audit"):
+        assert (await token_a.get(f"{BASE}/{path}", params=p)).status_code == 404
+    ids = {i["user_id"] for i in (await token_a.get(f"{BASE}/users", params=p)).json()["items"]}
+    assert 502 not in ids and 501 in ids
+    q = (await token_a.get(f"{BASE}/review-queue", params=p)).json()
+    assert 502 not in {i["user_id"] for i in q["unclassified"]["items"]}
+    # session admin of A: override/get on B's user -> 404
+    async with _client(db, admin_user) as c:
+        assert (await c.put(f"{BASE}/users/502/override", params={"org_id": org.id},
+                            json={"override": {"level": "local"}, "reason": "x"})).status_code == 404
+        assert (await c.get(f"{BASE}/users/502", params={"org_id": org.id})).status_code == 404
+        assert (await c.get(f"{BASE}/roster", params={"org_id": other_org.id})).status_code == 403

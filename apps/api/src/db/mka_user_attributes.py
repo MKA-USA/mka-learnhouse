@@ -98,10 +98,14 @@ class MkaUserAttributesAudit(SQLModel, table=True):
 
 
 class MkaRosterOverride(SQLModel, table=True):
-    """Per-email override that can be seeded before the user exists."""
+    """Per-(org, email) override that can be seeded before the user exists."""
 
     __tablename__ = "mka_roster_override"
 
+    # Per-org: an org admin/token can only ever see or write its own org's rows.
+    org_id: int = Field(
+        sa_column=Column(Integer, ForeignKey("organization.id", ondelete="CASCADE"), primary_key=True)
+    )
     email: str = Field(sa_column=Column(String, primary_key=True))  # lower-cased
     attributes: dict = Field(sa_column=Column(_JSON, nullable=False))
     source: str = Field(sa_column=Column(String, nullable=False))  # 'admin' | 'companion'

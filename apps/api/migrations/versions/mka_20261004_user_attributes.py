@@ -95,6 +95,7 @@ def upgrade() -> None:
     if not sa.inspect(op.get_bind()).has_table(ROSTER):
         op.create_table(
             ROSTER,
+            sa.Column("org_id", sa.Integer(), sa.ForeignKey("organization.id", ondelete="CASCADE"), primary_key=True),
             sa.Column("email", sa.String(), primary_key=True),
             sa.Column("attributes", _JSON, nullable=False),
             sa.Column("source", sa.String(), nullable=False),
