@@ -15,9 +15,9 @@ function client(delayMs = 1000) {
   return LhClient.fromEnv({ ...process.env, LH_ORG_SLUG: process.env.LH_ORG_SLUG || "default" }, { delayMs, maxRetries: 2 });
 }
 function gate(a: Args, what: string) { if (a.has("apply") && !a.has("confirm-staging")) throw new SafetyError(`${what} --apply requires --confirm-staging`); }
-/** Clear, PII-free messages. Token rights per the fork API: reads need users.action_read, imports/deletes organizations.action_update. */
+/** Clear, PII-free messages. Token rights per the fork API: reads need courses+assignments read (Read-only preset), imports/deletes all Full Access update rights (courses, activities, assignments, coursechapters, usergroups, certifications). */
 export function explainHttp(e: LhHttpError): string {
-  const need = "The org API token must carry users.action_read (reads) and organizations.action_update (imports); see docs/runbooks/cycle-rollout.md";
+  const need = "Create the org API token with the **Full Access** preset (reads work with Read-only, writes (push-*, apply, assign-authors, reconcile --apply) need a token created with the Full Access preset; the UI cannot grant users/organizations rights); see docs/runbooks/cycle-rollout.md";
   if (e.status === 403) return `HTTP 403 forbidden: ${(e.detail ?? "").replace(/\S+@\S+/g, "<email>")}. ${need}.`;
   if (e.status === 401) return "HTTP 401: the API token was rejected (expired or revoked). Re-issue it and update the keychain item MKA_LH_DEV_API_TOKEN.";
   if (e.status === 409) return "HTTP 409: conflicting concurrent import; nothing was lost, re-run the same command.";

@@ -141,7 +141,7 @@ void ({} as RosterRow);
 import { explainHttp } from "../src/commands-push";
 describe("early, clear failures", () => {
   test("403/401/409/404 messages are actionable and PII-free", () => {
-    expect(explainHttp(new LhHttpError("POST", "/x", 403, "API token lacks organizations.action_update"))).toContain("organizations.action_update");
+    expect(explainHttp(new LhHttpError("POST", "/x", 403, "API token lacks courses.action_update"))).toContain("Full Access");
     expect(explainHttp(new LhHttpError("POST", "/x", 403, "no bob@x.org"))).not.toContain("bob@x.org");
     expect(explainHttp(new LhHttpError("POST", "/x", 401))).toContain("rejected");
     expect(explainHttp(new LhHttpError("POST", "/x", 409))).toContain("re-run");
