@@ -75,4 +75,4 @@ Per-row errors go to `out/push-roster-report.json`; console shows counts only. R
 `scripts/validate-against-api.py` imports the fork's actual request models and validators (cycles, expected import, contributor routes, `CONTACT_CHECK_RULES`)
 and validates the payloads dumped by the dry runs (`out/payload-*.json`). See `docs/runbooks/cycle-rollout.md`. Mid-year appointees: add an `appointed_on`
 (YYYY-MM-DD) column to `directory_overrides.csv`; it is sent as `appointed_on` and the fork derives the due date from it.
-Token rights needed: `users.action_read` and `organizations.action_update` (runbook).
+Token rights needed: create the org API token with the **Full Access** preset (reads work with Read-only, writes need Full Access; the UI cannot grant users/organizations rights) (runbook).

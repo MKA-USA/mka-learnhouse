@@ -40,7 +40,7 @@ migration run starts from the wrong revision). If ilm-dev `alembic current` is n
 4. Deploy the web image (build with the env above).
 5. Backfill attributes for existing Google users (idempotent, safe to repeat; it can only reuse proof recorded by a
    Google login, never create it): `cd apps/api && python -m src.services.mka.backfill --dry-run`, then without `--dry-run`.
-6. Create an org API token (users.action_read + organizations.action_update) and import the cycle and roster with the
+6. Create an org API token with the **Full Access** permission preset (reads work with Read-only, writes need Full Access; the UI cannot grant users/organizations rights, so the fork maps reads to courses+assignments read and writes to courses.action_update; `push-cycle`, `push-roster`, `apply` and `assign-authors` need Full Access) and import the cycle and roster with the
    provisioner: `POST /api/v1/mka/compliance/cycles` then `POST /api/v1/mka/compliance/expected/import?org_slug=<slug>`
    (re-import is idempotent; `dry_run: true` first). Give viewers access per the roles runbook.
 

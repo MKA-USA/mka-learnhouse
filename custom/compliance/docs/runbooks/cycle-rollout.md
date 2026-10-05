@@ -22,12 +22,12 @@ Open confirmations before go-live: regional department mailbox pattern `{dept}.{
 
 ## Org API token: how to create it and which scopes to tick
 Only an org **admin** can do this, in the ilm-dev admin UI (Organization settings, API Tokens; Pro plan). Name it e.g. `compliance-provisioner`, set an expiry,
-then tick exactly these rights (API token `rights`, `db/roles.py::Rights`):
+then pick the **Full Access** permission preset (the Read-only preset is enough for reads only; `push-cycle`, `push-roster`, `push-*`, `apply` and `assign-authors` need Full Access). The UI cannot grant `users` / `organizations` rights, so the fork maps its checks onto rights it can grant (API token `rights`, `db/roles.py::Rights`):
 
 | Resource | Actions | Needed for |
 |---|---|---|
-| **users** | read | fork compliance **reads**, user lookups by email (`users.action_read`) |
-| **organizations** | update | fork **imports and deletes**: `push-cycle`, `push-roster` (`organizations.action_update`) |
+| courses + assignments | read | fork compliance / attributes **reads** (`courses.action_read` AND `assignments.action_read`; Read-only preset has both) |
+| courses | update | fork **imports, deletes, roster writes**: `push-cycle`, `push-roster` (`courses.action_update`; Full Access only) |
 | courses | create, read, update, delete | apply / plan / publish / assign-authors |
 | coursechapters, activities, assignments | create, read, update, delete | apply / publish |
 | certifications | read | probes |
@@ -35,7 +35,7 @@ then tick exactly these rights (API token `rights`, `db/roles.py::Rights`):
 
 Copy the token once (it is shown once) into the macOS keychain item `MKA_LH_DEV_API_TOKEN`
 (`security add-generic-password -s MKA_LH_DEV_API_TOKEN -a "$USER" -w` then paste at the prompt; never put it in a file or chat).
-The fork API returns **403 "API token lacks users.action_read" / "organizations.action_update"** when a right is missing, and **403 "no permissions configured"** for an empty token.
+The fork API returns **403 "API token lacks courses.action_update ... create the token with the 'Full Access' permission preset"** (or `courses.action_read` / `assignments.action_read` for reads) when a right is missing, and **403 "no permissions configured"** for an empty token.
 `push-cycle` and `push-roster` stop at the first 403 with that message (`push-roster --apply` first sends a one-row server `dry_run` as a preflight, so a missing right
 fails before anything is written). A 409 means a concurrent import hit the same key: re-run.
 
