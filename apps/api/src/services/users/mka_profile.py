@@ -188,9 +188,11 @@ async def get_profile(db_session: AsyncSession, user_id: int) -> Optional[MkaUse
     return (await db_session.execute(stmt)).scalars().first()
 
 
-async def profile_status(db_session: AsyncSession, user_id: int) -> dict:
-    from src.services.mka.attributes import export_attributes  # lazy: avoids an import cycle
-
+async def profile_status(
+    db_session: AsyncSession, user_id: int, *, include_attributes: bool = False
+) -> dict:
+    """Profile as shown to the user. ``include_attributes`` is ONLY for the GDPR export:
+    identity attributes (override, audit...) must never reach the learner-facing routes."""
     row = await get_profile(db_session, user_id)
     if row is None:
         out: dict = {"complete": False}
@@ -203,11 +205,12 @@ async def profile_status(db_session: AsyncSession, user_id: int) -> dict:
             "amc_id": row.amc_id,
             "tanzeem": row.tanzeem,
         }
-    # Server-derived identity attributes ride along ONLY when a row exists, so the
-    # GDPR export (which calls this function) includes them. Own data only.
-    attrs = await export_attributes(db_session, user_id)
-    if attrs is not None:
-        out["mka_attributes"] = attrs
+    if include_attributes:
+        from src.services.mka.attributes import export_attributes  # lazy: avoids an import cycle
+
+        attrs = await export_attributes(db_session, user_id)
+        if attrs is not None:
+            out["mka_attributes"] = attrs
     return out
 
 

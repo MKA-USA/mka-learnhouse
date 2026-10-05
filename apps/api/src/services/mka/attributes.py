@@ -211,13 +211,20 @@ async def refresh_attributes(
     action: str = "derive",
     actor_user_id: Optional[int] = None,
     rules: Optional[IdentityRules] = None,
-) -> tuple[MkaUserAttributes, bool]:
+    allow_unverified: bool = False,
+) -> tuple[Optional[MkaUserAttributes], bool]:
     """Derive + store attributes for ``user``. Idempotent. Does NOT commit.
 
-    Returns ``(row, changed)``. An audit row is written only when the derived
+    Returns ``(row, changed)`` (``row`` may be None when skipped for an unverified
+    account). An audit row is written only when the derived
     value changed (or the row is new, or the roster layer changed the effective
     result); an unchanged recompute writes nothing.
     """
+    # Trust boundary: derive only for accounts whose email Google verified
+    # (signup_method == 'google'). Anything else keeps whatever it has (usually
+    # nothing) unless an operator explicitly opts in (backfill --include-non-google).
+    if not allow_unverified and user.signup_method != "google":
+        return await get_row(db, user.id), False
     rules = rules or get_rules()
     email = normalize_email(user.email)
     derived = parse_identity(email, rules).to_dict()
@@ -320,7 +327,8 @@ async def recompute_users(
             last_id = u.id
             existed = await get_row(db, u.id) is not None
             _, changed = await refresh_attributes(
-                db, u, action="recompute", actor_user_id=actor_user_id, rules=rules
+                db, u, action="recompute", actor_user_id=actor_user_id, rules=rules,
+                allow_unverified=not google_only,
             )
             counts["processed"] += 1
             if not existed:
@@ -351,6 +359,18 @@ async def set_override(
     if not reason:
         raise ValueError("A reason is required")
     row, _ = await refresh_attributes(db, user, action="derive", actor_user_id=actor_user_id, rules=rules)
+    if row is None:
+        # Unverified (non-Google) account: the one deliberate exception. The row is
+        # created with a BLANK derived value (never parsed from the unverified email);
+        # only the admin override gives it attributes.
+        blank = parse_identity("", rules).to_dict()
+        row = MkaUserAttributes(
+            user_id=user.id, email_seen=normalize_email(user.email), derived=blank,
+            rules_version=rules.version, derived_at=_now(),
+        )
+        _apply_effective_columns(row, compute_effective(blank, None, None, rules))
+        db.add(row)
+        await db.flush()
     before = _snapshot(row)
     roster_row = await get_roster_row(db, row.email_seen)
     row.override = layer
@@ -524,6 +544,7 @@ async def list_attributes(
     filters: Optional[dict] = None,
     q: Optional[str] = None,
     has_override: Optional[bool] = None,
+    mismatch: Optional[bool] = None,
     page: int = 1,
     page_size: int = 50,
 ) -> dict:
@@ -534,7 +555,20 @@ async def list_attributes(
     for key, value in (filters or {}).items():
         if value is None or key not in LIST_FILTERS:
             continue
-        conds.append(LIST_FILTERS[key] == value)
+        if isinstance(value, (list, tuple, set)):  # e.g. status in (unrecognized, ambiguous, partial)
+            conds.append(LIST_FILTERS[key].in_(list(value)))  # type: ignore[attr-defined]
+        else:
+            conds.append(LIST_FILTERS[key] == value)
+    if mismatch is True:
+        # Self-reported Majlis (mka_user_profile) disagrees with the derived/effective one.
+        from src.db.mka_user_profile import MkaUserProfile
+
+        conds.append(MkaUserAttributes.eff_majlis.is_not(None))  # type: ignore[union-attr]
+        conds.append(
+            MkaUserAttributes.user_id.in_(  # type: ignore[attr-defined]
+                select(MkaUserProfile.user_id).where(MkaUserProfile.majlis != MkaUserAttributes.eff_majlis)
+            )
+        )
     if has_override is True:
         conds.append(MkaUserAttributes.override.is_not(None))  # type: ignore[union-attr]
     elif has_override is False:
@@ -593,6 +627,15 @@ async def list_audit(db: AsyncSession, user_id: int, limit: int = 100) -> list[d
     ]
 
 
+def _subject_audit(items: list[dict]) -> list[dict]:
+    """GDPR export: the subject's own history without other people's identifiers."""
+    return [
+        {"action": a["action"], "reason": a["reason"], "at": a["at"],
+         "by": "system" if a["actor_user_id"] is None else "administrator"}
+        for a in items
+    ]
+
+
 # ---------------------------------------------------------------------------
 # GDPR (called from the fork's mka_profile.delete_profile / profile_status)
 # ---------------------------------------------------------------------------
@@ -608,7 +651,7 @@ async def export_attributes(db: AsyncSession, user_id: int) -> Optional[dict]:
         "derived": effective_public(row.derived),
         "override": row.override,
         "rules_version": row.rules_version,
-        "audit": await list_audit(db, user_id),
+        "audit": _subject_audit(await list_audit(db, user_id)),
     }
 
 

@@ -409,7 +409,8 @@ async def test_profile_status_includes_attributes_only_when_present(db):
     assert await profile_status(db, 50) == {"complete": False}
     await svc.refresh_attributes(db, u)
     await db.commit()
-    st = await profile_status(db, 50)
+    assert await profile_status(db, 50) == {"complete": False}   # user-facing shape: never attributes
+    st = await profile_status(db, 50, include_attributes=True)
     assert st["complete"] is False and st["mka_attributes"]["effective"]["majlis"] == "Albany"
     await delete_profile(db, 50)
     await db.commit()
@@ -419,3 +420,21 @@ async def test_profile_status_includes_attributes_only_when_present(db):
 def test_effective_public_strips_metadata():
     out = svc.effective_public({"status": "matched", "source": "admin", "flags": ["x"], "majlis": "Albany"})
     assert set(out) == set(svc.PUBLIC_FIELDS) and "source" not in out and "flags" not in out
+
+
+@pytest.mark.asyncio
+async def test_list_status_in_and_mismatch_filters(db, org):
+    from src.db.mka_user_profile import MkaUserProfile
+
+    for i, e in enumerate(["tabligh.albany@mkausa.org", "tabligh.boston@mkausa.org",
+                           "john.smith@mkausa.org", "tabligh.atlantis@mkausa.org"]):
+        await _user(db, 400 + i, e, "google", org)
+    await svc.recompute_users(db)
+    db.add(MkaUserProfile(user_id=400, majlis="Albany", region="Northeast"))   # agrees
+    db.add(MkaUserProfile(user_id=401, majlis="Seattle", region="Northwest"))  # disagrees
+    db.add(MkaUserProfile(user_id=402, majlis="Seattle", region="Northwest"))  # no derived majlis: not a mismatch
+    await db.commit()
+    q = await svc.list_attributes(db, org.id, filters={"status": ["unrecognized", "ambiguous", "partial"]})
+    assert q["total"] == 2
+    mm = await svc.list_attributes(db, org.id, mismatch=True)
+    assert [i["user_id"] for i in mm["items"]] == [401]
