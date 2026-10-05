@@ -240,7 +240,7 @@ Still open:
 
 ## 11. Known limitations & residual risks
 - **AMC ID squatting**: IDs are unverified and first-come unique; at signup or the gate a member can claim another member's unregistered ID. Exposure is now limited to that first-time entry (after it is stored members cannot change it), and admins can fix it from the Users table dialog. AMC ID is treated as admin-managed once set; Salesforce is expected to become the source of official details later.
-- **AMC enumeration**: the 409 at public signup reveals whether an AMC ID is registered. Inherent to unique IDs; consider signup rate limiting.
+- **AMC enumeration**: the 409 at public signup reveals whether an AMC ID is registered. Inherent to unique IDs; bounded since 2026-10-05 by the anonymous signup rate limit (`MKA_SIGNUP_RATE_LIMIT_PER_HOUR`, §12).
 - **Cross-org edit (mitigated)**: the profile is one global row per user, so editing requires ADMIN of every org the target belongs to (superadmins unrestricted); for single-org MKA this is a no-op. Org MFA/auth-method policy is enforced on both admin endpoints via `enforce_org_mfa`.
 - **Maintainers cannot edit profiles** (ADMIN role only).
 - **Admin edit UI shipped** (Users table dialog, §6). Still sub-project 2: profile columns in the Users table and in the CSV export, and reporting.
@@ -269,8 +269,27 @@ Still open:
 - Upstream `verifyTurnstile()` FAILS OPEN on Cloudflare or network errors (and when no secret is set); unchanged.
 - Upstream comments in `TurnstileWidget.tsx` and the verify route still say "SaaS-only"; they are stale for this fork and were left unedited.
 
+**Backend enforcement (2026-10-05)** — evaluation: `docs/superpowers/specs/2026-10-05-mka-signup-hardening-eval.md`.
+
+| Gap | Verdict | Status |
+|---|---|---|
+| G1 direct POST to `/api/v1/users/...` bypassed Turnstile | Real | Fixed: API dependency `mka_signup_guard` on the 3 create-user routes |
+| G2 Google SSO account creation | Low risk (costly Google accounts, `MKA_GOOGLE_ONLY_DOMAINS`) | Not rate limited; documented |
+| G3 `check_signup_rate_limit` unused | Real | Fixed: configurable fork limiter |
+| G7 AMC-ID 409 oracle | Mitigated by G3 | No other change |
+
+- Outside SaaS the Next signup route NO LONGER verifies the token: a Turnstile token is single-use, so it forwards it in `X-Turnstile-Token` and the API verifies it once (`apps/api/src/services/security/mka_turnstile.py`). It also forwards `X-Forwarded-For` / `X-Real-IP` verbatim so the API keys the limiter on the member's IP, not 127.0.0.1.
+- API rule = web rule: enforce only when BOTH `TURNSTILE_SECRET_KEY` and `NEXT_PUBLIC_TURNSTILE_SITE_KEY` are set (API process env; web and API share the container env). Missing/invalid token -> 403 with the same messages; Cloudflare errors fail OPEN.
+- Only ANONYMOUS callers are checked. Authenticated callers (session or API token: e2e client, admin tooling) are exempt from Turnstile and the limiter.
+- SaaS mode: the API guard is inert and the proxy adds no headers (upstream behavior).
+
+| Env var (API) | Default | Effect |
+|---|---|---|
+| `MKA_SIGNUP_RATE_LIMIT_PER_HOUR` | `30` | Anonymous create-user attempts per client IP per hour (all attempts, incl. failed). `0` disables. Invalid/negative -> 30. Fails open without Redis. 429 "Too many sign-up attempts from your network. Please try again in about N minutes." |
+
 **Residual gaps**
-- Next-proxy only: a direct POST to the FastAPI `/api/v1/users/...` endpoints bypasses Turnstile.
-- Google SSO account creation is not covered.
-- The backend signup rate limiter `check_signup_rate_limit` exists but is unused; enabling it is a one-line hook if wanted.
-- Unverified at runtime: widget rendering, the 403 path with a bad token, SaaS-mode regression (no app or Cloudflare keys in this environment).
+- Google SSO account creation is not rate limited (G2 verdict).
+- Login / forgot / reset: Turnstile is still enforced only client-side via `/api/turnstile/verify` (needs the token threaded through upstream login/reset endpoints); backend limiters cover them (login 30/5 min/IP, reset 5/5 min/email).
+- A logged-in member could script account creation with their own session (authenticated callers are exempt).
+- Limiter IP trust equals login's: forwarded headers are trusted only from a loopback/private peer; spoof resistance depends on the edge proxy (Traefik + container nginx) appending the real peer.
+- Unverified at runtime: widget rendering, real siteverify with a real token, the 403/429 paths in the browser, limiter behind the real proxy, Redis down, SaaS-mode regression.
