@@ -1,0 +1,37 @@
+{
+  "name": "@mka/compliance-dashboard",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev --turbopack -p 3100",
+    "build": "next build",
+    "start": "next start -p 3100",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@heroui/react": "^3.0.2",
+    "@heroui/styles": "^3.0.2",
+    "next": "^16.0.0",
+    "next-auth": "^5.0.0-beta.25",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "tailwind-variants": "^3.1.0",
+    "drizzle-orm": "^0.44.0",
+    "postgres": "^3.4.5"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3.0.0",
+    "@tailwindcss/postcss": "^4.1.0",
+    "@types/bun": "latest",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "eslint": "^9.0.0",
+    "eslint-config-next": "^16.0.0",
+    "tailwindcss": "^4.1.0",
+    "typescript": "^5.6.0"
+  }
+}
