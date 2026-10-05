@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from fastapi import HTTPException, Request
 from sqlalchemy import func
@@ -19,47 +19,72 @@ logger = logging.getLogger(__name__)
 
 MAX_PAGE_SIZE = 100
 
+# Community moderators (communities.action_update, not org admins) only see and
+# act on flags about community content. Assignment-integrity and profile (PII)
+# flags stay with org admins and the course instructors who grade the work.
+COMMUNITY_CONTENT_TYPES: tuple[str, ...] = ("discussion", "discussion_comment")
+
+ModerationScope = Literal["full", "community"]
+
 
 # ---------------------------------------------------------------------------
 # RBAC: flags are NEVER visible to students or to the content's author.
 # ---------------------------------------------------------------------------
 
 
-async def is_moderation_staff(
+async def moderation_scope(
     request: Request, user: object, org: Organization, db_session: AsyncSession
-) -> bool:
-    """Org admin/maintainer/superadmin, or a community moderator of this org."""
+) -> Optional[ModerationScope]:
+    """``'full'`` for org admin/maintainer/superadmin, ``'community'`` for a role
+    with community update only, otherwise ``None``."""
     if not isinstance(user, PublicUser) or not user.id:
-        return False
+        return None
     from src.security.org_auth import get_user_org_role, is_org_admin
 
     if await is_org_admin(user.id, org.id, db_session):  # type: ignore[arg-type]
-        return True
+        return "full"
     try:
         # Community moderator: the caller's role IN THIS ORG grants community
         # update. Deliberately not authorization_verify_based_on_roles: its
         # placeholder fallback can consider roles held in other orgs.
         role = await get_user_org_role(user.id, org.id, db_session)  # type: ignore[arg-type]
         rights: Any = (role.rights or {}) if role is not None else {}
-        return bool((rights.get("communities") or {}).get("action_update"))
+        if bool((rights.get("communities") or {}).get("action_update")):
+            return "community"
+        return None
     except Exception as exc:  # noqa: BLE001 - deny on any RBAC failure
         logger.warning("moderation staff check failed (%s)", type(exc).__name__)
-        return False
+        return None
+
+
+async def is_moderation_staff(
+    request: Request, user: object, org: Organization, db_session: AsyncSession
+) -> bool:
+    """Any moderation scope (full or community-only)."""
+    return await moderation_scope(request, user, org, db_session) is not None
 
 
 async def require_moderation_staff(
     request: Request, user: object, org_id: int, db_session: AsyncSession
 ) -> Organization:
+    org, _ = await require_moderation_scope(request, user, org_id, db_session)
+    return org
+
+
+async def require_moderation_scope(
+    request: Request, user: object, org_id: int, db_session: AsyncSession
+) -> tuple[Organization, ModerationScope]:
     org = (await db_session.execute(select(Organization).where(Organization.id == org_id))).scalars().first()
     if org is None:
         raise HTTPException(status_code=404, detail="Organization not found")
-    if not await is_moderation_staff(request, user, org, db_session):
+    scope = await moderation_scope(request, user, org, db_session)
+    if scope is None:
         raise HTTPException(status_code=403, detail="Moderation staff only")
     from src.security.org_auth import enforce_org_mfa
 
     # Fail closed: an unexpected error here must deny access, not grant it.
     await enforce_org_mfa(user.id, org.id, db_session)  # type: ignore[attr-defined,arg-type]
-    return org
+    return org, scope
 
 
 # ---------------------------------------------------------------------------
@@ -246,30 +271,43 @@ async def require_flag_reader(
     *,
     assignment_scope: bool,
 ) -> tuple[Organization, bool]:
+    org, scope = await require_flag_access(request, user, org_id, db_session, assignment_scope=assignment_scope)
+    return org, scope is not None
+
+
+async def require_flag_access(
+    request: Request,
+    user: object,
+    org_id: int,
+    db_session: AsyncSession,
+    *,
+    assignment_scope: bool,
+) -> tuple[Organization, Optional[ModerationScope]]:
     """Org moderation staff, or (when *assignment_scope*) any org member who may
     later be narrowed to assignment submissions they teach.
 
-    Returns ``(org, is_staff)``. Non-staff callers MUST be narrowed by the
-    service functions below; the org-wide queue never passes ``assignment_scope``.
+    Returns ``(org, scope)``; ``scope`` is None for the instructor path. Callers
+    with a ``'community'`` scope or no scope MUST be narrowed by the service
+    functions below; the org-wide queue never passes ``assignment_scope``.
     """
     org = (await db_session.execute(select(Organization).where(Organization.id == org_id))).scalars().first()
     if org is None:
         raise HTTPException(status_code=404, detail="Organization not found")
-    if await is_moderation_staff(request, user, org, db_session):
-        is_staff = True
+    scope = await moderation_scope(request, user, org, db_session)
+    if scope is not None:
+        pass
     elif assignment_scope and isinstance(user, PublicUser) and user.id:
         from src.security.org_auth import get_user_org
 
         if await get_user_org(user.id, org.id, db_session) is None:  # type: ignore[arg-type]
             raise HTTPException(status_code=403, detail="Moderation staff only")
-        is_staff = False
     else:
         raise HTTPException(status_code=403, detail="Moderation staff only")
     from src.security.org_auth import enforce_org_mfa
 
     # Fail closed: an unexpected error here must deny access, not grant it.
     await enforce_org_mfa(user.id, org.id, db_session)  # type: ignore[attr-defined,arg-type]
-    return org, is_staff
+    return org, scope
 
 
 async def list_flags(
@@ -281,12 +319,17 @@ async def list_flags(
     limit: int = 50,
     offset: int = 0,
     requester: object = None,
+    scope: ModerationScope = "full",
 ) -> tuple[list[FlagRead], int]:
     limit = max(1, min(int(limit), MAX_PAGE_SIZE))
     offset = max(0, int(offset))
     cond = [ModerationFlag.org_id == org_id, *_not_own(requester)]
     if status and status != "all":
         cond.append(ModerationFlag.status == status)
+    if scope == "community":
+        if content_type and content_type not in COMMUNITY_CONTENT_TYPES:
+            return [], 0
+        cond.append(col(ModerationFlag.content_type).in_(COMMUNITY_CONTENT_TYPES))
     if content_type:
         cond.append(ModerationFlag.content_type == content_type)
 
@@ -312,7 +355,12 @@ async def flags_by_content(
     requester: object = None,
     request: Optional[Request] = None,
     is_staff: bool = True,
+    scope: Optional[ModerationScope] = "full",
 ) -> list[FlagRead]:
+    if is_staff and scope == "community" and content_type and content_type not in COMMUNITY_CONTENT_TYPES:
+        # A community moderator has no standing on non-community content; fall
+        # through to the course-instructor path (per-course grading authority).
+        is_staff = False
     if not is_staff:
         # Instructor path: only assignment submissions in a course they teach.
         if content_type != "assignment_submission" or request is None:
@@ -322,6 +370,8 @@ async def flags_by_content(
         if not allowed.get(content_uuid):
             raise HTTPException(status_code=403, detail="Moderation staff only")
     cond = [ModerationFlag.org_id == org_id, ModerationFlag.content_uuid == content_uuid, *_not_own(requester)]
+    if is_staff and scope == "community" and not content_type:
+        cond.append(col(ModerationFlag.content_type).in_(COMMUNITY_CONTENT_TYPES))
     if content_type:
         cond.append(ModerationFlag.content_type == content_type)
     rows = (
@@ -359,7 +409,10 @@ async def flags_by_user(
     requester: object = None,
     request: Optional[Request] = None,
     is_staff: bool = True,
+    scope: Optional[ModerationScope] = "full",
 ) -> list[FlagRead]:
+    community = is_staff and scope == "community"
+    has_instr = await _has_instructor_rights(requester, org_id, db_session) if community else False
     if not is_staff and not await _has_instructor_rights(requester, org_id, db_session):
         # Answer before touching users/flags so timing cannot reveal whether the
         # target has assignment flags (students and non-instructors get nothing).
@@ -370,6 +423,10 @@ async def flags_by_user(
     cond = [ModerationFlag.org_id == org_id, ModerationFlag.author_user_id == user_id, *_not_own(requester)]
     if not is_staff:
         cond.append(ModerationFlag.content_type == "assignment_submission")
+    elif community:
+        # Community types, plus assignment flags the caller may grade (filtered below).
+        types = [*COMMUNITY_CONTENT_TYPES, *(["assignment_submission"] if has_instr else [])]
+        cond.append(col(ModerationFlag.content_type).in_(types))
     rows = list(
         (
             await db_session.execute(
@@ -377,14 +434,15 @@ async def flags_by_user(
             )
         ).scalars().all()
     )
-    if not is_staff:
+    if not is_staff or community:
         org = (await db_session.execute(select(Organization).where(Organization.id == org_id))).scalars().first()
+        asg = [f for f in rows if f.content_type == "assignment_submission"]
         allowed = (
-            await _grader_course_uuids(request, requester, org, [f.content_uuid for f in rows], db_session)
+            await _grader_course_uuids(request, requester, org, [f.content_uuid for f in asg], db_session)
             if org is not None and request is not None
             else {}
         )
-        rows = [f for f in rows if allowed.get(f.content_uuid)]
+        rows = [f for f in rows if f.content_type != "assignment_submission" or allowed.get(f.content_uuid)]
     return await _to_read(rows, db_session)
 
 
@@ -402,7 +460,10 @@ async def update_flag_status(
     if flag is not None:
         org = (await db_session.execute(select(Organization).where(Organization.id == flag.org_id))).scalars().first()
     # Same answer for "missing" and "not allowed": no flag-id probing.
-    if flag is None or org is None or not await is_moderation_staff(request, user, org, db_session):
+    scope = await moderation_scope(request, user, org, db_session) if org is not None else None
+    if flag is None or org is None or scope is None:
+        raise HTTPException(status_code=404, detail="Flag not found")
+    if scope == "community" and flag.content_type not in COMMUNITY_CONTENT_TYPES:
         raise HTTPException(status_code=404, detail="Flag not found")
     if flag.author_user_id == _requester_id(user):
         # Authors never see (or act on) flags about their own content.

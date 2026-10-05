@@ -51,9 +51,16 @@ async def api_list_flags(
     user: PublicUser = Depends(_staff_user),
     db_session: AsyncSession = Depends(get_db_session),
 ):
-    await service.require_moderation_staff(request, user, org_id, db_session)
+    _, scope = await service.require_moderation_scope(request, user, org_id, db_session)
     items, total = await service.list_flags(
-        org_id, db_session, status=status, content_type=content_type, limit=limit, offset=offset, requester=user
+        org_id,
+        db_session,
+        status=status,
+        content_type=content_type,
+        limit=limit,
+        offset=offset,
+        requester=user,
+        scope=scope,
     )
     return FlagListResponse(items=items, total=total)
 
@@ -72,10 +79,17 @@ async def api_flags_by_content(
     db_session: AsyncSession = Depends(get_db_session),
 ):
     # Instructors may read flags on submissions of courses they teach.
-    _, is_staff = await service.require_flag_reader(request, user, org_id, db_session, assignment_scope=True)
+    _, scope = await service.require_flag_access(request, user, org_id, db_session, assignment_scope=True)
     return FlagItemsResponse(
         items=await service.flags_by_content(
-            org_id, content_type, content_uuid, db_session, requester=user, request=request, is_staff=is_staff
+            org_id,
+            content_type,
+            content_uuid,
+            db_session,
+            requester=user,
+            request=request,
+            is_staff=scope is not None,
+            scope=scope,
         )
     )
 
@@ -92,10 +106,16 @@ async def api_flags_by_user(
     user: PublicUser = Depends(_staff_user),
     db_session: AsyncSession = Depends(get_db_session),
 ):
-    _, is_staff = await service.require_flag_reader(request, user, org_id, db_session, assignment_scope=True)
+    _, scope = await service.require_flag_access(request, user, org_id, db_session, assignment_scope=True)
     return FlagItemsResponse(
         items=await service.flags_by_user(
-            org_id, user_uuid, db_session, requester=user, request=request, is_staff=is_staff
+            org_id,
+            user_uuid,
+            db_session,
+            requester=user,
+            request=request,
+            is_staff=scope is not None,
+            scope=scope,
         )
     )
 

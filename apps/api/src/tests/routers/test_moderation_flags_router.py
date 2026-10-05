@@ -367,7 +367,7 @@ class TestOwnContentExcluded:
 # ---------------------------------------------------------------------------
 
 
-async def _instructor(db, org, uid, name, author_of=None, update_own=True):
+async def _instructor(db, org, uid, name, author_of=None, update_own=True, community=False):
     from src.db.resource_authors import ResourceAuthor, ResourceAuthorshipEnum, ResourceAuthorshipStatusEnum
     from src.db.roles import Role, RoleTypeEnum
     from src.db.user_organizations import UserOrganization
@@ -376,6 +376,7 @@ async def _instructor(db, org, uid, name, author_of=None, update_own=True):
 
     rights = USER_RIGHTS.model_dump()
     rights["courses"]["action_update_own"] = update_own
+    rights["communities"]["action_update"] = community
     db.add(Role(id=uid, name=f"Instr{uid}", org_id=org.id, role_type=RoleTypeEnum.TYPE_ORGANIZATION,
                 role_uuid=f"role_i{uid}", rights=rights,
                 creation_date=str(datetime.now()), update_date=str(datetime.now())))
@@ -462,3 +463,173 @@ class TestByUserStudentShortCircuit:
             r = await client.get(f"{BASE}/orgs/{org.id}/by-user/{regular_user.user_uuid}")
         assert r.status_code == 200 and r.json() == {"items": []}
         assert not any("moderation_flag" in q for q in seen)
+
+
+# ---------------------------------------------------------------------------
+# Least privilege: community moderators only see community-content flags
+# ---------------------------------------------------------------------------
+
+
+async def _community_mod(db, org, uid=20, name="cmod"):
+    from src.db.roles import Role, RoleTypeEnum
+    from src.db.user_organizations import UserOrganization
+    from src.db.users import PublicUser, User
+    from src.tests.conftest import USER_RIGHTS
+
+    rights = USER_RIGHTS.model_dump()
+    rights["communities"]["action_update"] = True
+    db.add(Role(id=uid, name=f"Mod{uid}", org_id=org.id, role_type=RoleTypeEnum.TYPE_ORGANIZATION,
+                role_uuid=f"role_m{uid}", rights=rights,
+                creation_date=str(datetime.now()), update_date=str(datetime.now())))
+    db.add(User(id=uid, username=name, first_name=name, last_name="M", email=f"{name}@t.com", password="x",
+                user_uuid=f"user_{name}", creation_date=str(datetime.now()), update_date=str(datetime.now())))
+    await db.commit()
+    db.add(UserOrganization(user_id=uid, org_id=org.id, role_id=uid,
+                            creation_date=str(datetime.now()), update_date=str(datetime.now())))
+    await db.commit()
+    return PublicUser(id=uid, username=name, first_name=name, last_name="M",
+                      email=f"{name}@t.com", user_uuid=f"user_{name}")
+
+
+async def _seed_all_types(db, org, author):
+    for uid, ctype in [("f_disc", "discussion"), ("f_comm", "discussion_comment"),
+                       ("f_asg", "assignment_submission"), ("f_prof", "user_profile")]:
+        await _flag(db, org, author, uuid=uid, ctype=ctype, cuuid=f"{ctype}_cu")
+
+
+class TestCommunityModeratorScope:
+    async def test_list_only_community_types(self, client, db, org, regular_user):
+        await _seed_all_types(db, org, regular_user)
+        CURRENT["user"] = await _community_mod(db, org)
+        r = await client.get(f"{BASE}/orgs/{org.id}")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["total"] == 2
+        assert {i["flag_uuid"] for i in body["items"]} == {"f_disc", "f_comm"}
+        # Filtering to a non-community type yields nothing, not data.
+        for ct in ("assignment_submission", "user_profile"):
+            r = await client.get(f"{BASE}/orgs/{org.id}?content_type={ct}")
+            assert r.status_code == 200 and r.json() == {"items": [], "total": 0}
+        r = await client.get(f"{BASE}/orgs/{org.id}?content_type=discussion")
+        assert [i["flag_uuid"] for i in r.json()["items"]] == ["f_disc"]
+
+    async def test_org_admin_sees_everything(self, client, db, org, admin_user, regular_user):
+        await _seed_all_types(db, org, regular_user)
+        CURRENT["user"] = admin_user
+        r = await client.get(f"{BASE}/orgs/{org.id}")
+        assert r.json()["total"] == 4
+        assert (await client.get(f"{BASE}/orgs/{org.id}/by-content?content_type=user_profile&content_uuid=user_profile_cu")).status_code == 200
+        assert len((await client.get(f"{BASE}/orgs/{org.id}/by-user/{regular_user.user_uuid}")).json()["items"]) == 4
+        assert (await client.patch(f"{BASE}/f_prof", json={"status": "reviewed"})).status_code == 200
+
+    async def test_by_content_restricted(self, client, db, org, regular_user):
+        await _seed_all_types(db, org, regular_user)
+        CURRENT["user"] = await _community_mod(db, org)
+        for ct in ("assignment_submission", "user_profile"):
+            r = await client.get(f"{BASE}/orgs/{org.id}/by-content?content_type={ct}&content_uuid={ct}_cu")
+            assert r.status_code == 403
+        r = await client.get(f"{BASE}/orgs/{org.id}/by-content?content_type=discussion&content_uuid=discussion_cu")
+        assert r.status_code == 200 and [i["flag_uuid"] for i in r.json()["items"]] == ["f_disc"]
+        # No content_type: a profile/assignment uuid returns nothing (filtered to community types).
+        r = await client.get(f"{BASE}/orgs/{org.id}/by-content?content_uuid=user_profile_cu")
+        assert r.status_code == 200 and r.json()["items"] == []
+
+    async def test_by_user_only_community_types(self, client, db, org, regular_user):
+        await _seed_all_types(db, org, regular_user)
+        CURRENT["user"] = await _community_mod(db, org)
+        r = await client.get(f"{BASE}/orgs/{org.id}/by-user/{regular_user.user_uuid}")
+        assert r.status_code == 200
+        assert {i["flag_uuid"] for i in r.json()["items"]} == {"f_disc", "f_comm"}
+
+    async def test_patch_scoped(self, client, db, org, regular_user):
+        await _seed_all_types(db, org, regular_user)
+        CURRENT["user"] = await _community_mod(db, org)
+        for fid in ("f_prof", "f_asg"):
+            r = await client.patch(f"{BASE}/{fid}", json={"status": "dismissed"})
+            assert r.status_code == 404 and r.json()["detail"] == "Flag not found"
+        rows = {
+            r[0]: r[1]
+            for r in (await db.execute(select(ModerationFlag.flag_uuid, ModerationFlag.status))).all()
+        }
+        assert rows["f_prof"] == "open" and rows["f_asg"] == "open"
+        assert (await client.patch(f"{BASE}/f_disc", json={"status": "dismissed"})).status_code == 200
+        assert (await client.patch(f"{BASE}/f_comm", json={"status": "reviewed"})).status_code == 200
+
+    async def test_cross_org_community_moderator_denied(self, client, db, org, other_org, regular_user):
+        await _seed_all_types(db, org, regular_user)
+        CURRENT["user"] = await _community_mod(db, other_org)
+        assert (await client.get(f"{BASE}/orgs/{org.id}")).status_code == 403
+        assert (await client.get(f"{BASE}/orgs/{org.id}/by-content?content_type=discussion&content_uuid=discussion_cu")).status_code == 403
+        assert (await client.patch(f"{BASE}/f_disc", json={"status": "dismissed"})).status_code == 404
+
+    async def test_authors_still_excluded(self, client, db, org, regular_user):
+        mod = await _community_mod(db, org)
+        await _flag(db, org, mod, uuid="own_disc", ctype="discussion", cuuid="d_own")
+        CURRENT["user"] = mod
+        assert (await client.get(f"{BASE}/orgs/{org.id}")).json()["total"] == 0
+        assert (await client.patch(f"{BASE}/own_disc", json={"status": "dismissed"})).status_code == 404
+
+    async def test_student_still_denied(self, client, db, org, regular_user):
+        await _seed_all_types(db, org, regular_user)
+        CURRENT["user"] = await _instructor(db, org, 21, "plainstud", update_own=False)
+        assert (await client.get(f"{BASE}/orgs/{org.id}")).status_code == 403
+        assert (await client.get(f"{BASE}/orgs/{org.id}/by-user/{regular_user.user_uuid}")).json()["items"] == []
+
+
+class TestCommunityModeratorWhoIsAlsoInstructor:
+    async def _setup(self, db, org, course, chapter, activity, regular_user):
+        from src.db.courses.activities import Activity, ActivitySubTypeEnum, ActivityTypeEnum
+        from src.db.courses.chapters import Chapter
+        from src.db.courses.courses import Course
+
+        _, sub_a = await _assignment(db, org, course, chapter, activity, regular_user, suffix="a")
+        courseb = Course(id=2, name="B", description="b", public=True, published=True,
+                         open_to_contributors=False, org_id=org.id, course_uuid="course_b",
+                         creation_date=str(datetime.now()), update_date=str(datetime.now()))
+        db.add(courseb)
+        await db.commit()
+        chb = Chapter(id=2, name="CB", description="c", org_id=org.id, course_id=2, chapter_uuid="chapter_b",
+                      creation_date=str(datetime.now()), update_date=str(datetime.now()))
+        actb = Activity(id=2, name="AB", activity_type=ActivityTypeEnum.TYPE_DYNAMIC,
+                        activity_sub_type=ActivitySubTypeEnum.SUBTYPE_DYNAMIC_PAGE,
+                        content={"type": "doc", "content": []}, published=True, org_id=org.id, course_id=2,
+                        activity_uuid="activity_b", creation_date=str(datetime.now()),
+                        update_date=str(datetime.now()))
+        db.add(chb)
+        db.add(actb)
+        await db.commit()
+        _, sub_b = await _assignment(db, org, courseb, chb, actb, regular_user, suffix="b")
+        await _flag(db, org, regular_user, uuid="fa", ctype="assignment_submission",
+                    cuuid=sub_a.assignmentusersubmission_uuid)
+        await _flag(db, org, regular_user, uuid="fb", ctype="assignment_submission",
+                    cuuid=sub_b.assignmentusersubmission_uuid)
+        await _flag(db, org, regular_user, uuid="fd", ctype="discussion", cuuid="disc_cu")
+        await _flag(db, org, regular_user, uuid="fp", ctype="user_profile")
+        return sub_a.assignmentusersubmission_uuid, sub_b.assignmentusersubmission_uuid
+
+    async def test_dual_role_reads_own_course_only(self, client, db, org, course, chapter, activity, regular_user):
+        sa, sb = await self._setup(db, org, course, chapter, activity, regular_user)
+        CURRENT["user"] = await _instructor(db, org, 30, "dual", author_of=course.course_uuid, community=True)
+        r = await client.get(f"{BASE}/orgs/{org.id}/by-content?content_type=assignment_submission&content_uuid={sa}")
+        assert r.status_code == 200 and [i["flag_uuid"] for i in r.json()["items"]] == ["fa"]
+        r = await client.get(f"{BASE}/orgs/{org.id}/by-content?content_type=assignment_submission&content_uuid={sb}")
+        assert r.status_code == 403
+        assert (await client.get(f"{BASE}/orgs/{org.id}/by-content?content_type=user_profile&content_uuid={regular_user.user_uuid}")).status_code == 403
+        # Queue stays community-only for them.
+        assert {i["flag_uuid"] for i in (await client.get(f"{BASE}/orgs/{org.id}")).json()["items"]} == {"fd"}
+
+    async def test_dual_role_by_user(self, client, db, org, course, chapter, activity, regular_user):
+        await self._setup(db, org, course, chapter, activity, regular_user)
+        CURRENT["user"] = await _instructor(db, org, 30, "dual", author_of=course.course_uuid, community=True)
+        r = await client.get(f"{BASE}/orgs/{org.id}/by-user/{regular_user.user_uuid}")
+        assert r.status_code == 200
+        assert {i["flag_uuid"] for i in r.json()["items"]} == {"fd", "fa"}
+
+    async def test_pure_moderator_still_denied(self, client, db, org, course, chapter, activity, regular_user):
+        sa, _ = await self._setup(db, org, course, chapter, activity, regular_user)
+        CURRENT["user"] = await _instructor(db, org, 31, "pure", update_own=False, community=True)
+        assert (await client.get(f"{BASE}/orgs/{org.id}/by-content?content_type=assignment_submission&content_uuid={sa}")).status_code == 403
+        assert (await client.get(f"{BASE}/orgs/{org.id}/by-content?content_type=user_profile&content_uuid={regular_user.user_uuid}")).status_code == 403
+        r = await client.get(f"{BASE}/orgs/{org.id}/by-user/{regular_user.user_uuid}")
+        assert {i["flag_uuid"] for i in r.json()["items"]} == {"fd"}
+        assert (await client.patch(f"{BASE}/fa", json={"status": "reviewed"})).status_code == 404
