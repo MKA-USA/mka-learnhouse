@@ -754,3 +754,12 @@ diff --git a/apps/web/components/Auth/TurnstileWidget.tsx b/apps/web/components/
      content = activity.content
 +    content = await mka_content_for_ai(content, current_user, db_session, request, course=course)  # MKA fork
 ```
+
+## MKA fork — added root config `apps/web/bunfig.toml` (2026-10-05, audience block)
+
+Not an upstream file (upstream has none). Added so every bun test run preloads `apps/web/tests/setup/dom.mjs` (happy-dom) before any test file loads; Radix captures `globalThis.document` at module load, so without a global preload the audience picker tests were order-dependent. If upstream ever adds its own `apps/web/bunfig.toml`, merge this in:
+
+```toml
+[test]
+preload = ["./tests/setup/dom.mjs"]
+```
