@@ -16,9 +16,13 @@ Rules (see docs/superpowers/specs/2026-10-05-mka-signup-hardening-eval.md):
 
 import logging
 import os
+from typing import Union
 
-from fastapi import HTTPException, Request
+from fastapi import Depends, HTTPException, Request
 
+from src.db.users import AnonymousUser, APITokenUser, PublicUser, SuperadminAPITokenUser
+from src.security.auth import get_current_user
+from src.services.security import mka_turnstile
 from src.services.security.rate_limiting import check_rate_limit, get_client_ip
 
 logger = logging.getLogger(__name__)
@@ -73,3 +77,43 @@ def enforce_mka_signup_rate_limit(request: Request) -> None:
         ),
         headers={"Retry-After": str(retry_after)},
     )
+
+
+def _is_saas() -> bool:
+    from src.core.deployment_mode import get_deployment_mode
+
+    return get_deployment_mode() == "saas"
+
+
+async def enforce_mka_turnstile(request: Request) -> None:
+    """403 when Turnstile is enforced and the forwarded token is missing/invalid.
+
+    Messages match the web signup route so the forms show the same text.
+    """
+    if not mka_turnstile.is_turnstile_enforced():
+        return
+    token = request.headers.get(mka_turnstile.TOKEN_HEADER)
+    result = await mka_turnstile.verify_turnstile_token(token, get_client_ip(request))
+    if result.ok:
+        return
+    detail = (
+        "Please complete the verification challenge."
+        if result.reason == "missing_token"
+        else "Verification failed. Please try again."
+    )
+    raise HTTPException(status_code=403, detail=detail)
+
+
+async def mka_signup_guard(
+    request: Request,
+    current_user: Union[PublicUser, APITokenUser, SuperadminAPITokenUser, AnonymousUser] = Depends(
+        get_current_user
+    ),
+) -> None:
+    """FastAPI dependency for the anonymous create-user routes (see module doc)."""
+    if _is_saas():
+        return
+    if not isinstance(current_user, AnonymousUser):
+        return
+    enforce_mka_signup_rate_limit(request)
+    await enforce_mka_turnstile(request)
