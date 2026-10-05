@@ -8,7 +8,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@components/ui/popover'
 import { ToggleGroup, ToggleGroupItem } from '@components/ui/toggle-group'
 import { describeRule, isDescribable } from '../audience/describe'
 import {
-  applyPreset, emptyRule, firstGroup, hasRoleKey, listOf, normalizeRule, replaceValue, resolvePresets, sameGroups,
+  applyPreset, emptyRule, hasRoleKey, listOf, normalizeRule, replaceValue, resolvePresets, sameGroups,
   selectWholeRegion, setMode, toggleValue,
 } from '../audience/rule-edit'
 import type { AudienceOptions, CountState, Rule, RuleListKey } from '../audience/types'
@@ -152,7 +152,7 @@ export function PickerBody({
     : []
 
   const level = listOf(rule, 'level')
-  const reads = dopts ? describeRule(rule, dopts) : ''
+  const reads = !dopts ? '' : damaged ? 'Nobody until you choose an audience' : describeRule(rule, dopts)
   const zero = count.state === 'ready' && count.data?.count === 0
   const modeWord = rule.mode === 'hide' ? 'Hide from' : 'Show this to'
 
@@ -241,7 +241,7 @@ export function PickerBody({
                 key={m}
                 value={m}
                 className={cn(
-                  'min-h-11 flex-1 gap-1.5 rounded-full px-4 text-sm font-medium sm:min-h-8',
+                  'min-h-11 flex-1 gap-1.5 whitespace-nowrap rounded-full px-4 text-sm font-medium sm:min-h-8',
                   'data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm',
                   PRESS, FOCUS_RING,
                 )}

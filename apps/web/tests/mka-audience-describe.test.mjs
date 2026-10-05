@@ -47,6 +47,7 @@ const cases = [
   ["three roles", show({ role: ["qaid", "naib_qaid", "motamid"] }), "Qaids, Naib Qaids or Motamids"],
   ["four roles", show({ role: ["qaid", "naib_qaid", "motamid", "regional_qaid"] }), "Qaids, Naib Qaids and 2 more"],
   ["role + level", show({ role: ["qaid"], level: ["local"] }), "Qaids at the Local level"],
+  ["role already names its level", show({ role: ["regional_qaid"], level: ["regional"] }), "Regional Qaids"],
   ["role + two levels", show({ role: ["qaid"], level: ["local", "regional"] }), "Qaids at the Local or Regional level"],
   ["one department", show({ department: ["tabligh"] }), "Officeholders in Tabligh"],
   ["two departments", show({ department: ["tabligh", "talim"] }), "Officeholders in Tabligh or Talim"],

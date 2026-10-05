@@ -57,13 +57,10 @@ function PersonSearch({ searchPeople, pickPerson, onDone, onBack }: { searchPeop
 
   React.useEffect(() => {
     const term = q.trim()
-    if (term.length < 2 || !searchPeople) {
-      setState({ s: 'idle', people: [] })
-      return
-    }
+    if (term.length < 2 || !searchPeople) return
     let live = true
-    setState((p) => ({ ...p, s: 'loading' }))
     const t = setTimeout(() => {
+      setState((p) => ({ ...p, s: 'loading' }))
       searchPeople(term)
         .then((people) => live && setState({ s: 'ready', people }))
         .catch(() => live && setState({ s: 'error', people: [] }))
@@ -74,6 +71,8 @@ function PersonSearch({ searchPeople, pickPerson, onDone, onBack }: { searchPeop
     }
   }, [q, searchPeople])
 
+  const tooShort = q.trim().length < 2 || !searchPeople
+  const shown = tooShort ? { s: 'idle' as const, people: [] as PreviewPerson[] } : state
   const pick = async (id: number | string) => {
     setPicking(id)
     setPickError(false)
@@ -104,14 +103,14 @@ function PersonSearch({ searchPeople, pickPerson, onDone, onBack }: { searchPeop
         </label>
         <p className="text-xs text-muted-foreground">Previewing a specific person is recorded in the audit log.</p>
         <div aria-live="polite" className="min-h-6 text-sm">
-          {state.s === 'loading' ? <span className="inline-flex items-center gap-1.5 text-muted-foreground"><Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden /> Searching…</span> : null}
-          {state.s === 'error' ? <span className="text-red-800 dark:text-red-200">Search failed. Try again.</span> : null}
-          {state.s === 'ready' && state.people.length === 0 ? <span className="text-muted-foreground">No one found.</span> : null}
+          {shown.s === 'loading' ? <span className="inline-flex items-center gap-1.5 text-muted-foreground"><Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden /> Searching…</span> : null}
+          {shown.s === 'error' ? <span className="text-red-800 dark:text-red-200">Search failed. Try again.</span> : null}
+          {shown.s === 'ready' && shown.people.length === 0 ? <span className="text-muted-foreground">No one found.</span> : null}
           {q.trim().length > 0 && q.trim().length < 2 ? <span className="text-muted-foreground">Keep typing…</span> : null}
           {pickError ? <span className="text-red-800 dark:text-red-200">Could not load that person. Try again.</span> : null}
         </div>
         <ul className="max-h-60 overflow-y-auto">
-          {state.people.map((p) => (
+          {shown.people.map((p) => (
             <li key={p.user_id}>
               <button type="button" disabled={picking !== null} onClick={() => pick(p.user_id)} className={cn(ITEM, 'disabled:opacity-60')}>
                 <span className="min-w-0 flex-1">

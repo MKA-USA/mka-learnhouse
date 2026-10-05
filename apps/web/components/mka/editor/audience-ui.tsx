@@ -102,7 +102,9 @@ export function ResponsivePopover({
   if (narrow) {
     return (
       <>
-        {trigger}
+        {React.isValidElement(trigger)
+          ? React.cloneElement(trigger as React.ReactElement<{ onClick?: () => void }>, { onClick: () => onOpenChange(true) })
+          : trigger}
         <Sheet open={open} onOpenChange={onOpenChange} title={title}>
           {children}
         </Sheet>
@@ -289,7 +291,7 @@ export function MultiPick({
                     value={`__action__${g.heading}`}
                     keywords={[g.heading ?? '', 'whole', 'region']}
                     onSelect={() => g.action!.onSelect()}
-                    className="min-h-11 font-medium text-primary sm:min-h-9"
+                    className="min-h-11 font-medium text-primary data-[selected=true]:bg-muted data-[selected=true]:text-primary sm:min-h-9"
                   >
                     {g.action.label}
                   </CommandItem>
@@ -302,7 +304,7 @@ export function MultiPick({
                       value={it.value}
                       keywords={it.keywords ?? [it.label]}
                       onSelect={() => pick(it.value)}
-                      className="min-h-11 sm:min-h-9"
+                      className="min-h-11 data-[selected=true]:bg-muted data-[selected=true]:text-foreground sm:min-h-9"
                     >
                       <Check className={cn('size-4', on ? 'opacity-100' : 'opacity-0')} aria-hidden />
                       <span className="flex-1">{it.label}</span>

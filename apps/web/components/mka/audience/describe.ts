@@ -62,7 +62,9 @@ function describeGroup(g: Group, o: DescribeOptions): string {
   if (roles.length) {
     const plurals = labels(roles, (k) => o.roles.find((r) => r.key === k)?.plural)
     head = joinList(plurals)
-    if (levels.length) {
+    // "Regional Qaids" already says the level, so don't repeat it.
+    const redundant = plurals.every((pl) => levels.some((l) => pl.startsWith(`${l} `)))
+    if (levels.length && !redundant) {
       head += ` at the ${joinList(levels)} level`
     }
   } else if (levels.length) {
