@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerAPIUrl } from '@services/config/config'
 import { isSaaSMode, isCustomDomainRequest } from '@lib/saas'
 import { verifyTurnstile, clientIpFromHeaders } from '@lib/turnstile'
-import { mkaSignupForwardHeaders } from '@lib/mka-signup-proxy' // MKA fork
+import { mkaSignupFetch, mkaSignupForwardHeaders } from '@lib/mka-signup-proxy' // MKA fork
 import { validateSignupEmail } from '@services/emails/disposableEmail'
 import { addContactWithLoops, sendLoopsEvent, LOOPS_SIGNED_USERS_GROUP } from '@services/emails/loops'
 
@@ -143,7 +143,7 @@ export async function POST(request: NextRequest) {
 
   let backendRes: Response
   try {
-    backendRes = await fetch(url, {
+    backendRes = await mkaSignupFetch(saas, base, url, { // MKA fork: non-SaaS calls the API on loopback
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...mkaSignupForwardHeaders(saas, request.headers, turnstileToken) }, // MKA fork
       body: JSON.stringify(backendBody),
