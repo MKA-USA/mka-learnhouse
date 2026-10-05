@@ -4,7 +4,8 @@ import { Window } from "happy-dom";
 // End-to-end through React: real TipTap editor + EditorContent + the fork's node views, controller and chrome,
 // against the mock attributes layer (NEXT_PUBLIC_MKA_AUDIENCE_MOCK). The viewer is chosen with ?mka_viewer= and
 // ?mka_admin=1, exactly like the browser dev switches.
-const domWindow = new Window({ url: "http://localhost/" });
+// Reuse the DOM installed by tests/setup/dom.mjs (bunfig preload) so `document` and `window` are one happy-dom window.
+const domWindow = globalThis.window ?? new Window({ url: "http://localhost/" });
 for (const key of [
   "document", "navigator", "HTMLElement", "Element", "Node", "Text", "DocumentFragment", "MutationObserver",
   "Range", "Selection", "DOMParser", "getComputedStyle", "requestAnimationFrame", "cancelAnimationFrame",
@@ -28,6 +29,7 @@ const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query
 const { EditorContent, useEditor } = await import("@tiptap/react");
 const { default: StarterKit } = await import("@tiptap/starter-kit");
 const { NoTextInput } = await import("../components/Objects/Editor/Extensions/NoTextInput/NoTextInput");
+const { SessionContext } = await import("../components/Contexts/LHSessionContext.tsx");
 const { default: EditorOptionsProvider } = await import("../components/Contexts/Editor/EditorContext.tsx");
 const { mkaEditorExtensions } = await import("../components/mka/editor/index.ts");
 const { AudienceView } = await import("../components/mka/editor/AudienceView.tsx");
@@ -38,8 +40,25 @@ const { useMkaViewer, mkaAttributeKeys } = await import("../services/mka/attribu
 
 const h = React.createElement;
 const tick = () => new Promise((r) => setTimeout(r, 0));
+// Lazy author chrome (React.lazy) resolves through real module loading, whose duration varies with machine load.
+// Preload those modules so lazy() resolves from the module cache, and settle by waiting for the DOM to be stable
+// instead of for a fixed number of ticks.
+await Promise.all([
+  import("../components/mka/editor/AuthorSection.tsx"),
+  import("../components/mka/editor/SectionNotices.tsx"),
+  import("../components/mka/editor/AudienceBar.tsx"),
+  import("../services/mka/attributes.mock.ts"),
+]);
+const snapshot = () => document.body.innerHTML.length + ":" + document.body.textContent.length;
 const settle = async () => {
-  for (let i = 0; i < 6; i++) await act(async () => { await tick(); });
+  let last = null;
+  let stable = 0;
+  for (let i = 0; i < 400 && stable < 8; i++) {
+    await act(async () => { await new Promise((r) => setTimeout(r, 5)); });
+    const now = snapshot();
+    stable = now === last ? stable + 1 : 0;
+    last = now;
+  }
 };
 
 const rule = (level, mode = "show") => ({ v: 1, mode, groups: [{ level: [level] }] });
@@ -59,7 +78,9 @@ function Harness({ content, editable, onEditor }) {
   return h(EditorOptionsProvider, { options: { isEditable: editable } }, h(EditorContent, { editor }));
 }
 
-async function mount(content, { editable = false, search = "", flag = "0" } = {}) {
+const realFetch = globalThis.fetch;
+const mockEnv = process.env.NEXT_PUBLIC_MKA_AUDIENCE_MOCK;
+async function mount(content, { editable = false, search = "", flag = "0", pendingMe = null } = {}) {
   domWindow.happyDOM.setURL(`http://localhost/${search}`);
   process.env.NEXT_PUBLIC_MKA_AUDIENCE_ENABLED = flag;
   const container = document.createElement("div");
@@ -68,13 +89,22 @@ async function mount(content, { editable = false, search = "", flag = "0" } = {}
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   let editor = null;
   await act(async () => {
-    root.render(h(QueryClientProvider, { client: qc }, h(Harness, { content, editable, onEditor: (e) => (editor = e) })));
+    let tree = h(QueryClientProvider, { client: qc }, h(Harness, { content, editable, onEditor: (e) => (editor = e) }));
+    if (pendingMe) {
+      // Real fetch path with a /me response the TEST controls, so "while loading" is deterministic.
+      process.env.NEXT_PUBLIC_MKA_AUDIENCE_MOCK = "";
+      globalThis.fetch = (url) => (String(url).includes("/me") ? pendingMe.promise : Promise.resolve({ ok: false, status: 404, json: async () => ({}) }));
+      tree = h(SessionContext.Provider, { value: { status: "authenticated", data: { tokens: { access_token: "t" } } } }, tree);
+    }
+    root.render(tree);
   });
   current = { root, container, qc };
   return { container, editor: () => editor, root, qc };
 }
 
 afterEach(async () => {
+  globalThis.fetch = realFetch;
+  process.env.NEXT_PUBLIC_MKA_AUDIENCE_MOCK = mockEnv;
   if (current) {
     await act(async () => current.root.unmount());
     current.container.remove();
@@ -90,13 +120,28 @@ const content = doc(
 );
 
 describe("learner (default mock viewer: local Nazim Tabligh)", () => {
-  test("no flash: while /me is loading no section content is in the DOM", async () => {
-    const { container } = await mount(content);
-    // mount() resolved the first render only; the mocked /me has not answered yet
+  test("no flash: while /me is loading no section content is in the DOM; it appears when /me answers", async () => {
+    let resolveMe;
+    const pendingMe = { promise: new Promise((r) => (resolveMe = r)) };
+    const { container } = await mount(content, { pendingMe });
+    await settle(); // as long as it takes: /me is still pending
     expect(container.textContent).toContain("PUBLIC-TEXT");
     for (const secret of ["LOCAL-ONLY-TEXT", "REGIONAL-ONLY-TEXT", "NOT-LOCAL-TEXT"]) {
       expect(container.innerHTML).not.toContain(secret);
     }
+    await act(async () => {
+      resolveMe({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          attributes: { status: "matched", is_officeholder: true, level: "local", department: null, role: "qaid", role_title: "Qaid", majlis: "Houston", region: "Gulf" },
+          stale: false, can_view_all: false, rules_version: "x",
+        }),
+      });
+    });
+    await settle();
+    expect(container.textContent).toContain("LOCAL-ONLY-TEXT");
+    expect(container.innerHTML).not.toContain("REGIONAL-ONLY-TEXT");
   });
 
   test("match shows content with no chrome; non-match content is NOT in the document DOM", async () => {
