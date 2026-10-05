@@ -1,8 +1,8 @@
 """
 RAG query service.
 
-Handles vector similarity search and streaming LLM responses
-grounded in course content.
+Handles vector similarity search, optional Jev reranking, and streaming
+LLM responses grounded in course content.
 """
 
 import logging
@@ -20,6 +20,24 @@ logger = logging.getLogger(__name__)
 TOP_K = 5
 
 
+# Candidates fetched from vector search when Jev reranking is active.
+JEV_RERANK_CANDIDATES = 10
+
+
+def _resolve_rag_limits(top_k: int, org_id: Optional[int] = None) -> tuple[int, int]:
+    """Return (retrieve_k, final_k).
+
+    When Jev reranking is active for this org we fetch more candidates from
+    vector search than the caller asked for, rerank them, then trim to the
+    original top_k. Otherwise the two values are identical (no behaviour change).
+    """
+    from src.services.ai.jev.client import jev_enabled
+
+    if jev_enabled(org_id):
+        return max(top_k, JEV_RERANK_CANDIDATES), top_k
+    return top_k, top_k
+
+
 async def query_course_rag(
     question: str,
     org_id: int,
@@ -28,7 +46,8 @@ async def query_course_rag(
     top_k: int = TOP_K,
 ) -> dict:
     """
-    Retrieve relevant course content via vector similarity search.
+    Retrieve relevant course content via vector similarity search,
+    optionally reranked by Jev for semantic precision.
 
     Args:
         question: The user's question
@@ -40,6 +59,8 @@ async def query_course_rag(
     Returns:
         {context: str, sources: list[dict]}
     """
+    retrieve_k, final_k = _resolve_rag_limits(top_k, org_id)
+
     # Embed the question
     query_embedding = await embed_single_text(question)
 
@@ -62,7 +83,7 @@ async def query_course_rag(
             "query_embedding": embedding_str,
             "org_id": org_id,
             "course_id": course_id,
-            "top_k": top_k,
+            "top_k": retrieve_k,
         }
     else:
         sql = text("""
@@ -79,13 +100,17 @@ async def query_course_rag(
         params = {
             "query_embedding": embedding_str,
             "org_id": org_id,
-            "top_k": top_k,
+            "top_k": retrieve_k,
         }
 
     results = (await db_session.execute(sql, params)).fetchall()
 
     if not results:
         return {"context": "", "sources": []}
+
+    # Optional Jev reranking: score all retrieved chunks, keep the best final_k
+    if retrieve_k > final_k:
+        results = await _jev_rerank(question, results, final_k)
 
     # Build numbered context and deduplicated source list
     context_parts = []
@@ -119,6 +144,18 @@ async def query_course_rag(
 
     context = "\n\n---\n\n".join(context_parts)
     return {"context": context, "sources": sources}
+
+
+async def _jev_rerank(question: str, results: list, final_k: int) -> list:
+    """Rerank vector-search results via Jev. Falls back to vector order
+    (trimmed to final_k) if Jev is unavailable or fails."""
+    from src.services.ai.jev.client import jev_rerank_chunks
+
+    reranked = await jev_rerank_chunks(question, results, final_k)
+    if reranked is None:
+        logger.debug("Jev reranking unavailable; using vector ordering")
+        return results[:final_k]
+    return reranked[:final_k]
 
 
 async def query_course_rag_stream(

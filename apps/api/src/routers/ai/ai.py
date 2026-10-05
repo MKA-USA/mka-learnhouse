@@ -120,6 +120,15 @@ async def activity_chat_event_generator(
         # Send done event immediately (without waiting for follow-ups)
         yield f"data: {json.dumps({'type': 'done', 'aichat_uuid': aichat_uuid, 'activity_uuid': activity_uuid})}\n\n"
 
+        # Jev output audit: fire-and-forget, never blocks the stream
+        from src.services.ai.jev_integration import schedule_guardrail_audit
+        schedule_guardrail_audit(
+            full_response,
+            user_question=user_message,
+            org_id=org_id,
+            chat_id=aichat_uuid,
+        )
+
         # Generate follow-up suggestions and send as separate event
         follow_ups = await generate_follow_up_suggestions(
             full_response,

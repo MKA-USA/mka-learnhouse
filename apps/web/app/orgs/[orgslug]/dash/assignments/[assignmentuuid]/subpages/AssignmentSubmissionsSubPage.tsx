@@ -24,6 +24,8 @@ import {
 } from 'lucide-react';
 import React, { useMemo, useState } from 'react';
 import EvaluateAssignment from './Modals/EvaluateAssignment';
+import { ModerationFlagIndicator } from '@components/Dashboard/Moderation/ModerationFlagIndicator';
+import useAdminStatus from '@components/Hooks/useAdminStatus';
 import { AssignmentProvider } from '@components/Contexts/Assignments/AssignmentContext';
 import { AssignmentsTaskProvider } from '@components/Contexts/Assignments/AssignmentsTaskContext';
 import AssignmentSubmissionProvider from '@components/Contexts/Assignments/AssignmentSubmissionContext';
@@ -482,6 +484,9 @@ function SubmissionRow({
     isLast: boolean;
 }) {
     const { t, i18n } = useTranslation();
+    // Dashboard-only page (AdminAuthorization). The API decides per-course whether
+    // this grader may see flags; 403/404 render nothing.
+    const { isAdmin: isDashboardUser } = useAdminStatus();
     const { track } = useLHAnalytics('dashboard');
     const [gradeModalOpen, setGradeModalOpen] = useState(false);
 
@@ -596,6 +601,15 @@ function SubmissionRow({
             <div className={`flex items-center space-x-1 px-2.5 py-1 rounded-full me-4 text-xs font-semibold ${status.className}`}>
                 {status.icon}
                 <span>{status.label}</span>
+            </div>
+
+            {/* Staff-only moderation signal (this grading page is dashboard-only) */}
+            <div className="me-4 empty:hidden">
+                <ModerationFlagIndicator
+                    contentType="assignment_submission"
+                    contentUuid={submission.assignmentusersubmission_uuid}
+                    isStaff={isDashboardUser === true}
+                />
             </div>
 
             {/* Attempt indicator — only shown when the student is past the

@@ -116,6 +116,20 @@ async def generate_quiz(
         output_type=GeneratedQuiz,
     )
 
+    # Optional Jev quiz validation (log-only, opt-in, never fails generation)
+    from src.services.ai.jev_integration import validate_generated_quiz
+    await validate_generated_quiz(
+        [
+            {
+                "question": q.question,
+                "answers": [{"answer": a.answer, "correct": a.correct} for a in q.answers],
+            }
+            for q in generated.questions
+        ],
+        org_id=org_id,
+        course_content=context,
+    )
+
     block_quiz = _to_block_quiz(generated)
 
     # Record the exchange so a follow-up refine turn can amend the actual quiz

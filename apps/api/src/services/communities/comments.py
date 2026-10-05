@@ -17,6 +17,7 @@ from src.services.communities.comment_votes import get_user_votes_for_comments
 from src.security.rbac import check_resource_access, AccessAction, authorization_verify_if_user_is_anon
 from src.services.communities.moderation import validate_comment_content, enforce_auto_lock
 from src.services.webhooks.dispatch import dispatch_webhooks
+from src.services.moderation_ai import schedule_moderation, forum_text
 
 
 async def create_comment(
@@ -82,6 +83,7 @@ async def create_comment(
     db_session.add(comment)
     await db_session.commit()
     await db_session.refresh(comment)
+    schedule_moderation(kind="forum_post", content_type="discussion_comment", content_uuid=comment.comment_uuid, org_id=community.org_id, author_user_id=comment.author_id, text_loader=forum_text(comment.content))
 
     # Get author info
     author_statement = select(User).where(User.id == comment.author_id)
@@ -229,6 +231,7 @@ async def update_comment(
     db_session.add(comment)
     await db_session.commit()
     await db_session.refresh(comment)
+    schedule_moderation(kind="forum_post", content_type="discussion_comment", content_uuid=comment.comment_uuid, org_id=discussion.org_id if discussion else None, author_user_id=comment.author_id, text_loader=forum_text(comment.content))
 
     # Get author info
     author_statement = select(User).where(User.id == comment.author_id)
