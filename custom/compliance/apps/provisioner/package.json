@@ -11,6 +11,6 @@
     "lh": "../../scripts/with-lh-token.sh bun --env-file=../../.env run src/cli.ts",
     "write-probe": "../../scripts/with-lh-token.sh bun run src/write-probe.ts --confirm-staging"
   },
-  "dependencies": { "@mka/compliance-core": "workspace:*" },
+  "dependencies": { "@mka/compliance-core": "workspace:*", "drizzle-orm": "^0.44.0" },
   "devDependencies": { "typescript": "^5.6.0", "@types/bun": "latest" }
 }

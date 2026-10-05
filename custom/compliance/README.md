@@ -29,3 +29,15 @@ The analytics tables (`progress_snapshot`, ...) belong to the dashboard workstre
 ## Rules
 Staging only (`ilm-dev.mkausa.org`); the probe refuses other hosts. No secrets in files: the token lives only in the keychain.
 The client logs only `METHOD path status`, redacts emails in paths and keeps response bodies out of errors.
+
+## Provisioner commands (run from `apps/provisioner`; `lh` wraps the keychain token + `.env`)
+```
+bun run start roster | import ... | seed-thinkific | gap-report      # data (no LearnHouse access)
+bun run lh plan --pilot                                  # dry run (default): General + Aitmad + Tabligh
+bun run lh apply --confirm-staging --pilot               # creates DRAFT courses on STAGING only (refuses any other host)
+bun run lh reconcile --pilot                             # dry run: enroll existing users only
+bun run lh reconcile --pilot --apply --confirm-staging
+```
+`apply` needs `--pilot`, `--only a,b` or `--all`; it never publishes (API wrappers reject `published: true`) and is idempotent
+through `course_map` (change detection per activity). Outputs: `out/idmap.json`, `out/apply-report.md`, `out/reconcile-report.md`, `out/data-gap-report.md`.
+Formats for yearly CSV data: `docs/data-formats.md`.

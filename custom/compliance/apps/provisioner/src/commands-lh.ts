@@ -1,8 +1,9 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  ConflictError, LhApi, LhClient, SafetyError, STAGING_API_BASE, applyCourse, assertStaging, connect, dbMapStore, idmap, planCourse, verifyCourse, type CoursePlan,
+  ConflictError, LhApi, LhClient, SafetyError, STAGING_API_BASE, applyCourse, assertStaging, connect, courseMap, dbMapStore, getCycleId, idmap, loadRoster, planCourse, reconcileEnrollments, upsertEnrollmentLog, verifyCourse, type CoursePlan,
 } from "@mka/compliance-core";
+import { eq } from "drizzle-orm";
 import type { Args } from "./args";
 import { OUT_DIR, ensureOut, writeOut } from "./commands-data";
 import { DEFAULT_CYCLE } from "./cycles";
@@ -76,5 +77,39 @@ export async function cmdApply(a: Args) {
     const base = (process.env.LH_API_BASE ?? STAGING_API_BASE).replace(/\/api\/v1$/, "");
     for (const r of results) console.log(`${r.name}: ${r.uuid} created=${r.created} updated=${r.updated} readback ${r.verify}\n   ${base}/course/${r.uuid.replace(/^course_/, "")}`);
     writeOut("apply-report.md", ["# Apply report", "", ...results.map((r) => `- ${r.name}: \`${r.uuid}\` (created ${r.created}, updated ${r.updated}); readback ${r.verify}`), ""].join("\n"));
+  } finally { await sql.end(); }
+}
+
+export async function cmdReconcile(a: Args) {
+  const apply = a.has("apply");
+  if (apply && !a.has("confirm-staging")) throw new SafetyError("reconcile --apply requires --confirm-staging");
+  const sel = selection(a);
+  if (!sel) throw new SafetyError("reconcile requires --pilot, --only <slugs> or --all");
+  const client = clientFromEnv(); const api = new LhApi(client);
+  const cycle = a.str("cycle", DEFAULT_CYCLE)!; const { db, sql } = connect();
+  try {
+    const cid = await getCycleId(db, cycle); if (cid === null) throw new Error(`cycle ${cycle} not found`);
+    const maps = await db.select().from(courseMap).where(eq(courseMap.cycleId, cid));
+    const general = maps.find((m) => m.kind === "general")?.lhCourseUuid;
+    const deptCourse = new Map(maps.filter((m) => m.kind === "department").map((m) => [m.departmentSlug, m.lhCourseUuid]));
+    const roster = await loadRoster(db, cid);
+    const wanted = roster.filter((r) => (sel.only ? r.departmentSlug && sel.only.includes(r.departmentSlug) : true));
+    const byEmail = new Map<string, Set<string>>(); const missingCourses = new Set<string>();
+    for (const r of wanted) {
+      const set = byEmail.get(r.learnerEmail) ?? new Set<string>();
+      if (general) set.add(general); else missingCourses.add("general");
+      if (r.departmentSlug) { const c = deptCourse.get(r.departmentSlug); if (c) set.add(c); else missingCourses.add(r.departmentSlug); }
+      byEmail.set(r.learnerEmail, set);
+    }
+    const targets = [...byEmail.entries()].filter(([, s]) => s.size).map(([email, s]) => ({ email, courseUuids: [...s] }));
+    console.log(`RECONCILE ${apply ? "APPLY" : "(dry run, nothing is written)"} cycle ${cycle}, selection: ${sel.label}: ${targets.length} learners${missingCourses.size ? `; courses not provisioned yet: ${[...missingCourses].join(", ")}` : ""}`);
+    const r = await reconcileEnrollments(api, targets, { apply, log: (s) => console.log(s) });
+    if (apply) await upsertEnrollmentLog(db, cid, r.enrollmentRows);
+    const lines = [`# Reconcile report (${apply ? "applied" : "dry run"}) cycle ${cycle}`, "", `Learners considered: ${r.learners}. Not yet signed up: ${r.notSignedUp.length}. Lookup failures: ${r.lookupFailed}.`, "",
+      "| Course | Wanted (have account) | Already enrolled | To enroll | Enrolled now | Skipped (not org member) |", "|---|---|---|---|---|---|",
+      ...r.perCourse.map((c) => `| ${c.courseUuid} | ${c.wanted} | ${c.alreadyEnrolled} | ${c.toEnroll} | ${c.enrolled} | ${c.skippedNotInOrg} |`), ""];
+    writeOut("reconcile-report.md", lines.join("\n"));
+    writeOut("not-signed-up.csv", ["email", ...r.notSignedUp].join("\n") + "\n");
+    console.log(lines.join("\n"));
   } finally { await sql.end(); }
 }

@@ -56,3 +56,10 @@ Sources are paths under `apps/api/src/`. Status: **VERIFIED-SRC** = read in rout
 - Learner nudges and webhook availability (W3 scope).
 - `GradingTypeEnum` values; `blockQuiz`/ProseMirror node constraints (see `.claude/skills/learnhouse-course-builder/SKILL.md`).
 - Docs MCP confirms: tokens are Pro, work on resource routes, reject `/users/*` `/orgs/*` `/roles/*`; course create multipart; chapter create JSON.
+
+## Enrollment findings (VERIFIED-SRC)
+- `POST /admin/{org}/enrollments/{user_id}/{course}` and `/enrollments/bulk` take LearnHouse **user ids** and require the user to already be a member of the org (`services/admin/admin.py::_get_user_in_org`, `bulk_enroll_users`: non-members land in `skipped`). A user who has never signed in does not exist yet, so they **cannot be enrolled**.
+- `GET /admin/{org}/users/by-email/{email}` is an exact-match lookup; 404 "User not found in this organization" covers both "no account" and "account but not a member".
+- `POST /admin/{org}/users` (provision; email auto-verified, empty password, "designed for SSO/JIT provisioning") can pre-create users; consumes member seats (`check_limits_with_usage("members")`). Not used (order: no account creation). The Google sign-in path (`services/auth/utils.py`) logs in an existing account matched by email, so pre-provisioned users would link on first login (UNVERIFIED end to end).
+- Webhook catalog (`services/webhooks/events.py`) has `user_signed_up` and `course_enrolled`; webhook management routes reject API tokens (admin must configure in the UI). Delivery in this deployment is UNVERIFIED.
+- Staging dry run (pilot: 106 learners of Aitmad + Tabligh): 0 existing accounts, 106 not yet signed up.
