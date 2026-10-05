@@ -94,7 +94,7 @@ const PRESETS: Preset[] = [
   { id: 'national', label: 'National team', rule: rule({ level: ['national'] }) },
   { id: 'qaids', label: 'Qaids & Naib Qaids', rule: rule({ role: ['qaid', 'naib_qaid'] }) },
   { id: 'motamids', label: 'Motamids', rule: rule({ role: ['motamid', 'regional_motamid'] }) },
-  { id: 'my-department', label: 'My department', rule: rule({ department: [] }), needs_author_department: true },
+  { id: 'my-department', label: 'My department', rule: rule({}), needs_author_department: true },
 ]
 
 export function mockOptions(): AudienceOptions {
