@@ -6,7 +6,7 @@ import { MAJLIS_TO_REGION, REGION_NAMES } from "../roster/generate";
 import type { DepartmentSeed } from "../seed/departments";
 import { contactSelfCheckTasks, signOffTasks } from "./attestation";
 import { buildPlanQuiz, extractObjectives } from "./quiz";
-import type { ActivitySpec, ChapterSpec, CourseSpec, PlanInput, QuizQuestion } from "./types";
+import type { ActivitySpec, ChapterSpec, CourseSpec, PlanInput, QuizQuestion, SourceRef } from "./types";
 import { courseName } from "./util";
 
 export const STALE_NOTE = "Last year's content — update pending";
@@ -59,6 +59,8 @@ export interface DepartmentCourseInput {
   plans: PlanInput[];          // plans for THIS department
   otherPlans: PlanInput[];     // other departments (quiz distractors)
   deadline: string;
+  /** Thinkific lessons the plan text came from (only when plans are thinkific-sourced). */
+  sources?: { goals?: SourceRef; plan?: SourceRef };
 }
 
 export function buildDepartmentCourse(a: DepartmentCourseInput): CourseSpec {
@@ -80,17 +82,18 @@ export function buildDepartmentCourse(a: DepartmentCourseInput): CourseSpec {
   ];
 
   const ownObjectives = a.plans.flatMap((x) => extractObjectives(x.okrsDoc));
-  const otherObjectives = a.otherPlans.filter((x) => !x.stale).flatMap((x) => extractObjectives(x.okrsDoc));
-  const quiz = buildPlanQuiz({ cycle, deptSlug: dept.slug, deptName: dept.name, ownObjectives, otherObjectives, stale: allStale });
+  const otherObjectives = a.otherPlans.flatMap((x) => extractObjectives(x.okrsDoc));
+  const quiz = buildPlanQuiz({ cycle, deptSlug: dept.slug, deptName: dept.name, ownObjectives, otherObjectives });
+  if (quiz.basis === "plan" && allStale) flags.push("knowledge check is built from last year's (stale) objectives");
   if (quiz.basis === "fallback") flags.push("knowledge check is the generic fallback (no usable plan objectives)");
 
   const chapters: ChapterSpec[] = [
     { key: "ch-role", name: "Your role", description: "Goals and responsibilities", activities: [
-      { kind: "page", key: "goals", name: "Goals and responsibilities", doc: doc(...goals) },
+      { kind: "page", key: "goals", name: "Goals and responsibilities", doc: doc(...goals), ...(a.sources?.goals ? { source: a.sources.goals } : {}) },
       { kind: "page", key: "role", name: `Responsibilities of ${roleTitle}`, doc: doc(...glance) },
     ] },
     { key: "ch-plan", name: "Annual plan", description: "This cycle's plan and objectives", activities: [
-      { kind: "page", key: "plan", name: "Annual department plan and OKRs", doc: doc(...okrs) },
+      { kind: "page", key: "plan", name: "Annual department plan and OKRs", doc: doc(...okrs), ...(a.sources?.plan ? { source: a.sources.plan } : {}) },
       { kind: "assignment", key: "knowledge-check", name: "Knowledge check: department plan", title: "Knowledge check: department plan", description: `Check your understanding of the ${dept.name} plan.`, ungraded: false, passThreshold: 60,
         tasks: [{ key: "plan-quiz", type: "QUIZ", title: "Department plan", description: "Choose the best answer.", hint: "Review the plan lesson if unsure.", contents: { grading_mode: "ALL_OR_NOTHING", questions: quiz.questions as QuizQuestion[] } }] },
     ] },

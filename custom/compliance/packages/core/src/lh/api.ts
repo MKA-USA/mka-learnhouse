@@ -60,6 +60,22 @@ export class LhApi {
   createChapter(input: T.CreateChapterInput) { return this.client.post<T.LhChapter>("/chapters/", input); }
   createActivity(input: T.CreateActivityInput) { assertDraftOnly(input); return this.client.post<T.LhActivity>("/activities/", input); }
   updateActivity(activityUuid: string, input: T.UpdateActivityInput) { assertDraftOnly(input); return this.client.put<T.LhActivity>(`/activities/${activityUuid}`, input); }
+  createVideoActivity(chapterId: number, name: string, absPath: string) {
+    const f = new FormData(); f.set("name", name); f.set("chapter_id", String(chapterId)); f.set("details", "{}");
+    f.set("video_file", Bun.file(absPath), absPath.split("/").pop());
+    return this.client.request<T.LhActivity>("POST", "/activities/video", { form: f, timeoutMs: 600_000 });
+  }
+  createPdfActivity(chapterId: number, name: string, absPath: string) {
+    const f = new FormData(); f.set("name", name); f.set("chapter_id", String(chapterId));
+    f.set("pdf_file", Bun.file(absPath), absPath.split("/").pop());
+    return this.client.request<T.LhActivity>("POST", "/activities/documentpdf", { form: f, timeoutMs: 300_000 });
+  }
+  updateAssignment(assignmentUuid: string, input: Partial<Pick<T.CreateAssignmentInput, "title" | "description" | "ungraded" | "pass_threshold_percentage" | "auto_grading">>) {
+    assertDraftOnly(input); return this.client.put(`/assignments/${assignmentUuid}`, input);
+  }
+  updateAssignmentTask(assignmentUuid: string, taskUuid: string, input: Partial<T.CreateAssignmentTaskInput>) {
+    return this.client.put(`/assignments/${assignmentUuid}/tasks/${taskUuid}`, input);
+  }
   createAssignment(input: T.CreateAssignmentInput) { assertDraftOnly(input); return this.client.post<{ assignment_uuid: string }>("/assignments/", input); }
   createAssignmentTask(assignmentUuid: string, input: T.CreateAssignmentTaskInput) {
     return this.client.post<{ assignment_task_uuid: string }>(`/assignments/${assignmentUuid}/tasks`, input);

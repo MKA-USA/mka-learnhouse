@@ -71,3 +71,18 @@ export function seedPlansFromThinkific(courses: TkCourse[]): ThinkificPlanSeed {
   }
   return { plans, flags, missing };
 }
+
+export interface ThinkificPlanRef { courseId: number; goals?: SourceRefLite; plan?: SourceRefLite }
+type SourceRefLite = { system: "thinkific"; courseId: number; chapterId: string; lessonId: string; path: string };
+/** Which Thinkific lessons fed each department's plan docs (for idmap traceability). */
+export function thinkificPlanRefs(courses: TkCourse[]): Map<string, ThinkificPlanRef> {
+  const out = new Map<string, ThinkificPlanRef>();
+  for (const { course, departmentSlug } of departmentCourses(courses)) {
+    const lessons = allLessons(course).filter((l) => l.type === "Text");
+    const resp = lessons.find((l) => /^responsibilities/i.test(l.name)) ?? lessons[0];
+    const okr = lessons.find((l) => /annual department plan/i.test(l.name)) ?? lessons[1];
+    const ref = (l?: TkLesson): SourceRefLite | undefined => (l ? { system: "thinkific", courseId: course.id, chapterId: l.chapterId, lessonId: l.id, path: l.raw } : undefined);
+    out.set(departmentSlug, { courseId: course.id, goals: ref(resp), plan: ref(okr) });
+  }
+  return out;
+}

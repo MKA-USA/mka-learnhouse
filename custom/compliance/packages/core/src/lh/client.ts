@@ -19,6 +19,8 @@ export interface RequestOptions {
   query?: Record<string, string | number | boolean | undefined>;
   json?: unknown;
   form?: FormData;
+  /** Per-request timeout override (uploads). */
+  timeoutMs?: number;
 }
 
 const RETRY_STATUS = new Set([429, 502, 503, 504]);
@@ -85,7 +87,7 @@ export class LhClient {
 
       let res: Response;
       try {
-        res = await this.fetchImpl(url, { method, headers, body, signal: AbortSignal.timeout(this.timeoutMs) });
+        res = await this.fetchImpl(url, { method, headers, body, signal: AbortSignal.timeout(opts.timeoutMs ?? this.timeoutMs) });
       } catch (e) {
         if (idempotent && attempt <= this.maxRetries) { await this.sleep(this.backoff(attempt)); continue; }
         throw new LhNetworkError(method, safePath, attempt, e);

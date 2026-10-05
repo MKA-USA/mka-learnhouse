@@ -1,5 +1,7 @@
 import postgres from "postgres";
-import { drizzle } from "drizzle-orm/postgres-js";
+import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
+
+export type Db = PostgresJsDatabase<any>;
 
 export function defaultDatabaseUrl(env: Record<string, string | undefined> = process.env): string {
   if (env.DATABASE_URL) return env.DATABASE_URL;

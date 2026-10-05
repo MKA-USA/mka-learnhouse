@@ -13,12 +13,12 @@ export function extractObjectives(doc: PMDoc | null | undefined): string[] {
 
 export interface QuizBuild { questions: QuizQuestion[]; basis: "plan" | "fallback" }
 
-/** Knowledge check from the department's own plan objectives; distractors are other departments' objectives. */
-export function buildPlanQuiz(args: { cycle: string; deptSlug: string; deptName: string; ownObjectives: string[]; otherObjectives: string[]; stale: boolean }): QuizBuild {
-  const { cycle, deptSlug, deptName, ownObjectives, stale } = args;
+/** Knowledge check from the department's own plan objectives (stale ones too: it quizzes what the lesson shows); distractors are other departments' objectives. */
+export function buildPlanQuiz(args: { cycle: string; deptSlug: string; deptName: string; ownObjectives: string[]; otherObjectives: string[] }): QuizBuild {
+  const { cycle, deptSlug, deptName, ownObjectives } = args;
   const own = ownObjectives.filter((o) => !args.otherObjectives.includes(o));
   const pool = [...new Set(args.otherObjectives)];
-  if (!stale && own.length >= 1 && pool.length >= 3) {
+  if (own.length >= 1 && pool.length >= 3) {
     const picks = seededShuffle(own, `${cycle}:${deptSlug}:own`).slice(0, 3);
     const qs = picks.map((o, i) => {
       const distract = seededShuffle(pool, `${cycle}:${deptSlug}:d${i}`).slice(0, 3);

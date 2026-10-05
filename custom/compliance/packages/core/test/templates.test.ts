@@ -18,14 +18,14 @@ describe("objectives + quiz", () => {
   });
   test("plan-based quiz: one correct per question, distractors from other departments, deterministic", () => {
     const own = extractObjectives(plan("tabligh").okrsDoc); const other = others.flatMap((x) => extractObjectives(x.okrsDoc));
-    const a = buildPlanQuiz({ cycle: "2026-27", deptSlug: "tabligh", deptName: "Tabligh", ownObjectives: own, otherObjectives: other, stale: false });
-    const b = buildPlanQuiz({ cycle: "2026-27", deptSlug: "tabligh", deptName: "Tabligh", ownObjectives: own, otherObjectives: other, stale: false });
+    const a = buildPlanQuiz({ cycle: "2026-27", deptSlug: "tabligh", deptName: "Tabligh", ownObjectives: own, otherObjectives: other });
+    const b = buildPlanQuiz({ cycle: "2026-27", deptSlug: "tabligh", deptName: "Tabligh", ownObjectives: own, otherObjectives: other });
     expect(a.basis).toBe("plan"); expect(a).toEqual(b);
     for (const q of a.questions) { expect(q.options.filter((o) => o.assigned_right_answer).length).toBe(1); expect(q.options.length).toBe(4); expect(own).toContain(q.options.find((o) => o.assigned_right_answer)!.text); }
   });
-  test("stale or empty plan falls back to the generic question", () => {
-    expect(buildPlanQuiz({ cycle: "c", deptSlug: "x", deptName: "X", ownObjectives: ["a"], otherObjectives: ["b", "c", "d"], stale: true }).basis).toBe("fallback");
-    expect(buildPlanQuiz({ cycle: "c", deptSlug: "x", deptName: "X", ownObjectives: [], otherObjectives: [], stale: false }).basis).toBe("fallback");
+  test("no usable objectives falls back to the generic question", () => {
+    expect(buildPlanQuiz({ cycle: "c", deptSlug: "x", deptName: "X", ownObjectives: [], otherObjectives: [] }).basis).toBe("fallback");
+    expect(buildPlanQuiz({ cycle: "c", deptSlug: "x", deptName: "X", ownObjectives: ["a"], otherObjectives: ["b"] }).basis).toBe("fallback");
   });
 });
 
@@ -51,7 +51,7 @@ describe("department course", () => {
     expect(specHash(a)).toBe(specHash(b));
     expect(a.chapters.map((c) => `${c.key}:${c.activities.map((x) => `${x.kind}/${x.key}`).join("+")}`)).toMatchSnapshot();
   });
-  test("stale plan shows the visible callout and falls back on the quiz", () => {
+  test("stale plan shows the visible callout and flags the quiz basis", () => {
     const c = build([plan("tabligh", { stale: true })]);
     const goals = c.chapters[0]!.activities[0]!;
     expect(goals.kind === "page" && plainText(goals.doc)).toContain(STALE_NOTE);
