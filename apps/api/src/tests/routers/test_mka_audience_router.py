@@ -859,3 +859,57 @@ async def test_count_cpu_work_runs_off_the_event_loop(db, world, monkeypatch):
     r = await count(db, ADMIN, LOCAL_RULE)
     assert r.status_code == 200 and r.json()["count"] == 5
     assert seen == [False]
+
+
+# ---------------------------------------------------------------------------------------------------------
+# authorize before validating; org MFA policy
+# ---------------------------------------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "rule",
+    [
+        None,
+        {"v": 1, "mode": "maybe", "groups": [{}]},
+        {"v": 1, "mode": "show", "groups": [{"majlis": [f"{i:04d}" + "m" * 156 for i in range(420)]}]},  # > 64 KB
+    ],
+    ids=["null", "bad-mode", "oversize"],
+)
+async def test_count_authorizes_before_validating_the_rule(db, world, rule):
+    for uid, course in ((31, None), (LEARNER, None), (ORG2_ADMIN, None), (AUTHOR_TABLIGH, "course_general")):
+        r = await count(db, uid, rule, course_uuid=course)
+        assert r.status_code == 403, (uid, r.status_code, r.text[:120])  # no rule-validation detail for people who may not use the tool
+        assert "mode" not in r.text and "large" not in r.text
+    assert (await count(db, ADMIN, rule)).status_code == 422                # the same payload from an allowed caller is a 422
+
+
+async def require_org1_two_factor(db):
+    from src.db.organization_config import OrganizationConfig
+
+    row = (await db.execute(select(OrganizationConfig).where(OrganizationConfig.org_id == 1))).scalars().first()
+    row.config = {"config_version": "2.0", "admin_toggles": {"security": {
+        "require_2fa": True, "require_2fa_grace_days": 0, "require_2fa_enabled_at": "2020-01-01T00:00:00", "exempt_external_auth": False}}}
+    db.add(row)
+    await db.commit()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("uid", [31, LEARNER, ADMIN, MAINT])
+async def test_org_mfa_policy_blocks_options_and_count_for_members_without_mfa(db, world, uid):
+    await require_org1_two_factor(db)
+    async with client_for(db, uid) as c:
+        r = await c.get(f"{BASE}/options", params={"org_id": 1})
+        assert r.status_code == 403 and r.json()["detail"]["code"] == "MFA_REQUIRED_BY_ORG", r.text
+    r = await count(db, uid, LOCAL_RULE)
+    assert r.status_code == 403 and r.json()["detail"]["code"] == "MFA_REQUIRED_BY_ORG", r.text
+
+
+@pytest.mark.asyncio
+async def test_org_mfa_policy_is_per_org_and_spares_superadmins(db, world):
+    await require_org1_two_factor(db)
+    async with client_for(db, SUPER) as c:
+        assert (await c.get(f"{BASE}/options", params={"org_id": 1})).status_code == 200
+    assert (await count(db, SUPER, LOCAL_RULE)).status_code == 200
+    async with client_for(db, ORG2_ADMIN) as c:
+        assert (await c.get(f"{BASE}/options", params={"org_id": 2})).status_code == 200  # org 2 has no policy
+    assert (await count(db, ORG2_ADMIN, LOCAL_RULE, org_id=2)).status_code == 200
