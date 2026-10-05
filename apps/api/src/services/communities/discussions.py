@@ -29,6 +29,7 @@ from src.services.communities.moderation import (
     validate_discussion_content,
     enforce_posting_limits,
 )
+from src.services.moderation_ai import schedule_moderation, forum_text
 
 
 class DiscussionSortBy(str, Enum):
@@ -151,6 +152,7 @@ async def create_discussion(
 
     await db_session.commit()
     await db_session.refresh(discussion)
+    schedule_moderation(kind="forum_post", content_type="discussion", content_uuid=discussion.discussion_uuid, org_id=community.org_id, author_user_id=discussion.author_id, text_loader=forum_text(discussion.title, discussion.content))
 
     # Track discussion posted event
     await track(
@@ -438,6 +440,7 @@ async def update_discussion(
     db_session.add(discussion)
     await db_session.commit()
     await db_session.refresh(discussion)
+    schedule_moderation(kind="forum_post", content_type="discussion", content_uuid=discussion.discussion_uuid, org_id=discussion.org_id, author_user_id=discussion.author_id, text_loader=forum_text(discussion.title, discussion.content))
 
     # Get author info
     author_statement = select(User).where(User.id == discussion.author_id)

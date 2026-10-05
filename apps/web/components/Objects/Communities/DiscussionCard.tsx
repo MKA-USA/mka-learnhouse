@@ -20,6 +20,7 @@ import {
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { getUriWithOrg } from '@services/config/config'
+import { ModerationFlagIndicator } from '@components/Dashboard/Moderation/ModerationFlagIndicator'
 import {
   DiscussionWithAuthor,
   DiscussionAuthor,
@@ -272,6 +273,7 @@ export function DiscussionCard({
               )}
               <span className="text-gray-300">·</span>
               <span>{timeAgo}</span>
+              <ModerationFlagIndicator contentType="discussion" contentUuid={discussion.discussion_uuid} isStaff={canManage} />
             </div>
           </div>
         </div>
