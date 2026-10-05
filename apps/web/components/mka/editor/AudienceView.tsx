@@ -9,25 +9,24 @@
  *    showing another audience's content).
  *  - If only the chrome throws, the mode already set by the controller stands and the chrome renders nothing.
  */
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import React, { lazy, Suspense, useLayoutEffect, useMemo } from 'react'
 import type { Editor } from '@tiptap/react'
 import type { Node as PMNode } from '@tiptap/pm/model'
-import { Popover, PopoverAnchor, PopoverContent } from '@components/ui/popover'
 import { useEditorProvider } from '@components/Contexts/Editor/EditorContext'
 import { useAudienceCount, useAudienceOptions, useAudienceScope, useMkaViewer } from '@services/mka/attributes'
-import { DEFAULT_RULE } from '../audience/types'
-import type { AudienceOptions, Rule } from '../audience/types'
-import type { DescribeOptions } from '../audience/describe'
+import type { Rule } from '../audience/types'
 import { validateRule } from '../audience/evaluate'
-import { describeRule } from '../audience/describe'
-import { getAudienceStore, useAudienceStore } from './store'
-import { isRuleEditable, resolveSectionMode, ruleWarnings, showsPreviewLabel } from './logic'
+import { sectionLabel } from './describeWith'
+import { useAudienceStore } from './store'
+import { resolveSectionMode, showsPreviewLabel } from './logic'
 import type { SectionMode } from './logic'
 import type { AudienceNodeOptions, AudienceNodeViewApi } from './AudienceNodeView'
 import { MkaErrorBoundary } from './MkaErrorBoundary'
-import { AudienceHeader, HiddenPlaceholder, ReadOnlyBadge } from './AudienceHeader'
-import { AudiencePicker } from './AudiencePicker'
-import { useIsNarrow } from './audience-ui'
+
+// Author chrome is code-split: learner viewers (DynamicCanva, EditorPreview) never download the picker, header or
+// preview menu. Learners cannot reach these branches, and a section still hides before any chunk loads.
+const AuthorSection = lazy(() => import('./AuthorSection'))
+const SectionNotice = lazy(() => import('./SectionNotices'))
 
 type Props = {
   nodeView: AudienceNodeViewApi
@@ -36,19 +35,6 @@ type Props = {
   getPos: () => number | undefined
   options: AudienceNodeOptions
 }
-
-const FALLBACK_DESCRIBE: DescribeOptions = {
-  levels: [
-    { key: 'national', label: 'National' },
-    { key: 'regional', label: 'Regional' },
-    { key: 'local', label: 'Local' },
-  ],
-  departments: [],
-  roles: [],
-  regions: [],
-  majlis: [],
-}
-const describeWith = (rule: Rule, o: AudienceOptions | undefined) => describeRule(rule, o ?? FALLBACK_DESCRIBE)
 
 const DAMAGED_LABEL = 'Damaged audience: choose who should see this'
 
@@ -71,7 +57,8 @@ function ModeController(props: Props) {
   const scope = useAudienceScope(options.activity, { courseUuid: options.courseUuid, orgId: options.orgId })
   const me = useMkaViewer(scope.courseUuid)
   const st = useAudienceStore(editor)
-  const orgOptions = useAudienceOptions(scope.orgId).data
+  const showsChrome = editable || me.canViewAll
+  const orgOptions = useAudienceOptions(scope.orgId, showsChrome).data
 
   const rule = node.attrs.rule
   const id = node.attrs.id as string | null
@@ -79,7 +66,7 @@ function ModeController(props: Props) {
     const r = validateRule(rule)
     return r.ok ? r.rule : null
   }, [rule])
-  const label = norm ? norm.label || describeWith(norm, orgOptions) : DAMAGED_LABEL
+  const label = norm ? sectionLabel(norm, orgOptions) : DAMAGED_LABEL
 
   const mode = resolveSectionMode({
     view: st.view,
@@ -127,9 +114,29 @@ type ChromeProps = Props & {
 function SectionChrome(p: ChromeProps) {
   const { mode, editable, canViewAll, label, editor, norm } = p
   const st = useAudienceStore(editor)
-  if (mode === 'chrome' && editable) return <AuthorHeader {...p} />
-  if (mode === 'chrome') return <ReadOnlyBadge rule={norm ?? DEFAULT_RULE} label={label} className="mb-1" />
-  if (mode === 'placeholder') return <HiddenPlaceholder label={label} className="my-1" />
+  if (mode === 'chrome' && editable) {
+    return (
+      <Suspense fallback={null}>
+        <AuthorSection
+          node={p.node}
+          editor={editor}
+          getPos={p.getPos}
+          norm={norm}
+          label={label}
+          collapsed={p.collapsed}
+          scope={p.scope}
+          authorDepartment={p.authorDepartment}
+        />
+      </Suspense>
+    )
+  }
+  if (mode === 'chrome' || mode === 'placeholder') {
+    return (
+      <Suspense fallback={null}>
+        <SectionNotice kind={mode === 'chrome' ? 'badge' : 'placeholder'} label={label} rule={norm} />
+      </Suspense>
+    )
+  }
   if (showsPreviewLabel(mode, st.view, editable, canViewAll)) {
     return (
       <div className="mb-1 text-[11px] text-slate-500 dark:text-slate-400" data-testid="mka-audience-preview-label">
@@ -138,134 +145,6 @@ function SectionChrome(p: ChromeProps) {
     )
   }
   return null
-}
-
-function AuthorHeader(p: ChromeProps) {
-  const { node, editor, norm, label, collapsed, scope, authorDepartment } = p
-  const id = node.attrs.id as string | null
-  const store = getAudienceStore(editor)
-  const st = useAudienceStore(editor)
-  const orgOptions = useAudienceOptions(scope.orgId).data
-  const count = useAudienceCount(scope.orgId, scope.courseUuid, norm)
-  const narrow = useIsNarrow()
-  const [open, setOpen] = useState(false)
-  const [isNew, setIsNew] = useState(false)
-  const startRule = useRef<Rule>(norm ?? DEFAULT_RULE)
-
-  // A freshly inserted section opens its picker immediately.
-  useEffect(() => {
-    if (id && st.openPickerFor === id) {
-      startRule.current = norm ?? DEFAULT_RULE
-      setIsNew(true)
-      setOpen(true)
-      store.set({ openPickerFor: null })
-    }
-  }, [st.openPickerFor, id, norm, store])
-
-  const editableRule = isRuleEditable(node.attrs.rule)
-  const warnings = useMemo(
-    () => ruleWarnings(node.attrs.rule, orgOptions, count.state === 'ready' && count.data?.count === 0),
-    [node.attrs.rule, orgOptions, count],
-  )
-
-  const apply = (next: Rule) => {
-    if (!id) return
-    const withLabel: Rule = { ...next, label: describeWith(next, orgOptions) }
-    editor.commands.updateMkaAudienceRule(id, withLabel)
-  }
-
-  const close = () => {
-    setOpen(false)
-    setIsNew(false)
-  }
-
-  const cancel = () => {
-    if (id) {
-      if (isNew) editor.commands.unsetMkaAudience(id)
-      else editor.commands.updateMkaAudienceRule(id, startRule.current)
-    }
-    close()
-  }
-
-  const toggleCollapse = () => {
-    if (!id) return
-    const next = { ...st.collapsed }
-    if (next[id]) delete next[id]
-    else {
-      next[id] = true
-      // Keep the caret out of content that is about to leave the page.
-      const pos = p.getPos()
-      if (typeof pos === 'number') editor.commands.setTextSelection(pos + node.nodeSize)
-    }
-    store.set({ collapsed: next })
-  }
-
-  const picker = (
-    <AudiencePicker
-      value={norm ?? DEFAULT_RULE}
-      onChange={apply}
-      onDone={close}
-      onCancel={cancel}
-      onRemove={
-        id
-          ? () => {
-              editor.commands.unsetMkaAudience(id)
-              close()
-            }
-          : undefined
-      }
-      options={orgOptions}
-      authorDepartment={authorDepartment}
-      count={count}
-      isNew={isNew}
-    />
-  )
-
-  const header = (
-    <AudienceHeader
-      rule={norm ?? DEFAULT_RULE}
-      label={label}
-      count={count}
-      onEdit={
-        editableRule
-          ? () => {
-              startRule.current = norm ?? DEFAULT_RULE
-              setIsNew(false)
-              setOpen(true)
-            }
-          : undefined
-      }
-      onPreview={() => store.set({ view: { kind: 'self' } })}
-      onToggleCollapse={toggleCollapse}
-      collapsed={collapsed}
-      blockCount={node.childCount}
-      warnings={warnings}
-    />
-  )
-
-  // Phones: the picker is its own bottom sheet (seam C), so there is no popover to anchor.
-  if (narrow) {
-    return (
-      <>
-        {header}
-        {open ? picker : null}
-      </>
-    )
-  }
-  return (
-    <Popover open={open} onOpenChange={(o) => (o ? setOpen(true) : close())}>
-      <PopoverAnchor asChild>
-        <div>{header}</div>
-      </PopoverAnchor>
-      <PopoverContent
-        align="start"
-        collisionPadding={8}
-        className="max-h-(--radix-popover-content-available-height) w-[min(34rem,calc(100vw-2rem))] overflow-y-auto border-0 bg-transparent p-0 shadow-none"
-      >
-        {picker}
-      </PopoverContent>
-    </Popover>
-  )
 }
 
 export default AudienceView

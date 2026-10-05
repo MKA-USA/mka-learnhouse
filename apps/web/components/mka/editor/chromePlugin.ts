@@ -7,15 +7,24 @@ import type { AudienceNodeOptions } from './AudienceNodeView'
 import { AudienceChrome } from './AudienceChrome'
 import { getAudienceStore } from './store'
 import { AUDIENCE_NODE } from './plugins'
+import { transformCopiedSlice } from './learnerFilter'
 
 export const chromePluginKey = new PluginKey('mkaAudienceChrome')
 
 export function createChromePlugin(editor: any, options: AudienceNodeOptions): Plugin {
   return new Plugin({
     key: chromePluginKey,
+    props: {
+      // Belt and braces behind the learner filter: copy/cut never serializes a section this viewer may not see.
+      transformCopied: (slice) => transformCopiedSlice(slice, getAudienceStore(editor).get().copyPolicy),
+    },
     view(view) {
       const store = getAudienceStore(editor)
-      let renderer: ReactRenderer | null = null
+      const st = () => editor.storage?.mkaAudience as { stripping?: boolean; original?: unknown; chromeRenderer?: ReactRenderer | null } | undefined
+      // The learner filter swaps in a fresh EditorState (see learnerFilter.ts), which makes ProseMirror destroy and
+      // re-create plugin views. That swap must neither re-capture the filtered doc as the original nor re-mount the chrome.
+      const swapping = !!st()?.stripping
+      let renderer: ReactRenderer | null = (swapping && st()?.chromeRenderer) || null
 
       const countSections = () => {
         let n = 0
@@ -28,15 +37,27 @@ export function createChromePlugin(editor: any, options: AudienceNodeOptions): P
       const publish = () => store.set({ sectionCount: countSections(), docVersion: store.get().docVersion + 1 })
       publish()
 
+      // Viewer editors keep the ORIGINAL document so the learner filter can always re-run from it; any document
+      // change that is not our own filtering (e.g. upstream setContent) becomes the new original.
+      const captureOriginal = () => {
+        const storage = st()
+        if (!storage || options.editable) return
+        storage.original = view.state.doc.toJSON()
+        store.set({ originalVersion: store.get().originalVersion + 1 })
+      }
+      if (!swapping) captureOriginal()
+
       try {
         const parent = view.dom.parentElement
-        if (parent) {
+        if (parent && !renderer) {
           renderer = new ReactRenderer(AudienceChrome as any, {
             editor,
             props: { editor, options },
             className: 'mka-audience-chrome',
           })
           parent.insertBefore(renderer.element, view.dom)
+          const storage = st()
+          if (storage) storage.chromeRenderer = renderer
         }
       } catch (err) {
         renderer = null
@@ -45,9 +66,13 @@ export function createChromePlugin(editor: any, options: AudienceNodeOptions): P
 
       return {
         update(v, prev) {
-          if (v.state.doc !== prev.doc) publish()
+          if (v.state.doc !== prev.doc) {
+            if (!st()?.stripping) captureOriginal()
+            publish()
+          }
         },
         destroy() {
+          if (st()?.stripping) return // state swap: the next plugin view inherits the mounted chrome
           try {
             renderer?.destroy()
             renderer?.element.remove()
@@ -55,6 +80,8 @@ export function createChromePlugin(editor: any, options: AudienceNodeOptions): P
             /* ignore */
           }
           renderer = null
+          const storage = st()
+          if (storage) storage.chromeRenderer = null
         },
       }
     },

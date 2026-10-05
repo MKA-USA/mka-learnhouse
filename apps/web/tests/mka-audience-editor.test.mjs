@@ -101,6 +101,17 @@ describe("hidden content is absent from the document DOM", () => {
     editor.destroy();
   });
 
+  test("immediately after construction (React never mounted) a non-editable section is in mode 'hidden'", () => {
+    const editor = make(json);
+    const wrapper = editor.view.dom.querySelector("[data-mka-audience-section]");
+    const view = audienceNodeViewFor(wrapper);
+    expect(view.mode).toBe("hidden");
+    expect(wrapper.getAttribute("data-mode")).toBe("hidden");
+    expect(wrapper.style.display).toBe("none");
+    expect(editor.view.dom.innerHTML).not.toContain("TOP-SECRET-TEXT");
+    editor.destroy();
+  });
+
   test("modes attach/detach the content element; hidden and loading never expose it", () => {
     const editor = make(json);
     const wrapper = editor.view.dom.querySelector("[data-mka-audience-section]");

@@ -21,6 +21,8 @@ declare module '@tiptap/core' {
       updateMkaAudienceRule: (id: string, rule: Rule) => ReturnType
       /** Unwrap a section, keeping its content. */
       unsetMkaAudience: (id: string) => ReturnType
+      /** Cancel of a NEW section: an empty inserted one is removed entirely, a wrapped one is unwrapped. */
+      cancelNewMkaAudience: (id: string) => ReturnType
     }
   }
 }
@@ -48,7 +50,7 @@ export const MkaAudience = Node.create<AudienceNodeOptions>({
   },
 
   addStorage() {
-    return { store: createAudienceStore() }
+    return { store: createAudienceStore({ editableDoc: this.options.editable }), original: null as unknown, stripping: false, chromeRenderer: null as unknown }
   },
 
   addAttributes() {
@@ -134,7 +136,8 @@ export const MkaAudience = Node.create<AudienceNodeOptions>({
             tr.setSelection(selectionInside(tr, range.start))
           }
           dispatch(tr.scrollIntoView())
-          getAudienceStore(editor).set({ openPickerFor: id })
+          const store = getAudienceStore(editor)
+          store.set({ openPickerFor: id, inserted: empty && !blankParagraph ? { ...store.get().inserted, [id]: true } : store.get().inserted })
           return true
         },
 
@@ -144,6 +147,26 @@ export const MkaAudience = Node.create<AudienceNodeOptions>({
           const hit = findAudienceById(state.doc, id)
           if (!hit) return false
           if (dispatch) dispatch(tr.setNodeMarkup(hit.pos, undefined, { ...hit.node.attrs, rule }))
+          return true
+        },
+
+      cancelNewMkaAudience:
+        (id) =>
+        ({ tr, state, dispatch, editor }) => {
+          const hit = findAudienceById(state.doc, id)
+          const store = getAudienceStore(editor)
+          const { [id]: wasInserted, ...rest } = store.get().inserted
+          store.set({ inserted: rest })
+          if (!hit) return false
+          const only = hit.node.childCount === 1 ? hit.node.child(0) : null
+          const emptyInserted = !!wasInserted && !!only && only.type.name === 'paragraph' && only.content.size === 0
+          if (dispatch) {
+            dispatch(
+              emptyInserted
+                ? tr.delete(hit.pos, hit.pos + hit.node.nodeSize)
+                : tr.replaceWith(hit.pos, hit.pos + hit.node.nodeSize, hit.node.content),
+            )
+          }
           return true
         },
 

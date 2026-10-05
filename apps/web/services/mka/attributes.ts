@@ -162,37 +162,41 @@ export function useMkaViewer(courseUuid?: string | null): MkaViewerState {
   return useMemo<MkaViewerState>(() => {
     if (!auth.resolved) return { state: 'loading', viewer: null, canViewAll: false }
     if (!auth.signedIn) return { state: 'ready', viewer: null, canViewAll: false } // anonymous: NULL_VIEWER
+    // Data wins: a failed background refetch must not turn a resolved viewer into an anonymous one.
+    if (q.data) return { state: 'ready', viewer: q.data.attributes, canViewAll: !!q.data.can_view_all }
     if (q.isError) return { state: 'error', viewer: null, canViewAll: false }
-    if (!q.data) return { state: 'loading', viewer: null, canViewAll: false }
-    return { state: 'ready', viewer: q.data.attributes, canViewAll: !!q.data.can_view_all }
+    return { state: 'loading', viewer: null, canViewAll: false }
   }, [auth.resolved, auth.signedIn, q.isError, q.data])
 }
 
-export function useAudienceOptions(orgId: number | null | undefined) {
+export function useAudienceOptions(orgId: number | null | undefined, enabled = true) {
   const auth = useAttributesAuth()
   return useQuery({
     queryKey: mkaAttributeKeys.options(orgId ?? null),
     queryFn: () => fetchAudienceOptions(auth.token, orgId as number),
-    enabled: auth.resolved && auth.signedIn && !!orgId,
+    enabled: enabled && auth.resolved && auth.signedIn && !!orgId,
     staleTime: 10 * 60_000,
     refetchOnWindowFocus: false,
     retry: 1,
   })
 }
 
-/** Stable key for a rule: object key order and `label` (display cache) do not matter. */
+/** Stable key for a rule: object key order and the TOP-LEVEL `label` (display cache) do not matter. */
 export function ruleHash(rule: unknown): string {
   const norm = (x: unknown): unknown => {
     if (Array.isArray(x)) return x.map(norm)
     if (x && typeof x === 'object') {
       return Object.fromEntries(
         Object.entries(x as Record<string, unknown>)
-          .filter(([k]) => k !== 'label')
           .sort(([a], [b]) => (a < b ? -1 : 1))
           .map(([k, v]) => [k, norm(v)]),
       )
     }
     return x
+  }
+  if (rule && typeof rule === 'object' && !Array.isArray(rule)) {
+    const { label: _label, ...rest } = rule as Record<string, unknown>
+    return JSON.stringify(norm(rest))
   }
   return JSON.stringify(norm(rule))
 }

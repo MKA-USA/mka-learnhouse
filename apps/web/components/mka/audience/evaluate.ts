@@ -55,7 +55,9 @@ export function validateRule(raw: unknown): ValidateResult {
         const deduped = Array.from(new Set(val as string[]))
         if (deduped.length > 0) out[key] = deduped
       } else {
-        out[key] = val // unknown keys kept; they make the group non-matching
+        // Unknown keys are kept (they make the group non-matching). defineProperty, not assignment: a plain
+        // `out['__proto__'] = v` would set the prototype and let the group inherit list keys it never had.
+        Object.defineProperty(out, key, { value: val, enumerable: true, writable: true, configurable: true })
       }
     }
     outGroups.push(out)

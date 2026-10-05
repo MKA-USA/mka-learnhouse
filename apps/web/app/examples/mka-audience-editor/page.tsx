@@ -14,7 +14,8 @@ import { mkaAudienceMock } from '@services/mka/flags'
 
 const rule = (level: string, mode = 'show') => ({ v: 1, mode, groups: [{ level: [level] }] })
 const p = (t: string) => ({ type: 'paragraph', content: [{ type: 'text', text: t }] })
-const sec = (id: string, t: string, r: unknown) => ({ type: 'mkaAudience', attrs: { id, rule: r }, content: [p(t)] })
+const h2 = (t: string) => ({ type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: t }] })
+const sec = (id: string, t: string, r: unknown) => ({ type: 'mkaAudience', attrs: { id, rule: r }, content: [h2(`${t.split(':')[0]} heading`), p(t)] })
 const content = {
   type: 'doc',
   content: [
@@ -52,7 +53,7 @@ function Inner() {
       {mode === 'edit' ? (
         <Authoring />
       ) : (
-        <Canva content={content as never} activity={{ org_id: 1, activity_uuid: 'activity_x' }} courseUuid="course_x" hideTableOfContents />
+        <Canva content={content as never} activity={{ org_id: 1, activity_uuid: 'activity_x' }} courseUuid="course_x" />
       )}
     </div>
   )

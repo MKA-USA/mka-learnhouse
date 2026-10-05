@@ -14,7 +14,8 @@ export type AudienceHeaderProps = {
   count: CountState
   /** Omitted when the rule cannot be edited here (written by a newer editor). */
   onEdit?(): void
-  onPreview(): void
+  /** Omitted when previewing is not available (authoring entry points are feature-flagged). */
+  onPreview?(): void
   onToggleCollapse(): void
   collapsed: boolean
   blockCount: number
@@ -114,7 +115,7 @@ export function AudienceHeader({
             <CountBadge count={count} />
             <div className="ms-auto flex items-center gap-1.5">
               {onEdit ? <HeaderButton icon={Pencil} label="Edit" onClick={onEdit} /> : null}
-              <HeaderButton icon={ScanEye} label="Preview" onClick={onPreview} />
+              {onPreview ? <HeaderButton icon={ScanEye} label="Preview" onClick={onPreview} /> : null}
               <button
                 type="button"
                 onClick={onToggleCollapse}
