@@ -14,7 +14,7 @@ import { getAPIUrl } from '@services/config/config'
 import { RequestBodyWithAuthHeader } from '@services/utils/ts/requests'
 import { useLHSession } from '@components/Contexts/LHSessionContext'
 import { useOrg } from '@components/Contexts/OrgContext'
-import { buildQuery, learnerQuery, MOCK_TODAY } from '@components/mka/compliance/format'
+import { buildQuery, learnerQuery, MOCK_TODAY, truncationNotice } from '@components/mka/compliance/format'
 import type {
   ComplianceScope,
   CourseSummaryResponse,
@@ -50,7 +50,7 @@ export class ComplianceApiError extends Error {
 
 export const mkaComplianceKeys = {
   all: ['mka-compliance'] as const,
-  scope: (orgId: number | null) => ['mka-compliance', 'scope', orgId] as const,
+  scope: (orgId: number | null, cycleId: number | null) => ['mka-compliance', 'scope', orgId, cycleId] as const,
   overview: (orgId: number | null, cycleId: number | null) => ['mka-compliance', 'overview', orgId, cycleId] as const,
   summary: (orgId: number | null, uuid: string, cycleId: number | null) =>
     ['mka-compliance', 'summary', orgId, uuid, cycleId] as const,
@@ -88,9 +88,9 @@ async function getJSON<T>(path: string, query: Record<string, string | number | 
 const seg = (courseUuid: string) => encodeURIComponent(courseUuid)
 
 // ---- fetchers (mock-aware) ------------------------------------------------------------------
-export async function fetchScope(auth: ComplianceAuth): Promise<ScopeResponse> {
-  if (MKA_COMPLIANCE_MOCK) return (await import('./compliance.mock')).mockScope()
-  return getJSON<ScopeResponse>('scope', {}, auth)
+export async function fetchScope(auth: ComplianceAuth, cycleId: number | null = null): Promise<ScopeResponse> {
+  if (MKA_COMPLIANCE_MOCK) return (await import('./compliance.mock')).mockScope(cycleId)
+  return getJSON<ScopeResponse>('scope', { cycle_id: cycleId }, auth)
 }
 
 export async function fetchOverview(auth: ComplianceAuth, cycleId: number | null): Promise<OverviewResponse> {
@@ -126,11 +126,13 @@ export async function downloadChaseListCsv(
   filters: LearnerFilters,
   cycleId: number | null,
   filename: string,
-): Promise<void> {
+): Promise<{ notice: string | null }> {
   let blob: Blob
+  let notice: string | null = null
   if (MKA_COMPLIANCE_MOCK) {
     const csv = await (await import('./compliance.mock')).mockChaseCsv(courseUuid, filters)
-    blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+    blob = new Blob([csv.csv], { type: 'text/csv;charset=utf-8' })
+    notice = truncationNotice(csv.truncated ? 'true' : null, null)
   } else {
     const params = new URLSearchParams(learnerQuery({ ...filters, page: undefined, page_size: undefined }, cycleId, auth.orgId))
     const res = await fetch(
@@ -138,6 +140,7 @@ export async function downloadChaseListCsv(
       RequestBodyWithAuthHeader('GET', null, { revalidate: 0 }, auth.token),
     )
     if (!res.ok) throw new ComplianceApiError(res.status, `CSV download failed (${res.status})`)
+    notice = truncationNotice(res.headers.get('X-Truncated'), res.headers.get('X-Row-Limit'))
     blob = await res.blob()
   }
   const url = URL.createObjectURL(blob)
@@ -152,6 +155,7 @@ export async function downloadChaseListCsv(
   } finally {
     setTimeout(() => URL.revokeObjectURL(url), 10_000)
   }
+  return { notice }
 }
 
 // ---- hooks ----------------------------------------------------------------------------------------
@@ -161,13 +165,15 @@ const noRetryOnClientError = (count: number, err: unknown) => {
   return count < 2
 }
 
-export function useComplianceScopeQuery() {
+/** Scope for the selected cycle (null = server default). 403 is a normal "no access" answer, not a failure to report. */
+export function useComplianceScopeQuery(cycleId: number | null = null) {
   const auth = useComplianceAuth()
   return useQuery({
-    queryKey: [...mkaComplianceKeys.scope(auth.orgId), MKA_COMPLIANCE_MOCK && typeof window !== 'undefined' ? window.location.search : ''],
-    queryFn: () => fetchScope(auth),
+    queryKey: [...mkaComplianceKeys.scope(auth.orgId, cycleId), MKA_COMPLIANCE_MOCK && typeof window !== 'undefined' ? window.location.search : ''],
+    queryFn: () => fetchScope(auth, cycleId),
     enabled: auth.ready,
     staleTime: 5 * 60_000,
+    placeholderData: keepPreviousData,
     retry: noRetryOnClientError,
   })
 }

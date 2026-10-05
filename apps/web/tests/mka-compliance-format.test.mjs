@@ -5,6 +5,7 @@ import React from "react";
 
 import {
   attestedPct, buildHeatmap, buildQuery, cellLabel, chaseListFilename, chaseTotal, csvCell,
+  courseForDepartment, deptLabel, learnerKey, nz, truncationNotice, attentionTitle,
   daysUntil, deadlineLabel, fmtDate, learnerQuery, pctOf, safeRag, sameCourse, statusSegments,
 } from "../components/mka/compliance/format.ts";
 import { mkaCourseTabs } from "../components/mka/compliance/course-tab.tsx";
@@ -62,6 +63,47 @@ describe("dates and urls", () => {
   test("chase list filename is sanitised", () => {
     expect(chaseListFilename("../../Etc/Passwd <x>", "2026-10-20")).toBe("chase-list-etc-passwd-x-2026-10-20.csv");
     expect(chaseListFilename("!!!", "2026-10-20")).toBe("chase-list-course-2026-10-20.csv");
+  });
+});
+
+describe("API-shape tolerance", () => {
+  test("nz treats '' and null alike", () => {
+    expect(nz("")).toBeNull();
+    expect(nz("  ")).toBeNull();
+    expect(nz(null)).toBeNull();
+    expect(nz("Gulf")).toBe("Gulf");
+  });
+  test("department display: name wins, slug is prettified, '' is the national group", () => {
+    expect(deptLabel("sanat_o_tijarat", "Sanat-o-Tijarat")).toBe("Sanat-o-Tijarat");
+    expect(deptLabel("sanat_o_tijarat", null)).toBe("Sanat O Tijarat");
+    expect(deptLabel("", "")).toBe("National leadership");
+    expect(deptLabel(null)).toBe("National leadership");
+  });
+  test("attention title uses the name and ignores empty region", () => {
+    expect(attentionTitle({ department: "maal", department_name: "Maal", region: "", rag: "red", reasons: [] })).toBe("Maal");
+    expect(attentionTitle({ department: "maal", department_name: "Maal", region: "Gulf", rag: "red", reasons: [] })).toBe("Maal \u00b7 Gulf");
+  });
+  test("national group row links to the General course; no name-based keys", () => {
+    const courses = [{ kind: "general", department: null, id: 1 }, { kind: "department", department: "maal", id: 2 }];
+    expect(courseForDepartment(courses, "").id).toBe(1);
+    expect(courseForDepartment(courses, "maal").id).toBe(2);
+    expect(courseForDepartment(courses, "nope")).toBeUndefined();
+  });
+  test("learnerKey prefers server id; fallback distinguishes level", () => {
+    const base = { email: "a@x", role_title: "Nazim", department: "maal", majlis: null };
+    expect(learnerKey({ ...base, id: 7, level: "local" })).toBe("id:7");
+    expect(learnerKey({ ...base, level: "local" })).not.toBe(learnerKey({ ...base, level: "regional" }));
+  });
+  test("heatmap keeps the '' (national) group, labelled", () => {
+    const d = { department: "", department_name: "National leadership", rag: "amber", score: 5, attested_pct: 0, reasons: [], ...counts() };
+    const h = buildHeatmap([d], []);
+    expect(h.rows[0].label).toBe("National leadership");
+  });
+  test("CSV truncation notice from X-Truncated / X-Row-Limit", () => {
+    expect(truncationNotice(null, null)).toBeNull();
+    expect(truncationNotice("false", "5000")).toBeNull();
+    expect(truncationNotice("true", null)).toBe("List truncated at 5,000 rows. Narrow the filters to get the rest.");
+    expect(truncationNotice("True", "2000")).toContain("2,000");
   });
 });
 

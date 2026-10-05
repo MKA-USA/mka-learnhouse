@@ -3,7 +3,7 @@ import React, { useMemo, useState } from 'react'
 import { cn } from '@/lib/utils'
 import type { ComplianceCounts, MajlisRow, RegionRow } from '@services/mka/compliance.types'
 import { RAG_ICON, RAG_TONE, StatusBar, TONE_CLASS } from './badges'
-import { RAG_META, attestedPct, chaseTotal, fmtPct, safeRag } from './format'
+import { RAG_META, attestedPct, chaseTotal, fmtPct, nz, safeRag } from './format'
 
 const MAJLIS_INITIAL = 8
 
@@ -14,6 +14,7 @@ function Row({
   rag,
   active,
   onClick,
+  disabled,
 }: {
   label: string
   sub?: string | null
@@ -21,6 +22,7 @@ function Row({
   rag?: RegionRow['rag']
   active: boolean
   onClick: () => void
+  disabled?: boolean
 }) {
   const r = safeRag(rag)
   const Icon = RAG_ICON[r]
@@ -30,7 +32,8 @@ function Row({
       <button
         type="button"
         onClick={onClick}
-        aria-pressed={active}
+        disabled={disabled}
+        aria-pressed={disabled ? undefined : active}
         className={cn(
           'grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 rounded-lg px-2.5 py-2 text-start transition-colors',
           'hover:bg-gray-50 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring',
@@ -101,8 +104,9 @@ export function Breakdown({
           <ul className="space-y-0.5">
             {regions.map((r) => (
               <Row
-                key={r.region}
-                label={r.region}
+                key={`r:${r.region}`}
+                label={nz(r.region) ?? 'No region recorded'}
+                disabled={!nz(r.region)}
                 counts={r}
                 rag={r.rag}
                 active={region === r.region}
@@ -126,9 +130,10 @@ export function Breakdown({
           <ul className="space-y-0.5">
             {shown.map((m) => (
               <Row
-                key={m.majlis}
-                label={m.majlis}
-                sub={m.region}
+                key={`m:${m.majlis}:${m.region ?? ''}`}
+                label={nz(m.majlis) ?? 'No Majlis recorded'}
+                disabled={!nz(m.majlis)}
+                sub={nz(m.region)}
                 counts={m}
                 rag={m.rag}
                 active={majlis === m.majlis}

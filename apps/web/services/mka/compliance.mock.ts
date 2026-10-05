@@ -65,6 +65,8 @@ function rng(seed: number) {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296
   }
 }
+/** Department slug as the API sends it (underscored), distinct from its display name. */
+const dk = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, '_')
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '')
 const dayMs = 86_400_000
 const toMs = (iso: string) => Date.parse(`${iso}T00:00:00Z`)
@@ -229,8 +231,8 @@ export const MOCK_GENERAL_UUID = 'course_mock-general'
 const deptUuid = (d: string) => `course_mock-${slug(d)}`
 
 export const MOCK_COURSES: ScopeCourse[] = [
-  { course_uuid: MOCK_GENERAL_UUID, name: 'MKA Officeholder Orientation (General)', kind: 'general', department: null },
-  ...DEPARTMENTS.map((d): ScopeCourse => ({ course_uuid: deptUuid(d), name: `${d} Officeholder Course`, kind: 'department', department: d })),
+  { course_uuid: MOCK_GENERAL_UUID, name: 'MKA Officeholder Orientation (General)', kind: 'general', department: null, department_name: null },
+  ...DEPARTMENTS.map((d): ScopeCourse => ({ course_uuid: deptUuid(d), name: `${d} Officeholder Course`, kind: 'department', department: dk(d), department_name: d })),
 ]
 const OWN_DEPARTMENTS = ['Tarbiyyat', 'Tabligh']
 
@@ -275,7 +277,7 @@ function overviewOf(): Omit<OverviewResponse, 'cycle'> {
   const departments: DepartmentRow[] = DEPARTMENTS.map((department) => {
     const ps = people.filter((p) => p.department === department)
     const c = tally(ps.map((p) => p.overall))
-    return { department, ...c, ...score(c, ps.filter((p) => p.mismatch === true).length) }
+    return { department: dk(department), department_name: department, ...c, ...score(c, ps.filter((p) => p.mismatch === true).length) }
   })
   const cells: CellRow[] = []
   for (const department of DEPARTMENTS) {
@@ -283,16 +285,16 @@ function overviewOf(): Omit<OverviewResponse, 'cycle'> {
       const ps = people.filter((p) => p.department === department && p.region === region)
       const c = tally(ps.map((p) => p.overall))
       const sc = score(c, ps.filter((p) => p.mismatch === true).length)
-      cells.push({ department, region, ...c, rag: sc.rag, reasons: sc.reasons, attested_pct: sc.attested_pct, score: sc.score })
+      cells.push({ department: dk(department), department_name: department, region, ...c, rag: sc.rag, reasons: sc.reasons, attested_pct: sc.attested_pct, score: sc.score })
     }
   }
   const attention: AttentionItem[] = [
     ...departments.filter((d) => d.rag === 'red' || d.rag === 'amber').map((d): AttentionItem => ({
-      department: d.department, region: null, rag: d.rag, score: d.score, reasons: d.reasons, expected: d.expected,
+      department: d.department, department_name: d.department_name, region: null, rag: d.rag, score: d.score, reasons: d.reasons, expected: d.expected,
       attested_pct: d.attested_pct, overdue: d.overdue, not_started: d.not_started, not_signed_in: d.not_signed_in,
     })),
     ...cells.filter((c) => c.rag === 'red' && c.expected >= 3).map((c): AttentionItem => ({
-      department: c.department, region: c.region, rag: c.rag, score: c.score, reasons: c.reasons, expected: c.expected,
+      department: c.department, department_name: c.department_name, region: c.region, rag: c.rag, score: c.score, reasons: c.reasons, expected: c.expected,
       attested_pct: c.attested_pct, overdue: c.overdue, not_started: c.not_started, not_signed_in: c.not_signed_in,
     })),
   ]
@@ -317,18 +319,19 @@ function cycleFor(cycleId?: number | null): ComplianceCycle {
 
 function visibleCourses(scope: ComplianceScope): ScopeCourse[] {
   if (scope === 'all') return MOCK_COURSES
-  if (scope === 'own') return MOCK_COURSES.filter((c) => c.department && OWN_DEPARTMENTS.includes(c.department))
+  if (scope === 'own') return MOCK_COURSES.filter((c) => c.department_name && OWN_DEPARTMENTS.includes(c.department_name))
   return []
 }
 
-export async function mockScope(): Promise<ScopeResponse> {
+export async function mockScope(cycleId?: number | null): Promise<ScopeResponse> {
   await wait(60)
   const scope = mockViewerScope()
   const courses = visibleCourses(scope)
   return {
     scope,
     courses,
-    departments: scope === 'all' ? DEPARTMENTS : scope === 'own' ? OWN_DEPARTMENTS : [],
+    departments: (scope === 'all' ? DEPARTMENTS : scope === 'own' ? OWN_DEPARTMENTS : []).map(dk),
+    cycle: cycleFor(cycleId),
     cycles: CYCLES,
   }
 }
@@ -347,7 +350,7 @@ function findCourse(uuid: string): ScopeCourse {
 
 function courseRows(c: ScopeCourse) {
   const { people } = world()
-  const ps = c.kind === 'general' ? people : people.filter((p) => p.department === c.department)
+  const ps = c.kind === 'general' ? people : people.filter((p) => p.department === c.department_name)
   return ps.map((p) => ({ p, st: c.kind === 'general' ? p.general : p.dept }))
 }
 
@@ -375,7 +378,7 @@ export async function mockSummary(uuid: string, cycleId?: number | null): Promis
     .filter((l) => l.expected > 0)
   return {
     cycle: cycleFor(cycleId),
-    course: { course_uuid: course.course_uuid, name: course.name, kind: course.kind as CourseKind, department: course.department },
+    course: { course_uuid: course.course_uuid, name: course.name, kind: course.kind as CourseKind, department: course.department, department_name: course.department_name },
     totals,
     by_region,
     by_majlis,
@@ -408,10 +411,12 @@ function filtered(course: ScopeCourse, f: LearnerFilters) {
 
 function toItem({ p, st }: { p: Person; st: CourseState }): LearnerItem {
   return {
+    id: p.id,
     email: p.email,
     role_title: p.roleTitle,
     person_name: p.name,
-    department: p.department,
+    department: dk(p.department),
+    department_name: p.department,
     level: p.level,
     majlis: p.majlis,
     region: p.region,
@@ -434,12 +439,12 @@ export async function mockLearners(uuid: string, f: LearnerFilters, cycleId?: nu
   return { cycle: cycleFor(cycleId), items: all.slice((page - 1) * size, page * size).map(toItem), total: all.length }
 }
 
-export async function mockChaseCsv(uuid: string, f: LearnerFilters): Promise<string> {
+export async function mockChaseCsv(uuid: string, f: LearnerFilters): Promise<{ csv: string; truncated: boolean }> {
   await wait()
   const course = findCourse(uuid)
   const head = ['Name', 'Role', 'Department', 'Majlis', 'Region', 'Mailbox', 'Status']
   const lines = filtered(course, f).map(({ p, st }) =>
     [p.name ?? '', p.roleTitle, p.department, p.majlis ?? '', p.region ?? '', p.email, st.status].map(csvCell).join(','),
   )
-  return [head.join(','), ...lines].join('\r\n')
+  return { csv: [head.join(','), ...lines].join('\r\n'), truncated: false }
 }

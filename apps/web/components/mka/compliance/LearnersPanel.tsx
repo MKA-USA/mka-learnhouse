@@ -17,7 +17,7 @@ import type {
 } from '@services/mka/compliance.types'
 import { StatusChip } from './badges'
 import { ErrorState } from './states'
-import { STATUS_META, STATUS_ORDER, fmtDate, lessonProgress } from './format'
+import { STATUS_META, STATUS_ORDER, fmtDate, learnerKey, lessonProgress, nz } from './format'
 
 const PAGE_SIZE = 25
 const ALL = '__all__'
@@ -82,7 +82,7 @@ function Progress({ done, total }: { done: number; total: number }) {
 }
 
 function PersonCell({ l }: { l: LearnerItem }) {
-  const where = [l.majlis, l.region].filter(Boolean).join(' · ')
+  const where = [nz(l.majlis), nz(l.region)].filter(Boolean).join(' · ')
   return (
     <div className="min-w-0">
       <div className="truncate text-sm font-medium text-gray-900">{l.person_name ?? l.email}</div>
@@ -139,7 +139,7 @@ export function LearnersPanel({
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
   const majlisOptions = byMajlis
-    .filter((m) => !filters.region || m.region === filters.region)
+    .filter((m) => nz(m.majlis) && (!filters.region || m.region === filters.region))
     .map((m) => ({ value: m.majlis, label: m.majlis }))
     .sort((a, b) => a.label.localeCompare(b.label))
 
@@ -195,7 +195,7 @@ export function LearnersPanel({
           label="Region"
           value={filters.region ?? ''}
           allLabel="All regions"
-          options={byRegion.map((r) => ({ value: r.region, label: r.region }))}
+          options={byRegion.filter((r) => nz(r.region)).map((r) => ({ value: r.region, label: r.region }))}
           onChange={(v) => onFilters({ region: v, majlis: '' })}
         />
         <FilterSelect
@@ -241,7 +241,7 @@ export function LearnersPanel({
                       </TableRow>
                     ))
                   : (data?.items ?? []).map((l) => (
-                      <TableRow key={`${l.email}:${l.role_title}:${l.department}`}>
+                      <TableRow key={learnerKey(l)}>
                         <TableCell className="max-w-72 align-top">
                           <PersonCell l={l} />
                         </TableCell>

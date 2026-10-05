@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { cn } from '@/lib/utils'
 import type { CellRow, ComplianceRag, DepartmentRow, ScopeCourse } from '@services/mka/compliance.types'
 import { RAG_ICON, RagBadge } from './badges'
-import { RAG_META, attestedPct, buildHeatmap, cellLabel, chaseTotal, fmtPct, safeRag } from './format'
+import { RAG_META, attestedPct, buildHeatmap, cellLabel, chaseTotal, courseForDepartment, fmtPct, safeRag } from './format'
 import { courseTabHref } from './links'
 
 const CELL_TONE: Record<ComplianceRag, string> = {
@@ -77,7 +77,7 @@ export function Heatmap({
   orgslug: string
 }) {
   const map = useMemo(() => buildHeatmap(departments, cells), [departments, cells])
-  const courseOf = (dept: string) => courses.find((c) => c.kind === 'department' && c.department === dept)
+  const courseOf = (dept: string) => courseForDepartment(courses, dept)
 
   return (
     <section aria-labelledby="heatmap-title" className="rounded-xl bg-white p-4 nice-shadow sm:p-5">
@@ -129,10 +129,10 @@ export function Heatmap({
                           href={courseTabHref(orgslug, course.course_uuid)}
                           className="rounded-sm underline-offset-2 hover:underline focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
                         >
-                          {row.department}
+                          {row.label}
                         </Link>
                       ) : (
-                        row.department
+                        row.label
                       )}
                       {s ? (
                         <span className="text-xs font-normal text-gray-500">
@@ -144,7 +144,7 @@ export function Heatmap({
                   <td className="align-middle">
                     {s ? (
                       <Cell
-                        department={row.department}
+                        department={row.label}
                         region="all regions"
                         cell={{ ...s, region: 'all regions' }}
                         href={course ? courseTabHref(orgslug, course.course_uuid) : null}
@@ -154,7 +154,7 @@ export function Heatmap({
                   {map.regions.map((region) => (
                     <td key={region} className="align-middle">
                       <Cell
-                        department={row.department}
+                        department={row.label}
                         region={region}
                         cell={row.cells[region]}
                         href={course && row.cells[region]?.expected ? courseTabHref(orgslug, course.course_uuid, { region }) : null}

@@ -14,7 +14,7 @@ import { LearnersPanel } from './LearnersPanel'
 import { RagBadge } from './badges'
 import { SummaryCards } from './SummaryCards'
 import { ErrorState, NoCycleState, NoExpectedState, PageLoading } from './states'
-import { isStatus, sameCourse } from './format'
+import { deptLabel, isStatus, nz, sameCourse } from './format'
 
 const KINDS = { general: 'General course', department: 'Department course' } as const
 
@@ -37,7 +37,7 @@ export default function MkaCourseComplianceTab({ courseUUID }: { courseUUID: str
 
   const patch = useCallback((p: Partial<LearnerFilters>) => setFilters((f) => ({ ...f, ...p })), [])
 
-  const scope = useComplianceScopeQuery()
+  const scope = useComplianceScopeQuery(cycleId)
   const summary = useCourseSummary(courseUUID, cycleId)
   const data = summary.data
 
@@ -68,7 +68,7 @@ export default function MkaCourseComplianceTab({ courseUUID }: { courseUUID: str
           </div>
           <p className="text-sm text-gray-500">
             {name}
-            {data.course?.department ? ` · ${data.course.department}` : ''}
+            {nz(data.course?.department) ? ` · ${deptLabel(data.course?.department, data.course?.department_name)}` : ''}
           </p>
           {data.reasons?.length ? <p className="text-sm text-gray-700">{data.reasons.join(' \u00b7 ')}</p> : null}
           <CyclePicker cycle={data.cycle} cycles={scope.data?.cycles} onChange={setCycleId} today={today} />

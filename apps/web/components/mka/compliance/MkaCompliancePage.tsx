@@ -17,7 +17,7 @@ import { Heatmap } from './Heatmap'
 import { RagBadge, StatusBar } from './badges'
 import { SummaryCards } from './SummaryCards'
 import { ErrorState, NoAccessState, NoCycleState, NoExpectedState, PageLoading } from './states'
-import { attestedPct, chaseTotal, fmtPct } from './format'
+import { attestedPct, chaseTotal, deptLabel, fmtPct } from './format'
 import { courseTabHref } from './links'
 
 /** Scope `own`: one card per course the viewer authors, each with its own RAG + headline numbers. */
@@ -29,7 +29,7 @@ function OwnCourseCard({ course, cycleId, orgslug }: { course: ScopeCourse; cycl
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="truncate text-base font-bold text-gray-900">{course.name}</h3>
-          <p className="text-sm text-gray-500">{course.kind === 'general' ? 'General course' : `${course.department ?? 'Department'} course`}</p>
+          <p className="text-sm text-gray-500">{course.kind === 'general' ? 'General course' : `${deptLabel(course.department, course.department_name)} course`}</p>
         </div>
         {data ? <RagBadge rag={data.rag} /> : null}
       </div>
@@ -96,7 +96,7 @@ function CourseLinks({ courses, orgslug }: { courses: ScopeCourse[]; orgslug: st
 export default function MkaCompliancePage({ orgslug }: { orgslug: string }) {
   const [cycleId, setCycleId] = useState<number | null>(null)
   const today = complianceToday()
-  const scopeQ = useComplianceScopeQuery()
+  const scopeQ = useComplianceScopeQuery(cycleId)
   const scope = scopeQ.data?.scope
   const overview = useComplianceOverview(cycleId, scope === 'all')
   // Own scope has no overview endpoint; the cycle comes from the first course summary.

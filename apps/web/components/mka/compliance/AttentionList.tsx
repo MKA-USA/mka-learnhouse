@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { ArrowRight, CircleCheck } from 'lucide-react'
 import type { AttentionItem, ScopeCourse } from '@services/mka/compliance.types'
 import { RagBadge } from './badges'
-import { attentionTitle, safeRag } from './format'
+import { attentionTitle, courseForDepartment, nz, safeRag } from './format'
 import { courseTabHref } from './links'
 
 const INITIAL = 6
@@ -21,7 +21,7 @@ export function AttentionList({
 }) {
   const [all, setAll] = useState(false)
   const shown = all ? items : items.slice(0, INITIAL)
-  const courseOf = (dept: string) => courses.find((c) => c.kind === 'department' && c.department === dept)
+  const courseOf = (dept: string) => courseForDepartment(courses, dept)
 
   return (
     <section aria-labelledby="attention-title" className="rounded-xl bg-white p-4 nice-shadow sm:p-5">
@@ -56,7 +56,7 @@ export function AttentionList({
                 </div>
                 {course ? (
                   <Link
-                    href={courseTabHref(orgslug, course.course_uuid, { region: a.region ?? undefined })}
+                    href={courseTabHref(orgslug, course.course_uuid, { region: nz(a.region) ?? undefined })}
                     className="ms-8 inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 sm:ms-0 text-sm font-medium text-gray-700 hover:bg-gray-100 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
                     aria-label={`Open ${attentionTitle(a)} chase list`}
                   >

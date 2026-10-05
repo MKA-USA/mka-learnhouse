@@ -112,7 +112,10 @@ export function segmentsLabel(c: ComplianceCounts): string {
 // ---- heatmap ----------------------------------------------------------------------
 
 export interface HeatmapRow {
+  /** Slug: the key. */
   department: string
+  /** Display name. */
+  label: string
   summary: DepartmentRow | null
   cells: Record<string, CellRow>
 }
@@ -129,12 +132,12 @@ export interface Heatmap {
 export function buildHeatmap(departments: DepartmentRow[], cells: CellRow[]): Heatmap {
   const regionSet = new Set<string>()
   const byDept = new Map<string, HeatmapRow>()
-  for (const d of departments) byDept.set(d.department, { department: d.department, summary: d, cells: {} })
+  for (const d of departments) byDept.set(d.department, { department: d.department, label: deptLabel(d.department, d.department_name), summary: d, cells: {} })
   for (const c of cells) {
     regionSet.add(c.region)
     let row = byDept.get(c.department)
     if (!row) {
-      row = { department: c.department, summary: null, cells: {} }
+      row = { department: c.department, label: deptLabel(c.department, c.department_name), summary: null, cells: {} }
       byDept.set(c.department, row)
     }
     row.cells[c.region] = c
@@ -143,7 +146,7 @@ export function buildHeatmap(departments: DepartmentRow[], cells: CellRow[]): He
     (a, b) =>
       ragSeverity(b.summary?.rag ?? 'none') - ragSeverity(a.summary?.rag ?? 'none') ||
       (b.summary?.score ?? 0) - (a.summary?.score ?? 0) ||
-      a.department.localeCompare(b.department),
+      a.label.localeCompare(b.label),
   )
   return { regions: [...regionSet].sort((a, b) => a.localeCompare(b)), rows }
 }
@@ -157,7 +160,8 @@ export function cellLabel(department: string, region: string, c: CellRow | undef
 }
 
 export function attentionTitle(a: AttentionItem): string {
-  return a.region ? `${a.department} · ${a.region}` : a.department
+  const d = deptLabel(a.department, a.department_name)
+  return nz(a.region) ? `${d} \u00b7 ${a.region}` : d
 }
 
 // ---- dates ---------------------------------------------------------------------------
@@ -237,4 +241,49 @@ export function csvCell(v: unknown): string {
 
 export function lessonProgress(done: number, total: number): { pct: number; label: string } {
   return { pct: pctOf(done, total), label: total > 0 ? `${done}/${total}` : '—' }
+}
+
+/** Course a department row links to: its department course; the national/executive group ("" slug) links to the General course. */
+export function courseForDepartment<C extends { kind: string; department: string | null }>(courses: C[], department: string): C | undefined {
+  if (!nz(department)) return courses.find((c) => c.kind === 'general')
+  return courses.find((c) => c.kind === 'department' && c.department === department)
+}
+
+// ---- API-shape tolerance (slug vs name, "" vs null) -----------------------------------------
+
+export const NATIONAL_LABEL = 'National leadership'
+
+/** "" / whitespace / null -> null. The API may send either for an empty optional field. */
+export const nz = (v: string | null | undefined): string | null => (v && v.trim() ? v : null)
+
+const titleCase = (slug: string) =>
+  slug
+    .split(/[_\-\s]+/)
+    .filter(Boolean)
+    .map((w) => w[0].toUpperCase() + w.slice(1))
+    .join(' ')
+
+/** Display name for a department: `department_name`, else a prettified slug, else the national group label. Never the raw slug. */
+export function deptLabel(department: string | null | undefined, name?: string | null): string {
+  return nz(name) ?? (nz(department) ? titleCase(department as string) : NATIONAL_LABEL)
+}
+
+/** Stable React key for a learner row: server `id`, else a composite incl. level and Majlis. */
+export function learnerKey(l: {
+  id?: string | number
+  email: string
+  role_title: string
+  department: string
+  level: string
+  majlis?: string | null
+}): string {
+  return l.id !== undefined && l.id !== null ? `id:${l.id}` : [l.email, l.role_title, l.department, l.level, l.majlis ?? ''].join('|')
+}
+
+/** Notice for a capped CSV (`X-Truncated: true`; `X-Row-Limit` when sent), else null. */
+export function truncationNotice(truncated: string | null | undefined, limit: string | null | undefined): string | null {
+  if (truncated?.toLowerCase() !== 'true') return null
+  const n = Number(limit)
+  const rows = Number.isFinite(n) && n > 0 ? n : 5000
+  return `List truncated at ${rows.toLocaleString('en-US')} rows. Narrow the filters to get the rest.`
 }

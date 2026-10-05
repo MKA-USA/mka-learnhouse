@@ -32,12 +32,15 @@ export function DownloadChaseList({
   const auth = useComplianceAuth()
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState(false)
+  const [notice, setNotice] = useState<string | null>(null)
 
   async function run() {
     setBusy(true)
     setFailed(false)
+    setNotice(null)
     try {
-      await downloadChaseListCsv(auth, courseUuid, filters, cycleId, chaseListFilename(courseName, complianceToday()))
+      const r = await downloadChaseListCsv(auth, courseUuid, filters, cycleId, chaseListFilename(courseName, complianceToday()))
+      setNotice(r.notice)
     } catch {
       setFailed(true)
     } finally {
@@ -51,8 +54,12 @@ export function DownloadChaseList({
         {busy ? <Loader2 aria-hidden="true" className="animate-spin" /> : <Download aria-hidden="true" />}
         Download chase list (CSV)
       </Button>
-      <span role="status" aria-live="polite" className={failed ? 'text-xs text-red-700' : 'sr-only'}>
-        {failed ? "Couldn't download the list. Try again." : busy ? 'Preparing download' : ''}
+      <span
+        role="status"
+        aria-live="polite"
+        className={failed ? 'text-xs text-red-700' : notice ? 'max-w-64 text-xs text-amber-800' : 'sr-only'}
+      >
+        {failed ? "Couldn't download the list. Try again." : busy ? 'Preparing download' : (notice ?? '')}
       </span>
     </div>
   )

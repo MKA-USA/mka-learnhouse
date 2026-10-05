@@ -44,7 +44,9 @@ export interface ScopeCourse {
   course_uuid: string
   name: string
   kind: CourseKind
+  /** Department SLUG (stable key, never display text); "" / null for the General course. */
   department: string | null
+  department_name?: string | null
 }
 
 /** GET /scope */
@@ -52,6 +54,8 @@ export interface ScopeResponse {
   scope: ComplianceScope
   courses: ScopeCourse[]
   departments: string[]
+  /** The cycle these courses belong to (extra; ignored). */
+  cycle?: ComplianceCycle | null
   /** (open) not in the frozen contract: tolerated when present so the cycle picker can list cycles. */
   cycles?: ComplianceCycle[]
 }
@@ -64,11 +68,14 @@ export interface RagFields {
 }
 
 export interface DepartmentRow extends ComplianceCounts, RagFields {
+  /** Slug (key). "" = national/executive group; display with `department_name`. */
   department: string
+  department_name?: string | null
 }
 
 export interface CellRow extends ComplianceCounts {
   department: string
+  department_name?: string | null
   region: string
   rag: ComplianceRag
   reasons: string[]
@@ -79,6 +86,7 @@ export interface CellRow extends ComplianceCounts {
 /** (open) "ranked departments/cells with reasons": shape not pinned by the contract. */
 export interface AttentionItem {
   department: string
+  department_name?: string | null
   region?: string | null
   rag: ComplianceRag
   score?: number
@@ -92,7 +100,8 @@ export interface AttentionItem {
 
 /** GET /overview (scope all) */
 export interface OverviewResponse {
-  cycle: ComplianceCycle
+  /** null when no cycle has been imported yet. */
+  cycle: ComplianceCycle | null
   totals: ComplianceCounts
   departments: DepartmentRow[]
   cells: CellRow[]
@@ -134,10 +143,13 @@ export interface ContactCheck {
 }
 
 export interface LearnerItem {
+  /** Stable unique id of the list item (React key). Fallback key is built when an older API omits it. */
+  id?: string | number
   email: string
   role_title: string
   person_name: string | null
   department: string
+  department_name?: string | null
   level: LearnerLevel
   majlis: string | null
   region: string | null
