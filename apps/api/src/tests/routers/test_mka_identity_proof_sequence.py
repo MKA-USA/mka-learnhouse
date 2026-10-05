@@ -52,7 +52,7 @@ async def _signed_in(db, org, email):
 
 
 def _unrecognised(eff):
-    return eff["is_officeholder"] is False and eff["status"] in ("unrecognized", "not_applicable")
+    return not eff["is_officeholder"] and eff["status"] in ("unrecognized", "not_applicable")
 
 
 async def _login(db, user_id, hd):
