@@ -17,7 +17,7 @@ const fx = (name) => JSON.parse(readFileSync(join(import.meta.dir, "fixtures", "
 const SHAPE = {
   dry_run: "boolean", enabled: "boolean", test_mode: "boolean", candidates: "number", would_send: "number", sent: "number",
   skipped_recent: "number", skipped_attested: "number", skipped_excluded: "number", suppressed: "number", failed: "number",
-  disabled: "number", stopped: "string?", remaining: "number", time_budget_hit: "boolean", quarantined: "number", skipped_cooldown: "number", cooldown_days: "number", preview_digest: "string?",
+  disabled: "number", stopped: "string?", remaining: "number", time_budget_hit: "boolean", quarantined: "number", newly_quarantined: "number", skipped_cooldown: "number", cooldown_days: "number", preview_digest: "string?",
 };
 function problems(body) {
   const out = [];

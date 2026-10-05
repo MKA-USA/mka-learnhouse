@@ -6,6 +6,7 @@
     "dry_run": true,
     "enabled": true,
     "failed": 0,
+    "newly_quarantined": 0,
     "preview_digest": "73c0b58cb71b7d7cf68a2df28f0e3821ed1d02f6",
     "quarantined": 0,
     "remaining": 0,

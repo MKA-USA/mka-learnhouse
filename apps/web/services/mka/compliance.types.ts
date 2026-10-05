@@ -206,6 +206,8 @@ export interface RemindResponse {
   time_budget_hit: boolean
   /** Addresses skipped because their reminders keep failing (they are listed as 'address failing' in the Monday digest). */
   quarantined: number
+  /** Addresses whose failed attempt in THIS run pushed them over the failure limit. */
+  newly_quarantined: number
   /** Part of `skipped_recent`: people left out because ANY reminder reached them within `cooldown_days`. */
   skipped_cooldown: number
   cooldown_days: number
