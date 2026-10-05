@@ -190,8 +190,9 @@ def _present(course: Optional[dict]) -> bool:
 
 def _required_courses(record: dict) -> list[Optional[dict]]:
     """The courses this person must finish. Executives (no department) only have the general course;
-    a department with no cycle course (``dept_course`` absent AND ``dept_required`` false) is not required."""
-    req: list[Optional[dict]] = [record.get("general")]
+    a department with no cycle course (``dept_required`` false) and a cycle with no general course
+    (``general_required`` false) are not required."""
+    req: list[Optional[dict]] = [record.get("general")] if record.get("general_required", True) else []
     if record.get("department_slug", "") != "" and record.get("dept_required", True):
         req.append(record.get("dept_course"))
     return req
