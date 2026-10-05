@@ -76,27 +76,31 @@ def _walk(node: Any, visible: Callable[[dict], bool], depth: int = 0) -> Any:
 
 
 async def _viewer(user: Any, db_session: AsyncSession, request: Any, course: Any) -> Any:
-    """``_ALL`` | effective attributes dict | ``None`` (anonymous / not a user session: nobody-viewer)."""
+    """``_ALL`` | effective attributes dict | ``None`` (anonymous / not a user session: nobody-viewer).
+
+    The database reads run in a SAVEPOINT: a failing statement rolls back only the savepoint, so the caller's transaction (the
+    upstream AI code keeps querying and reserving credits on the same session) is never left aborted."""
     if user is None or isinstance(user, (APITokenUser, SuperadminAPITokenUser)):
         return None
     uid = getattr(user, "id", None)
     if not uid:
         return None
     course_uuid = getattr(course, "course_uuid", None)
-    if course_uuid and await audience_svc.course_view_all(request, uid, course_uuid, db_session) is True:
-        return _ALL
-    row = await db_session.get(User, uid)
-    if row is None:
-        return None
-    attrs, _stale = await attrs_svc.read_effective(db_session, row)
-    return attrs
+    async with db_session.begin_nested():
+        if course_uuid and await audience_svc.course_view_all(request, uid, course_uuid, db_session) is True:
+            return _ALL
+        row = await db_session.get(User, uid)
+        if row is None:
+            return None
+        attrs, _stale = await attrs_svc.read_effective(db_session, row)
+        return attrs
 
 
 async def mka_content_for_ai(content: Any, user: Any, db_session: AsyncSession, request: Any = None, course: Optional[Any] = None) -> Any:
     """See the module docstring. ``course`` (anything with ``course_uuid``) enables the can-view-all rule; without it nobody is elevated."""
     try:
         if not _contains_audience(content):
-            return _walk(content, lambda _n: True)
+            return content  # nothing to filter: no copy, no depth limit (an iterative scan decided)
         viewer = await _viewer(user, db_session, request, course)
         if viewer is _ALL:
             return _walk(content, lambda _n: True)
