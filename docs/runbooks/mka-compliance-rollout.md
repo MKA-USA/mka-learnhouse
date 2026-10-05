@@ -22,7 +22,7 @@ single head, parent `b1c2d3e4f5a6`) are idempotent (every create is guarded by a
 DB built by `create_all`: `alembic stamp b1c2d3e4f5a6 && alembic upgrade head` runs all three as no-ops and ends at
 `mka_20261004_compliance (head)`; a second `upgrade head` is a no-op. Conclusion: running `alembic upgrade head`
 is optional on ilm-dev but recommended once, so `alembic_version` matches the code (otherwise a later upstream
-migration run starts from the wrong revision). If ilm-dev `alembic current` is not `b1c2d3e4f5a6`, stop and check
+migration run starts from the wrong revision). If ilm-dev `alembic current` is neither `b1c2d3e4f5a6` nor `mka_20261004_user_profile` (the profile migration is already live on dev), stop and check
 `alembic heads` before upgrading.
 
 ## Env vars
@@ -36,13 +36,18 @@ migration run starts from the wrong revision). If ilm-dev `alembic current` is n
 ## Order of steps
 1. Back up the DB (or take a snapshot).
 2. Deploy the API image of this branch. On startup `create_all` creates the 6 new tables. Check the API log for errors.
-3. (Recommended) `alembic current` should show `b1c2d3e4f5a6`; then `alembic upgrade head` (no-ops, advances the stamp).
+3. (Recommended) `alembic current` should show `b1c2d3e4f5a6` or `mka_20261004_user_profile`; then `alembic upgrade head` (no-ops, advances the stamp).
 4. Deploy the web image (build with the env above).
 5. Backfill attributes for existing Google users (idempotent, safe to repeat; it can only reuse proof recorded by a
    Google login, never create it): `cd apps/api && python -m src.services.mka.backfill --dry-run`, then without `--dry-run`.
 6. Create an org API token (users.action_read + organizations.action_update) and import the cycle and roster with the
    provisioner: `POST /api/v1/mka/compliance/cycles` then `POST /api/v1/mka/compliance/expected/import?org_slug=<slug>`
    (re-import is idempotent; `dry_run: true` first). Give viewers access per the roles runbook.
+
+## Pre-go-live checklist
+- Verify ONE real @atfalusa.org Google sign-in carries `hd=atfalusa.org` (or whether atfalusa.org is a secondary domain
+  of the mkausa.org Workspace, in which case Google reports `hd=mkausa.org`). Until then Atfal officeholders appear
+  unrecognized / not signed in.
 
 ## Post-deploy checks
 - `GET /api/v1/mka/compliance/scope?org_id=<id>` as an org admin -> `scope: all`, the cycle and its courses; as a plain
