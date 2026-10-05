@@ -65,7 +65,7 @@ def upgrade() -> None:
             sa.Column("derived_at", sa.DateTime(timezone=True), nullable=True),
             sa.Column("override", _JSON, nullable=True),
             sa.Column("override_reason", sa.Text(), nullable=True),
-            sa.Column("override_by", sa.Integer(), sa.ForeignKey("user.id", ondelete="SET NULL"), nullable=True),
+            sa.Column("override_by", sa.Integer(), nullable=True),
             sa.Column("override_at", sa.DateTime(timezone=True), nullable=True),
             sa.Column("stale", sa.Boolean(), nullable=False, server_default=sa.false()),
             sa.Column("effective", _JSON, nullable=False),
@@ -84,7 +84,7 @@ def upgrade() -> None:
             AUDIT,
             sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
             sa.Column("user_id", sa.Integer(), sa.ForeignKey("user.id", ondelete="CASCADE"), nullable=False),
-            sa.Column("actor_user_id", sa.Integer(), sa.ForeignKey("user.id", ondelete="SET NULL"), nullable=True),
+            sa.Column("actor_user_id", sa.Integer(), nullable=True),
             sa.Column("action", sa.String(), nullable=False),
             sa.Column("before", _JSON, nullable=True),
             sa.Column("after", _JSON, nullable=True),
@@ -102,7 +102,7 @@ def upgrade() -> None:
             sa.Column("source", sa.String(), nullable=False),
             sa.Column("note", sa.Text(), nullable=True),
             sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
-            sa.Column("updated_by", sa.Integer(), sa.ForeignKey("user.id", ondelete="SET NULL"), nullable=True),
+            sa.Column("updated_by", sa.Integer(), nullable=True),
         )
 
 

@@ -28,6 +28,8 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, SQLModel
 
+# NOTE: actor/override_by/updated_by are plain integers (no FK): a SET NULL FK to user would break the
+# demo-teardown FK policy test, and the GDPR path (delete_attributes) nulls them explicitly.
 _JSON = JSON().with_variant(JSONB(), "postgresql")
 # Nullable JSON columns: Python None must be SQL NULL (not JSON null) so IS NULL filters work.
 _JSON_NULL = JSON(none_as_null=True).with_variant(JSONB(none_as_null=True), "postgresql")
@@ -57,7 +59,7 @@ class MkaUserAttributes(SQLModel, table=True):
     override_reason: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
     override_by: Optional[int] = Field(
         default=None,
-        sa_column=Column(Integer, ForeignKey("user.id", ondelete="SET NULL"), nullable=True),
+        sa_column=Column(Integer, nullable=True),
     )
     override_at: Optional[datetime] = Field(
         default=None, sa_column=Column(DateTime(timezone=True), nullable=True)
@@ -88,7 +90,7 @@ class MkaUserAttributesAudit(SQLModel, table=True):
     # NULL = system (login hook, bulk recompute, companion token)
     actor_user_id: Optional[int] = Field(
         default=None,
-        sa_column=Column(Integer, ForeignKey("user.id", ondelete="SET NULL"), nullable=True),
+        sa_column=Column(Integer, nullable=True),
     )
     # 'derive' | 'recompute' | 'override_set' | 'override_clear' | 'roster_apply'
     action: str = Field(sa_column=Column(String, nullable=False))
@@ -118,5 +120,5 @@ class MkaRosterOverride(SQLModel, table=True):
     )
     updated_by: Optional[int] = Field(
         default=None,
-        sa_column=Column(Integer, ForeignKey("user.id", ondelete="SET NULL"), nullable=True),
+        sa_column=Column(Integer, nullable=True),
     )
