@@ -179,3 +179,26 @@ export interface LearnerFilters {
   page?: number
   page_size?: number
 }
+
+/**
+ * POST /courses/{course_uuid}/remind?dry_run=  (seam C). `dry_run: true` is a preview: nothing is sent, nothing is
+ * recorded. Errors: 403 (no access / API token), 404 (outside the viewer's scope), 409 (reminders switched off),
+ * 429 (this course was already reminded in the last 24 h; `Retry-After` seconds).
+ */
+export interface RemindResponse {
+  dry_run: boolean
+  /** Master switch + reminders flag are on. When false a preview is still returned but nothing can be sent. */
+  enabled: boolean
+  /** Test mode: every email goes to the owner's test address, never to the officeholders. */
+  test_mode: boolean
+  candidates: number
+  would_send: number
+  sent: number
+  skipped_recent: number
+  skipped_attested: number
+  skipped_excluded: number
+  suppressed: number
+  failed: number
+  disabled: number
+  stopped: string | null
+}

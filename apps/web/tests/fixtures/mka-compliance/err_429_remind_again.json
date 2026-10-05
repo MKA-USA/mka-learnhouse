@@ -1,0 +1,7 @@
+{
+  "body": {
+    "detail": "This course was already reminded in the last 24 hours"
+  },
+  "path": "courses/course_tabligh/remind",
+  "status": 429
+}

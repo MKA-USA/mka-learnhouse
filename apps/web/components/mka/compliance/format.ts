@@ -10,6 +10,7 @@ import type {
   ComplianceStatus,
   DepartmentRow,
   LearnerFilters,
+  RemindResponse,
 } from '@services/mka/compliance.types'
 
 /** Fixed "today" for the mock layer so fixtures and screenshots are deterministic. */
@@ -290,3 +291,51 @@ export function truncationNotice(truncated: string | null | undefined, limit: st
   const rows = Number.isFinite(n) && n > 0 ? n : 5000
   return `List truncated at ${rows.toLocaleString('en-US')} rows. Narrow the filters to get the rest.`
 }
+
+// ---- "Remind" (seam C) ---------------------------------------------------------------
+
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
+
+/** "12 people will be reminded" (preview) / "Reminded 12 people" (after sending). */
+export function remindHeadline(r: Pick<RemindResponse, 'dry_run' | 'would_send' | 'sent'>): string {
+  if (r.dry_run) {
+    if (r.would_send === 0) return 'Nobody needs a reminder right now'
+    return `${plural(r.would_send, 'person', 'people')} will be reminded`
+  }
+  return r.sent === 0 ? 'No reminders were sent' : `Reminded ${plural(r.sent, 'person', 'people')}`
+}
+
+/** "5 skipped: already reminded this week" (one reason) / "7 skipped: 5 already reminded this week, 2 already signed off". */
+export function remindSkipped(r: Pick<RemindResponse, 'skipped_recent' | 'skipped_attested' | 'skipped_excluded' | 'suppressed' | 'failed'>): string | null {
+  const reasons: [number, string][] = [
+    [r.skipped_recent, 'already reminded this week'],
+    [r.skipped_attested, 'already signed off'],
+    [r.skipped_excluded, 'in a department that is not reminded'],
+    [r.suppressed, 'no deliverable address'],
+  ]
+  const parts = reasons.filter(([n]) => n > 0)
+  const total = parts.reduce((a, [n]) => a + n, 0)
+  if (total === 0) return null
+  return parts.length === 1
+    ? `${total} skipped: ${parts[0][1]}`
+    : `${total} skipped: ${parts.map(([n, why]) => `${n} ${why}`).join(', ')}`
+}
+
+/** Calm, specific wording for each status the remind endpoint can answer with. */
+export function remindErrorMessage(status: number | null): string {
+  switch (status) {
+    case 403:
+      return "You don't have permission to send reminders for this course."
+    case 404:
+      return "This course isn't available to you."
+    case 409:
+      return "Reminders aren't switched on yet, so nothing was sent."
+    case 429:
+      return 'This course was already reminded in the last 24 hours. Try again tomorrow.'
+    default:
+      return "Couldn't reach the reminder service. Nothing was sent. Please try again."
+  }
+}
+
+/** Can the preview be confirmed? Needs someone to remind and the feature switched on. */
+export const canSendReminders = (r: Pick<RemindResponse, 'enabled' | 'would_send'>): boolean => r.enabled && r.would_send > 0
