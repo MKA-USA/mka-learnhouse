@@ -431,3 +431,54 @@ async def test_single_org_user_and_unmatched_roster_still_work(db, org, other_or
     await svc.set_override(db, a_user, {"level": "national", "role": "sadr"}, "ok", admin_user.id, oa)
     # roster for an email with no matching user in the org is fine even if that email is a multi-org user elsewhere
     await svc.upsert_roster(db, oa, "nobody@mkausa.org", {"level": "national"}, source="admin")
+
+
+# --- TOCTOU: membership appearing between the check and the commit -------------------------------
+
+@pytest.mark.asyncio
+async def test_membership_added_between_check_and_commit_refuses_write(db, org, other_org, admin_user, monkeypatch):
+    a_user, _ = await _two_orgs(db, org, other_org)
+    oa, ob = org.id, other_org.id
+    await svc.recompute_users(db)
+    real = svc.assert_exclusive_to_org
+    calls = {"n": 0}
+
+    async def racing(db_, user_id, org_id):
+        await real(db_, user_id, org_id)
+        calls["n"] += 1
+        if calls["n"] == 1:   # the user joins another org right after the first (passing) check
+            db_.add(UserOrganization(user_id=user_id, org_id=ob, role_id=4, creation_date="x", update_date="x"))
+            await db_.flush()
+
+    monkeypatch.setattr(svc, "assert_exclusive_to_org", racing)
+    with pytest.raises(svc.CrossOrgConflict):
+        await svc.set_override(db, a_user, {"level": "national", "role": "sadr"}, "x", admin_user.id, oa)
+    assert calls["n"] == 1   # second (final) check raised inside real()
+    monkeypatch.setattr(svc, "assert_exclusive_to_org", real)
+    row = await svc.get_row(db, 501)
+    assert row.override is None and row.eff_role is None            # nothing persisted
+    assert (await db.execute(select(UserOrganization).where(UserOrganization.user_id == 501,
+                                                            UserOrganization.org_id == ob))).first() is None
+
+
+@pytest.mark.asyncio
+async def test_roster_write_refused_when_membership_races(db, org, other_org):
+    a_user, _ = await _two_orgs(db, org, other_org)
+    oa, ob = org.id, other_org.id
+    await svc.recompute_users(db)
+    real = svc._guard_roster_target
+    calls = {"n": 0}
+
+    async def racing(db_, org_id, email):
+        await real(db_, org_id, email)
+        calls["n"] += 1
+        if calls["n"] == 1:
+            db_.add(UserOrganization(user_id=501, org_id=ob, role_id=4, creation_date="x", update_date="x"))
+            await db_.flush()
+
+    import pytest as _p
+    with _p.MonkeyPatch.context() as mp:
+        mp.setattr(svc, "_guard_roster_target", racing)
+        with pytest.raises(svc.CrossOrgConflict):
+            await svc.upsert_roster(db, oa, "john.smith@mkausa.org", {"level": "national"}, source="admin")
+    assert await _roster_rows(db) == {}

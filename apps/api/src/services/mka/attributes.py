@@ -159,6 +159,11 @@ async def assert_exclusive_to_org(db: AsyncSession, user_id: int, org_id: int) -
     user, whichever org's admin writes. This guard keeps multi-org installs safe: a write
     (override set/clear, roster apply matching a user) is allowed only if all of the
     target's org memberships are within {org_id}; otherwise it is refused (HTTP 409)."""
+    # TOCTOU: lock the target `user` row first (FOR UPDATE; a no-op on SQLite) so the check
+    # and the write share one locked section, and callers re-run this check immediately
+    # before committing (``_recheck_then_commit``). Residual risk: an org-join racing the
+    # final re-check. Acceptable: the store is deployment-global by design (MKA is single-org).
+    await db.execute(select(User.id).where(User.id == user_id).with_for_update())
     orgs = set(
         (await db.execute(select(UserOrganization.org_id).where(UserOrganization.user_id == user_id)))
         .scalars().all()
@@ -168,6 +173,17 @@ async def assert_exclusive_to_org(db: AsyncSession, user_id: int, org_id: int) -
             "This user belongs to other organizations; identity attributes are shared across "
             "them, so they can only be changed by a platform administrator."
         )
+
+
+async def _recheck_then_commit(db: AsyncSession, user_id: Optional[int], org_id: Optional[int]) -> None:
+    """Final re-check inside the locked section, then commit. On conflict: roll back, refuse."""
+    if user_id is not None and org_id is not None:
+        try:
+            await assert_exclusive_to_org(db, user_id, org_id)
+        except CrossOrgConflict:
+            await db.rollback()
+            raise
+    await db.commit()
 
 
 def _version_tuple(v: Optional[str]) -> tuple:
@@ -496,7 +512,7 @@ async def set_override(
     )
     db.add(row)
     _add_audit(db, user.id, "override_set", before, _snapshot(row), actor_user_id=actor_user_id, reason=reason)
-    await db.commit()
+    await _recheck_then_commit(db, user.id, org_id)
     return row
 
 
@@ -521,7 +537,7 @@ async def clear_override(
     )
     db.add(row)
     _add_audit(db, user.id, "override_clear", before, _snapshot(row), actor_user_id=actor_user_id, reason=reason)
-    await db.commit()
+    await _recheck_then_commit(db, user.id, org_id)
     return row
 
 
@@ -539,6 +555,16 @@ async def _guard_roster_target(db: AsyncSession, org_id: int, email: str) -> Non
     ).scalars().first()
     if user is not None:
         await assert_exclusive_to_org(db, user.id, org_id)
+
+
+async def _recheck_roster_then_commit(db: AsyncSession, org_id: int, emails: list[str]) -> None:
+    try:
+        for e in emails:
+            await _guard_roster_target(db, org_id, e)
+    except CrossOrgConflict:
+        await db.rollback()
+        raise
+    await db.commit()
 
 
 async def _reapply_roster_to_user(
@@ -591,7 +617,7 @@ async def upsert_roster(
     await db.flush()
     await _reapply_roster_to_user(db, org_id, email, actor_user_id, rules)
     if commit:
-        await db.commit()
+        await _recheck_roster_then_commit(db, org_id, [email])
     return row
 
 
@@ -608,7 +634,7 @@ async def delete_roster(
     await db.flush()
     await _reapply_roster_to_user(db, org_id, email, actor_user_id, rules)
     if commit:
-        await db.commit()
+        await _recheck_roster_then_commit(db, org_id, [email])
     return True
 
 
@@ -624,6 +650,7 @@ async def import_roster(
     """Apply many roster rows. One bad row never aborts the batch; each gets a result."""
     results = []
     ok = 0
+    applied_emails: list[str] = []
     for i, r in enumerate(rows):
         try:
             await upsert_roster(
@@ -631,13 +658,14 @@ async def import_roster(
                 note=r.get("note"), actor_user_id=actor_user_id, commit=False,
             )
             results.append({"index": i, "email": normalize_email(r.get("email")), "ok": True})
+            applied_emails.append(normalize_email(r.get("email")))
             ok += 1
         except (ValueError, CrossOrgConflict) as exc:
             results.append({"index": i, "email": normalize_email(r.get("email")), "ok": False, "error": str(exc)})
     if dry_run:
         await db.rollback()
     else:
-        await db.commit()
+        await _recheck_roster_then_commit(db, org_id, applied_emails)  # CrossOrgConflict -> whole batch refused
     return {"applied": 0 if dry_run else ok, "valid": ok, "failed": len(results) - ok,
             "dry_run": dry_run, "results": results}
 
