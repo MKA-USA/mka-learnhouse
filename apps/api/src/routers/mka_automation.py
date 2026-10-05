@@ -25,6 +25,7 @@ from src.db.mka_automation import MkaAutomationEvent, MkaAutomationSendLog, utcn
 from src.routers.mka_attributes import _resolve_admin
 from src.security.auth import get_authenticated_user
 from src.services.mka import automation_config as cfg
+from src.services.mka.automation_send import stale_claim_cutoff
 from src.services.mka.token_rights import TOKEN_READ
 
 router = APIRouter()
@@ -57,6 +58,17 @@ async def api_status(
             )
         )
     ).scalar_one()
+    # claims left 'queued' past the lease: a crash between claim and send (review M2). The send function takes a
+    # stale claim over once; anything still listed here after a run needs a look.
+    stale_queued = (
+        await db_session.execute(
+            select(func.count()).where(
+                MkaAutomationSendLog.org_id == admin.org_id,
+                MkaAutomationSendLog.status == "queued",
+                MkaAutomationSendLog.created_at < stale_claim_cutoff(utcnow()),
+            )
+        )
+    ).scalar_one()
     event_status = await _counts(db_session, MkaAutomationEvent.status, MkaAutomationEvent.org_id, admin.org_id)
     # Auto-enrol fails open (login must never break), so a broken enrolment is only visible here (review M1).
     enrol_errors = (
@@ -71,7 +83,8 @@ async def api_status(
     ).scalar_one()
     return {
         "config": cfg.status_snapshot(),
-        "send_log": {"total": sum(send_status.values()), "by_status": send_status, "test_mode_rows": int(test_rows)},
+        "send_log": {"total": sum(send_status.values()), "by_status": send_status, "test_mode_rows": int(test_rows),
+                     "stale_queued": int(stale_queued)},
         "events": {"total": sum(event_status.values()), "by_status": event_status},
         "autoenroll": {"errors_recent": int(enrol_errors), "window_days": AUTOENROLL_ERROR_WINDOW_DAYS},
     }

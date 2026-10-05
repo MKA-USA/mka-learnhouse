@@ -267,3 +267,29 @@ async def test_status_shows_zero_enrol_errors_when_nothing_failed(db, org, world
     async with client_for(db, 1) as c:
         r = await c.get(STATUS, params=q(org))
     assert r.json()["autoenroll"]["errors_recent"] == 0
+
+
+# ---------------------------------------------------------------------------------------------------------
+# M2: stale queued claims are visible on /status
+# ---------------------------------------------------------------------------------------------------------
+
+
+async def test_status_lists_claims_stuck_in_queued_past_the_lease(db, org, other_org, world, transport):  # noqa: F811
+    from datetime import datetime
+
+    def row(org_id, key, status, age_minutes):
+        return MkaAutomationSendLog(
+            org_id=org_id, kind="receipt", dedupe_key=key, to_email="a@example.invalid", intended_email="a@example.invalid",
+            subject="s", status=status, created_at=datetime.utcnow() - timedelta(minutes=age_minutes),
+        )
+
+    db.add_all([
+        row(org.id, "k1", "queued", 60), row(org.id, "k2", "queued", 20),  # past the 15 minute lease: stuck
+        row(org.id, "k3", "queued", 2),  # in flight
+        row(org.id, "k4", "sent", 600),  # finished
+        row(other_org.id, "k5", "queued", 600),  # another org
+    ])
+    await db.commit()
+    async with client_for(db, 1) as c:
+        r = await c.get(STATUS, params=q(org))
+    assert r.json()["send_log"]["stale_queued"] == 2

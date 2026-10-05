@@ -773,3 +773,31 @@ async def test_empty_body_is_401(db, world, transport, on):
     async with make_client(db) as c:
         r = await c.post(WEBHOOK, content=b"")
     assert r.status_code == 401
+
+
+async def test_the_sweep_recovers_a_receipt_whose_claim_was_stranded_by_a_crash(db, world, transport, on):
+    """Review M2: a receipt left ``queued`` by a crash used to be lost forever (the sweep counted ``queued`` as done)."""
+    await attest(db, 31, 5001, TODAY)
+    old = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=45)
+    db.add(MkaAutomationSendLog(org_id=1, kind="receipt", dedupe_key="receipt:assignment_5001:31", to_email=L1,
+                                intended_email=L1, subject="s", status="queued", user_id=31, created_at=old))
+    await db.commit()
+    async with make_client(db) as c:
+        r = await c.post(SWEEP, params={"dry_run": "false"}, headers=cron())
+    assert r.status_code == 200 and [m["to"] for m in transport.calls] == [L1]
+    (row,) = await logs(db, kind="receipt")
+    assert row.status == "sent"
+    async with make_client(db) as c:  # and it stays done
+        again = await c.post(SWEEP, params={"dry_run": "false"}, headers=cron())
+    assert again.json()["results"] == {"already_handled": 1} and len(transport.calls) == 1
+
+
+async def test_the_sweep_leaves_a_fresh_queued_claim_alone(db, world, transport, on):
+    await attest(db, 31, 5001, TODAY)
+    fresh = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=2)
+    db.add(MkaAutomationSendLog(org_id=1, kind="receipt", dedupe_key="receipt:assignment_5001:31", to_email=L1,
+                                intended_email=L1, subject="s", status="queued", user_id=31, created_at=fresh))
+    await db.commit()
+    async with make_client(db) as c:
+        r = await c.post(SWEEP, params={"dry_run": "false"}, headers=cron())
+    assert r.status_code == 200 and transport.calls == []

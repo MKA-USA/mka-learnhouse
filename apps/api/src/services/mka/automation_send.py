@@ -15,7 +15,9 @@ Nothing else in the codebase may call ``send_email`` for automation mail; seams 
 4. **Claim before send.** A ``queued`` row (UNIQUE(org_id, kind, dedupe_key)) is inserted and COMMITTED before the
    transport is called. A conflict returns ``already_handled`` without sending. A previously ``failed`` row is
    re-claimed atomically (UPDATE ... WHERE status='failed'), so a later run retries failures but never
-   duplicates a ``queued``/``sent`` one. A crash between claim and send leaves ``queued`` (at-most-once).
+   duplicates a ``queued``/``sent`` one. A crash between claim and send leaves ``queued``; such a claim older than
+   ``MKA_AUTOMATION_CLAIM_LEASE_SECONDS`` (default 900) is taken over atomically and re-sent ONCE (a fresh ``queued``
+   row stays 'already handled').
    NOTE: this function COMMITS the caller's session (the claim must be durable before the email leaves).
 5. **Reminder cap.** a SCHEDULED reminder (``reminder:`` key; manual ``manual:`` keys are their own allowance, one per
    person per course per week) is refused (``capped``) when the person already has
@@ -297,38 +299,57 @@ def _test_banner(intended: str) -> str:
     )
 
 
+STALE_CLAIM_MARK = "reclaimed_stale_queued"
+
+
+def stale_claim_cutoff(now: datetime) -> datetime:
+    """``queued`` rows created before this are presumed crashed (``MKA_AUTOMATION_CLAIM_LEASE_SECONDS``)."""
+    return now - timedelta(seconds=cfg.claim_lease_seconds())
+
+
+def stale_queued_condition(cutoff: datetime):
+    """SQL condition: a ``queued`` claim past its lease that has not been re-claimed before (at most one retry)."""
+    return (
+        (MkaAutomationSendLog.status == "queued")
+        & (MkaAutomationSendLog.created_at < cutoff)
+        & (MkaAutomationSendLog.error.is_(None))  # type: ignore[union-attr]
+    )
+
+
 async def _claim(db: AsyncSession, row: MkaAutomationSendLog) -> Optional[MkaAutomationSendLog]:
-    """Insert the claim (or atomically re-claim a ``failed`` row). ``None`` = someone else owns the key."""
+    """Insert the claim, or atomically re-claim a ``failed`` row or a STALE ``queued`` one (review M2). ``None`` =
+    someone else owns the key. A stale claim (older than the lease) is the footprint of a crash between claim and send;
+    it is taken over once, atomically (``UPDATE ... WHERE status='queued' AND created_at < cutoff``, so of two racing
+    runs exactly one wins) and marked so a second crash is not retried forever. A FRESH ``queued`` row is somebody
+    else's send in flight: ``already_handled``."""
     try:
         async with db.begin_nested():
             db.add(row)
             await db.flush()
     except IntegrityError:
+        identity = (
+            MkaAutomationSendLog.org_id == row.org_id,
+            MkaAutomationSendLog.kind == row.kind,
+            MkaAutomationSendLog.dedupe_key == row.dedupe_key,
+        )
+        fresh_values = dict(
+            to_email=row.to_email, intended_email=row.intended_email, subject=row.subject, test_mode=row.test_mode,
+            user_id=row.user_id, cycle_id=row.cycle_id, course_id=row.course_id, created_at=row.created_at, sent_at=None,
+        )
         reclaim = await db.execute(
             update(MkaAutomationSendLog)
-            .where(
-                MkaAutomationSendLog.org_id == row.org_id,
-                MkaAutomationSendLog.kind == row.kind,
-                MkaAutomationSendLog.dedupe_key == row.dedupe_key,
-                MkaAutomationSendLog.status == "failed",
-            )
-            .values(
-                status=row.status, error=None, to_email=row.to_email, intended_email=row.intended_email,
-                subject=row.subject, test_mode=row.test_mode, user_id=row.user_id, cycle_id=row.cycle_id,
-                course_id=row.course_id, created_at=row.created_at, sent_at=None,
-            )
+            .where(*identity, MkaAutomationSendLog.status == "failed")
+            .values(status=row.status, error=None, **fresh_values)
         )
-        if reclaim.rowcount != 1:  # queued / sent / suppressed: already handled (the savepoint rolled the insert back)
-            return None
-        existing = (
-            await db.execute(
-                select(MkaAutomationSendLog).where(
-                    MkaAutomationSendLog.org_id == row.org_id,
-                    MkaAutomationSendLog.kind == row.kind,
-                    MkaAutomationSendLog.dedupe_key == row.dedupe_key,
-                )
+        if reclaim.rowcount != 1:
+            reclaim = await db.execute(
+                update(MkaAutomationSendLog)
+                .where(*identity, stale_queued_condition(stale_claim_cutoff(row.created_at)))
+                .values(status=row.status, error=STALE_CLAIM_MARK, **fresh_values)
             )
-        ).scalars().one()
+        if reclaim.rowcount != 1:  # fresh queued / sent / suppressed: already handled (the savepoint rolled the insert back)
+            return None
+        existing = (await db.execute(select(MkaAutomationSendLog).where(*identity))).scalars().one()
         await db.commit()
         return existing
     await db.commit()

@@ -41,7 +41,13 @@ from src.services.mka import attributes as attrs
 from src.services.mka import automation_config as cfg
 from src.services.mka import automation_templates as templates
 from src.services.mka import compliance_scoring as cs
-from src.services.mka.automation_send import SendBudget, SendResult, send_automation_email
+from src.services.mka.automation_send import (
+    SendBudget,
+    SendResult,
+    send_automation_email,
+    stale_claim_cutoff,
+    stale_queued_condition,
+)
 from src.services.mka.compliance import SUBMITTED_STATES
 
 logger = logging.getLogger(__name__)
@@ -527,12 +533,16 @@ async def _on_course_completed(db, event_row, org_id: int, course: Course, user:
 # ---------------------------------------------------------------------------------------------------------
 
 
-async def _handled(db: AsyncSession, org_id: int, kind: str, key: str) -> bool:
-    """A row for the key exists in the CURRENT mode namespace (test mode uses ``test:``) and is not ``failed``."""
+async def _handled(db: AsyncSession, org_id: int, kind: str, key: str, now: Optional[datetime] = None) -> bool:
+    """A row for the key exists in the CURRENT mode namespace (test mode uses ``test:``) and is not ``failed``.
+    A ``queued`` claim past its lease (a crash between claim and send, review M2) is NOT handled: the sweep offers it to
+    ``send_automation_email`` again, which takes it over atomically and re-sends once."""
     try:
         effective = f"test:{key}" if cfg.test_recipient() else key
     except cfg.InvalidTestRecipient:
         return True  # sends are refused anyway
+    moment = now or datetime.now(timezone.utc)
+    stale = stale_queued_condition(stale_claim_cutoff(moment.astimezone(timezone.utc).replace(tzinfo=None)))
     found = (
         await db.execute(
             select(MkaAutomationSendLog.id).where(
@@ -540,6 +550,7 @@ async def _handled(db: AsyncSession, org_id: int, kind: str, key: str) -> bool:
                 MkaAutomationSendLog.kind == kind,
                 MkaAutomationSendLog.dedupe_key == effective,
                 MkaAutomationSendLog.status.in_(("queued", "sent", "suppressed")),  # type: ignore[attr-defined]
+                ~stale,
             )
         )
     ).first()
@@ -599,8 +610,8 @@ async def run_sweep(
         for sub, assignment, user in rows:
             link = by_assignment[sub.assignment_id]
             candidates += 1
-            receipt_done = await _handled(db, oid, "receipt", receipt_key(assignment.assignment_uuid, user.id))  # type: ignore[arg-type]
-            allset_done = await _handled(db, oid, "allset", allset_key(link.cycle_id, user.id))  # type: ignore[arg-type]
+            receipt_done = await _handled(db, oid, "receipt", receipt_key(assignment.assignment_uuid, user.id), current)  # type: ignore[arg-type]
+            allset_done = await _handled(db, oid, "allset", allset_key(link.cycle_id, user.id), current)  # type: ignore[arg-type]
             if receipt_done and allset_done:
                 bump("already_handled")
                 continue
