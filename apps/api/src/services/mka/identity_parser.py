@@ -28,7 +28,7 @@ from typing import Any, Optional
 logger = logging.getLogger(__name__)
 
 RULES_DIR = Path(__file__).resolve().parent / "identity_rules"
-DEFAULT_RULES_VERSION = "2026.2"
+DEFAULT_RULES_VERSION = "2026.3"
 
 STATUSES = ("matched", "partial", "ambiguous", "unrecognized", "not_applicable")
 LEVELS = ("national", "regional", "local")
@@ -221,6 +221,14 @@ def _parse(email: Any, rules: IdentityRules) -> MkaAttributes:
             return _make(rules, nat, status=status, level=nat.get("level"), role=nat.get("role"))
         return _make(rules, nat, status="matched", level="national", role=nat.get("role"),
                      majlis=nat.get("majlis"), region=nat.get("region"))
+
+    alias = dom.get("regional_mailbox_aliases", {}).get(local)
+    if alias is not None:
+        region_name = rules.regions.get(alias.get("region", ""))
+        if region_name:
+            return _make(rules, alias, status="matched", level="regional", role=alias.get("role"),
+                         region=region_name)
+        return _unrecognized()  # misconfigured alias: fail closed
 
     parts = local.split(".")
     if len(parts) != 2:

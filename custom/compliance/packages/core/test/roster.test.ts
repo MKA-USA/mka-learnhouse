@@ -74,7 +74,7 @@ describe("roster generator", () => {
   test("slugify", () => { expect(slugify("Saint Louis")).toBe("saintlouis"); expect(slugify("Syracuse-Binghamton")).toBe("syracuse-binghamton"); });
 });
 
-const regionRules = fileURLToPath(new URL("../../../../../apps/api/src/services/mka/identity_rules/2026.2.json", import.meta.url));
+const regionRules = fileURLToPath(new URL("../../../../../apps/api/src/services/mka/identity_rules/2026.3.json", import.meta.url));
 describe.skipIf(!existsSync(regionRules))("region slugs conform to rules", () => {
   test("region slugs match", () => {
     const rules = JSON.parse(readFileSync(regionRules, "utf8"));

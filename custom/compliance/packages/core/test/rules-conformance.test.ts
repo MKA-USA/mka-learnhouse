@@ -6,7 +6,7 @@ import { generateRoster } from "../src/roster";
 
 // Fork rules file (written in the attrs worktree). Override with RULES_PATH; SKIPS if absent.
 const rulesPath = process.env.RULES_PATH ??
-  fileURLToPath(new URL("../../../../../apps/api/src/services/mka/identity_rules/2026.2.json", import.meta.url));
+  fileURLToPath(new URL("../../../../../apps/api/src/services/mka/identity_rules/2026.3.json", import.meta.url));
 const present = existsSync(rulesPath);
 
 describe.skipIf(!present)("department table conforms to fork identity rules", () => {
