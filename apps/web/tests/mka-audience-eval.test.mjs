@@ -24,3 +24,22 @@ describe("shared audience vectors: validate", () => {
     });
   }
 });
+
+describe("parity hardening", () => {
+  const showAny = { v: 1, mode: "show", groups: [{ officeholder: false }] }; // matches any signed-in viewer
+  const hideAny = { v: 1, mode: "hide", groups: [{ officeholder: false }] };
+  test("a non-object viewer is anonymous (NULL_VIEWER), not signed in", () => {
+    for (const bad of [5, "matched", true, false, [], ["matched"], 0, ""]) {
+      expect(evaluateRule(showAny, bad)).toBe(false);
+      expect(evaluateRule(hideAny, bad)).toBe(true);
+    }
+    // a real object with an unknown status is still a signed-in viewer
+    expect(evaluateRule(showAny, { status: "weird" })).toBe(true);
+  });
+  test("v must be a SAFE integer", () => {
+    const rule = (v) => ({ v, mode: "show", groups: [{}] });
+    expect(validateRule(rule(9007199254740991)).ok).toBe(true);
+    expect(validateRule(rule(9007199254740993)).ok).toBe(false);
+    expect(validateRule(rule(1e300)).ok).toBe(false);
+  });
+});
