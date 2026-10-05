@@ -36,7 +36,7 @@ from src.security.org_auth import get_user_org
 from src.security.rbac.constants import is_admin
 from src.security.superadmin import is_user_superadmin
 from src.services.security import mka_turnstile
-from src.services.security.rate_limiting import check_rate_limit, get_client_ip
+from src.services.security.rate_limiting import check_rate_limit
 
 logger = logging.getLogger(__name__)
 
@@ -61,26 +61,63 @@ def signup_rate_limit_per_hour() -> int:
     return value
 
 
-def _is_distinguishable_client_ip(ip: str) -> bool:
+def _is_distinguishable_client_ip(ip) -> bool:
     """True only for a globally routable address (a real, per-client IP)."""
+    if not ip:
+        return False
     try:
-        return ipaddress.ip_address(ip).is_global
+        return ipaddress.ip_address(str(ip).strip()).is_global
     except ValueError:
         return False
+
+
+def _is_trusted_peer(ip: str) -> bool:
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    return addr.is_loopback or addr.is_private
+
+
+def mka_client_ip(request: Request) -> str:
+    """Client IP for the signup guard: the RIGHT-MOST globally routable
+    ``X-Forwarded-For`` entry when the direct peer is a local proxy.
+
+    Stricter than upstream ``get_client_ip`` (which takes the FIRST entry and
+    is shared with the login limiter, so it is left unchanged). The container
+    nginx APPENDS to any incoming X-Forwarded-For (``$proxy_add_x_forwarded_for``,
+    no ``real_ip`` module), so entries on the left can be client-supplied. Only
+    entries appended by the proxy chain sit on the right; the right-most global
+    one is the address the edge saw. Private entries (proxy hops) are skipped.
+    With no global entry the (private) direct peer is returned, which the
+    limiter treats as "cannot tell clients apart" and skips.
+    """
+    direct_ip = request.client.host if request.client else None
+    if not direct_ip:
+        return "unknown"
+    if not _is_trusted_peer(direct_ip):
+        return direct_ip
+    forwarded = request.headers.get("X-Forwarded-For") or ""
+    for entry in reversed(forwarded.split(",")):
+        candidate = entry.strip()
+        if _is_distinguishable_client_ip(candidate):
+            return str(ipaddress.ip_address(candidate))
+    return direct_ip
 
 
 def enforce_mka_signup_rate_limit(request: Request) -> None:
     """Raise 429 when this client IP exceeded the signup limit.
 
-    Keys on upstream ``get_client_ip`` (same as the login limiter: forwarded
-    headers are trusted only from a loopback/private peer). Skipped when the
-    resolved IP is not globally routable, and fails OPEN when Redis is missing
-    or erroring: neither situation may block member signups.
+    Keys on ``mka_client_ip`` (right-most global X-Forwarded-For entry behind
+    a local proxy, so a spoofed left-hand entry cannot pick the bucket).
+    Skipped when the resolved IP is empty/unknown/not globally routable, and
+    fails OPEN when Redis is missing or erroring: neither situation may block
+    member signups.
     """
     limit = signup_rate_limit_per_hour()
     if limit == 0:
         return
-    ip = get_client_ip(request)
+    ip = mka_client_ip(request)
     if not _is_distinguishable_client_ip(ip):
         logger.info("Signup rate limit skipped: client IP %r is not globally routable", ip)
         return
@@ -118,7 +155,7 @@ async def enforce_mka_turnstile(request: Request) -> None:
     if not mka_turnstile.is_turnstile_enforced():
         return
     token = request.headers.get(mka_turnstile.TOKEN_HEADER)
-    result = await mka_turnstile.verify_turnstile_token(token, get_client_ip(request))
+    result = await mka_turnstile.verify_turnstile_token(token, mka_client_ip(request))
     if result.ok:
         return
     detail = (

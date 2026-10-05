@@ -123,3 +123,49 @@ def test_unknown_client_skips_limiter():
     with patch(PATCH_CHECK) as check:
         guard.enforce_mka_signup_rate_limit(Request(scope))
     check.assert_not_called()
+
+
+# --- IP trust model: right-most globally routable XFF entry -----------------
+
+
+@pytest.mark.parametrize(
+    "peer,xff,expected",
+    [
+        # nginx APPENDS ($proxy_add_x_forwarded_for): attacker entries sit on the LEFT
+        ("127.0.0.1", "1.2.3.4, 8.8.4.4, 172.18.0.2", "8.8.4.4"),
+        ("127.0.0.1", "9.9.9.9, 5.6.7.8, 8.8.4.4, 172.18.0.2", "8.8.4.4"),
+        ("10.0.1.7", "8.8.4.4, 172.18.0.2", "8.8.4.4"),
+        ("127.0.0.1", "8.8.4.4", "8.8.4.4"),
+        ("127.0.0.1", "garbage, 8.8.4.4, 10.0.0.1", "8.8.4.4"),
+        ("127.0.0.1", "8.8.4.4 , 172.18.0.2 ", "8.8.4.4"),
+        # public direct peer: headers are never trusted
+        ("8.8.8.8", "1.2.3.4, 9.9.9.9", "8.8.8.8"),
+    ],
+)
+def test_mka_client_ip_takes_rightmost_global_entry(peer, xff, expected):
+    assert guard.mka_client_ip(_request(peer, {"X-Forwarded-For": xff})) == expected
+
+
+@pytest.mark.parametrize(
+    "xff", ["", "10.0.0.1, 172.18.0.2", "garbage", "unknown", " , "]
+)
+def test_mka_client_ip_without_global_entry_is_not_distinguishable(xff):
+    ip = guard.mka_client_ip(_request("127.0.0.1", {"X-Forwarded-For": xff}))
+    assert not guard._is_distinguishable_client_ip(ip)
+
+
+def test_rotating_spoofed_first_entry_keeps_one_bucket():
+    keys = []
+    for spoof in ["1.1.1.1", "2.2.2.2", "3.3.3.3"]:
+        req = _request("127.0.0.1", {"X-Forwarded-For": f"{spoof}, 8.8.4.4, 172.18.0.2"})
+        with patch(PATCH_CHECK, return_value=(True, 1, 3600)) as check:
+            guard.enforce_mka_signup_rate_limit(req)
+        keys.append(check.call_args.kwargs["key"])
+    assert keys == ["signup:8.8.4.4"] * 3
+
+
+@pytest.mark.parametrize("ip", ["", "unknown", None])
+def test_empty_or_unknown_ip_never_creates_a_key(ip):
+    with patch.object(guard, "mka_client_ip", return_value=ip), patch(PATCH_CHECK) as check:
+        guard.enforce_mka_signup_rate_limit(_request())
+    check.assert_not_called()
