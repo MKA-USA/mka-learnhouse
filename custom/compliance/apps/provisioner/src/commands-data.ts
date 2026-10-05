@@ -3,9 +3,10 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   DEFAULT_THINKIFIC_DIR, applyNames, applyOverrides, applyStoredOverrides, buildGapReport, connect, ensureCycle, generateRoster, getCycleId, listTkCourses,
-  loadPlans, loadRoster, parseDeptPlans, parseNames, parseOverrides, seedPlansFromThinkific, upsertDeptPlans, upsertOverrides, upsertRoster, type Issue,
+  loadPlans, loadRoster, parseDeptPlans, pruneExcludedRoster, parseNames, parseOverrides, seedPlansFromThinkific, upsertDeptPlans, upsertOverrides, upsertRoster, type Issue,
 } from "@mka/compliance-core";
 import type { Args } from "./args";
+import { configFrom } from "./config";
 import { DEFAULT_CYCLE, loadCycleDef } from "./cycles";
 
 export const OUT_DIR = fileURLToPath(new URL("../../../out", import.meta.url));
@@ -18,9 +19,11 @@ export async function cmdRoster(a: Args) {
   const label = a.str("cycle", DEFAULT_CYCLE)!; const { db, sql } = connect();
   try {
     const def = await loadCycleDef(db, label, a); const cid = await ensureCycle(db, def, def.fromFlags);
-    const n = await upsertRoster(db, cid, generateRoster());
+    const { excludedDepartments } = configFrom(a);
+    const pruned = await pruneExcludedRoster(db, cid, excludedDepartments);
+    const n = await upsertRoster(db, cid, generateRoster({ excludedDepartments }));
     const ov = await applyStoredOverrides(db, cid);
-    console.log(`cycle ${label}: ${n} roster roles upserted; ${ov.changed} rows changed by stored overrides`);
+    console.log(`cycle ${label}: ${n} roster roles upserted${excludedDepartments.length ? ` (excluded by config: ${excludedDepartments.join(", ")}; ${pruned} stale rows removed)` : ""}; ${ov.changed} rows changed by stored overrides`);
   } finally { await sql.end(); }
 }
 
@@ -73,12 +76,13 @@ export async function cmdGapReport(a: Args) {
       if (existsSync(f("directory_overrides.csv"))) issues.push(...parseOverrides(read(f("directory_overrides.csv"))).issues);
       if (existsSync(f("names.csv"))) issues.push(...parseNames(read(f("names.csv"))).issues);
     }
-    const roster = (await loadRoster(db, cid)).map((r) => ({ ...r, level: r.level as "national" | "region" | "majlis", personName: r.personName }));
+    const excluded = configFrom(a).excludedDepartments;
+    const roster = (await loadRoster(db, cid, excluded)).map((r) => ({ ...r, level: r.level as "national" | "region" | "majlis", personName: r.personName }));
     const own = (await loadPlans(db, cid)).map((p) => ({ departmentSlug: p.departmentSlug, level: p.level, stale: p.stale, source: p.source }));
     const have = new Set(own.map((p) => p.departmentSlug));
     const carryId = await getCycleId(db, carry);
     const carried = carryId === null ? [] : (await loadPlans(db, carryId)).filter((p) => !have.has(p.departmentSlug)).map((p) => ({ departmentSlug: p.departmentSlug, level: p.level, stale: true, source: `${p.source} (carried over)` }));
-    const { markdown, counts } = buildGapReport({ cycleLabel: label, roster, plans: [...own, ...carried], issues, notes: [
+    const { markdown, counts } = buildGapReport({ cycleLabel: label, roster, plans: [...own, ...carried], issues, excludedDepartments: excluded, notes: [
       "Muqami is counted among the 52 Majlis in the fork's MAJLIS_TO_REGION; its mailbox status is an open question (rules file: unconfirmed).",
       "Names are optional enrichment: supply names.csv (email,name) to fill them. Thinkific directory snapshots were not imported (PII, stale).",
     ] });

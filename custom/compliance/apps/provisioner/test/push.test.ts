@@ -74,9 +74,11 @@ describe("push-roster payload", () => {
   test("levels, department keys, unconfirmed flag, person_name", () => {
     expect(new Set(rows.map((r) => r.level))).toEqual(new Set(["national", "regional", "local"]));
     expect(rows.find((r) => r.email === "tabligh.boston@mkausa.org")).toMatchObject({ level: "local", majlis: "Boston", region: "Northeast", department: "tabligh", person_name: "Known Name", formula_unconfirmed: false });
-    expect(rows.find((r) => r.email === "sanat-o-tijarat.east@mkausa.org")).toMatchObject({ level: "regional", department: "sanat_o_tijarat", majlis: null, formula_unconfirmed: true });
+    expect(rows.find((r) => r.email === "sanat-o-tijarat.east@mkausa.org")).toMatchObject({ level: "regional", department: "sanat_o_tijarat", majlis: null, formula_unconfirmed: false });
     expect(rows.find((r) => r.email === "qaid.east@mkausa.org")).toMatchObject({ level: "regional", department: "" });
-    expect(rows.filter((r) => r.formula_unconfirmed).length).toBe(200);
+    expect(rows.filter((r) => r.formula_unconfirmed).length).toBe(0); // regional mailboxes confirmed; flag mechanism kept
+    expect(toExpectedRow({ ...roster[0]!, source: "formula-unconfirmed" }).formula_unconfirmed).toBe(true);
+    expect(rows.some((r) => r.department === "atfal" || r.email.endsWith("@atfalusa.org"))).toBe(false);
   });
   test("bad rows are refused locally", () => {
     const bad = [{ ...rows[0]!, email: "nope" }, { ...rows[1]!, level: "region" }, { ...rows[2]!, role_title: "x".repeat(201) }];
