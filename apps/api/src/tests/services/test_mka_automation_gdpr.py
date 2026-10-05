@@ -274,6 +274,20 @@ async def test_export_contains_only_the_users_own_records(db, org, other_org, wo
 
 
 @pytest.mark.asyncio
+async def test_export_never_contains_the_reviewers_address_of_a_test_mode_row(db, org, world):
+    """Review L6: in test mode ``to_email`` is the reviewer's own mailbox, which is not the data subject's data."""
+    reviewer = "reviewer.private@example.invalid"
+    db.add(log(org.id, "reminder:2026-W46:tm", VICTIM, user_id=301, to=reviewer, test_mode=True, kind="digest"))
+    await db.commit()
+    out = (await gdpr.export_user_records(db, 301))
+    rows = [s for s in out["send_log"] if s["test_mode"]]
+    assert len(rows) == 1 and rows[0]["to_email"] is None and rows[0]["intended_email"] == VICTIM
+    assert reviewer not in repr(out)
+    real_rows = [s for s in out["send_log"] if not s["test_mode"]]
+    assert all(s["to_email"] == VICTIM for s in real_rows)  # real mail: the person's own address stays
+
+
+@pytest.mark.asyncio
 async def test_export_user_data_includes_the_automation_section(db, org, world):
     data = await export_user_data(_make_token_user(org.id), 301, db)
     assert set(data["mka_profile"]["mka_automation"]) == {"events", "send_log", "compliance_roster"}

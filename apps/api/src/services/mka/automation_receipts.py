@@ -457,7 +457,8 @@ async def handle_delivery(db: AsyncSession, d: Delivery) -> dict:
         return await _on_course_completed(db, event_row, org_id, course, user)  # type: ignore[arg-type]
     except Exception as exc:  # never 5xx into LearnHouse for a processing fault: the sweep recovers it
         await db.rollback()
-        logger.exception("receipt processing failed org=%s event=%s", org_id, event_row.id)
+        # no traceback: SQLAlchemy errors embed bound parameters (addresses)
+        logger.error("receipt processing failed org=%s event=%s error=%s", org_id, event_row.id, type(exc).__name__)
         try:
             await _finish_event(db, event_row, "error", type(exc).__name__)
         except Exception:

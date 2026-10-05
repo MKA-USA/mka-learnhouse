@@ -465,8 +465,8 @@ async def send_automation_email(
 
     try:
         await _finish(db, log_id, status="sent", sent_at=utcnow())
-    except Exception:  # the mail left; leave the row 'queued' (at-most-once) rather than risk a resend
-        logger.exception("automation send log update failed after delivery log=%s", log_id)
+    except Exception as exc:  # the mail left; leave the row 'queued' (it is re-sent only after the lease, review M2)
+        logger.error("automation send log update failed after delivery log=%s error=%s", log_id, type(exc).__name__)
     if budget is not None:
         budget.record(True)
     logger.info("automation send ok kind=%s org=%s log=%s test=%s", kind, org_id, log_id, test_mode)

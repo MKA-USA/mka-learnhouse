@@ -137,7 +137,9 @@ async def export_user_records(db: AsyncSession, user_id: int) -> dict:
             for e in events
         ],
         "send_log": [
-            {"org_id": s.org_id, "kind": s.kind, "to_email": s.to_email, "intended_email": s.intended_email,
+            # a test-mode row's to_email is the REVIEWER's address, not the data subject's: never export it (review L6)
+            {"org_id": s.org_id, "kind": s.kind, "to_email": None if s.test_mode else s.to_email,
+             "intended_email": s.intended_email,
              "subject": s.subject, "status": s.status, "test_mode": s.test_mode, "cycle_id": s.cycle_id,
              "course_id": s.course_id, "created_at": _iso(s.created_at), "sent_at": _iso(s.sent_at)}
             for s in sends
