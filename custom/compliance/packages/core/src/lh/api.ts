@@ -1,5 +1,6 @@
 import { LhClient } from "./client";
 import type * as T from "./types";
+import { assertDraftOnly } from "../safety";
 
 /**
  * Typed wrappers over verified endpoints (see docs/lh-api-notes.md).
@@ -48,11 +49,18 @@ export class LhApi {
     if (input.extra_metadata) f.set("extra_metadata", JSON.stringify(input.extra_metadata));
     return this.client.request<T.LhCourse>("POST", "/courses/", { query: { org_id: orgId }, form: f });
   }
-  updateCourse(courseUuid: string, input: T.UpdateCourseInput) { return this.client.put<T.LhCourse>(`/courses/${courseUuid}`, input); }
+  updateCourse(courseUuid: string, input: T.UpdateCourseInput) {
+    assertDraftOnly(input); // provisioner never publishes
+    return this.client.put<T.LhCourse>(`/courses/${courseUuid}`, input);
+  }
+  deleteCourse(courseUuid: string) { return this.client.del(`/courses/${courseUuid}`); }
+  getActivity(activityUuid: string) { return this.client.get<T.LhActivity>(`/activities/${activityUuid}`); }
+  getAssignment(assignmentUuid: string) { return this.client.get<{ assignment_uuid: string; published?: boolean }>(`/assignments/${assignmentUuid}`); }
+  listAssignmentTasks(assignmentUuid: string) { return this.client.get<unknown[]>(`/assignments/${assignmentUuid}/tasks`); }
   createChapter(input: T.CreateChapterInput) { return this.client.post<T.LhChapter>("/chapters/", input); }
-  createActivity(input: T.CreateActivityInput) { return this.client.post<T.LhActivity>("/activities/", input); }
-  updateActivity(activityUuid: string, input: T.UpdateActivityInput) { return this.client.put<T.LhActivity>(`/activities/${activityUuid}`, input); }
-  createAssignment(input: T.CreateAssignmentInput) { return this.client.post<{ assignment_uuid: string }>("/assignments/", input); }
+  createActivity(input: T.CreateActivityInput) { assertDraftOnly(input); return this.client.post<T.LhActivity>("/activities/", input); }
+  updateActivity(activityUuid: string, input: T.UpdateActivityInput) { assertDraftOnly(input); return this.client.put<T.LhActivity>(`/activities/${activityUuid}`, input); }
+  createAssignment(input: T.CreateAssignmentInput) { assertDraftOnly(input); return this.client.post<{ assignment_uuid: string }>("/assignments/", input); }
   createAssignmentTask(assignmentUuid: string, input: T.CreateAssignmentTaskInput) {
     return this.client.post<{ assignment_task_uuid: string }>(`/assignments/${assignmentUuid}/tasks`, input);
   }

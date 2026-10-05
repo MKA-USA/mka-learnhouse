@@ -35,7 +35,7 @@ Sources are paths under `apps/api/src/`. Status: **VERIFIED-SRC** = read in rout
 | GET `/admin/{org}/usergroups/{uuid}/members`, `/users/{id}/groups` | admin | members | VERIFIED-SRC | admin.py |
 | GET `/admin/{org}/courses/{course}/access/{user_id}` | admin | has_access/is_enrolled/... | VERIFIED-SRC | admin.py |
 
-## Writes (VERIFIED-SRC only; NOT exercised in milestone 0; token write rights UNVERIFIED)
+## Writes (VERIFIED-LIVE on staging by the write probe, see probe-report.md: create/update/delete rights confirmed for courses, chapters, activities, assignments, tasks)
 | Method + path | Body | Notes |
 |---|---|---|
 | POST `/courses/?org_id=` | multipart: `name`, `description`, `about`, `public` (required), `learnings`, `tags`, `thumbnail_type`, `extra_metadata` (JSON string), `thumbnail` | created unpublished (`published` default false) |
@@ -51,7 +51,7 @@ Sources are paths under `apps/api/src/`. Status: **VERIFIED-SRC** = read in rout
 | POST `/admin/{org}/progress/{user_id}/activities/{activity}/complete`, `/certifications/{user_id}/{course}/award` | | not needed by compliance flow |
 
 ## UNVERIFIED / open
-- Whether the staging token holds create/update rights (no read path to token rights with a token). First write attempt (next work order, on a draft course) will tell.
+- (Resolved) Staging token has course/chapter/activity/assignment create, update and delete rights (write probe). A FORM task blank with empty `correctAnswer` and an `ungraded: true` assignment are accepted by the API; learner-UI rendering of them is UNVERIFIED.
 - `GET /chapters/course/{uuid}/meta` 500 on staging (probe).
 - Learner nudges and webhook availability (W3 scope).
 - `GradingTypeEnum` values; `blockQuiz`/ProseMirror node constraints (see `.claude/skills/learnhouse-course-builder/SKILL.md`).
