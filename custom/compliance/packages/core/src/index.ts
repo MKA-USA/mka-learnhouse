@@ -9,3 +9,4 @@ export * from "./thinkific";
 export * from "./content/pm";
 export * from "./content/html";
 export * from "./content/flags";
+export * from "./templates";
