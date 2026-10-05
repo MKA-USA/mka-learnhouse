@@ -14,7 +14,9 @@ def _use_cfg(monkeypatch, **overrides):
     base = dict(enabled=True, api_key="k", allowed_org_ids=[1], intent_routing_enabled=True)
     base.update(overrides)
     cfg = JevConfig(**base)
-    fake = lambda: SimpleNamespace(jev_config=cfg)
+    def fake():
+        return SimpleNamespace(jev_config=cfg)
+
     monkeypatch.setattr(client_mod, "get_learnhouse_config", fake)
     monkeypatch.setattr(integ, "get_learnhouse_config", fake)
 
@@ -54,7 +56,9 @@ async def test_audit_not_scheduled_when_gated(monkeypatch, overrides, org):
 
 @pytest.mark.asyncio
 async def test_audit_not_scheduled_when_config_none(monkeypatch):
-    fake = lambda: SimpleNamespace(jev_config=None)
+    def fake():
+        return SimpleNamespace(jev_config=None)
+
     monkeypatch.setattr(client_mod, "get_learnhouse_config", fake)
     monkeypatch.setattr(integ, "get_learnhouse_config", fake)
     integ.schedule_guardrail_audit("r", user_question="q", org_id=1)
