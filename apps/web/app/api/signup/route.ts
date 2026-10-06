@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerAPIUrl } from '@services/config/config'
 import { isSaaSMode, isCustomDomainRequest } from '@lib/saas'
 import { verifyTurnstile, clientIpFromHeaders } from '@lib/turnstile'
-import { mkaSignupFetch, mkaSignupForwardHeaders } from '@lib/mka-signup-proxy' // MKA fork
+import { mkaSignupFetch, mkaSignupForwardHeaders, mkaSignupResponseHeaders } from '@lib/mka-signup-proxy' // MKA fork
 import { validateSignupEmail } from '@services/emails/disposableEmail'
 import { addContactWithLoops, sendLoopsEvent, LOOPS_SIGNED_USERS_GROUP } from '@services/emails/loops'
 
@@ -172,5 +172,5 @@ export async function POST(request: NextRequest) {
     }).catch(() => {})
   }
 
-  return NextResponse.json(data, { status: backendRes.status })
+  return NextResponse.json(data, { status: backendRes.status, headers: mkaSignupResponseHeaders(backendRes.headers) }) // MKA fork: pass Retry-After through
 }

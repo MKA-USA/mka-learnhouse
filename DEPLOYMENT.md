@@ -153,6 +153,9 @@ Set these in Coolify for each environment (dev and prod). Values and secrets nev
 - Limitation: suspending a user in Google does not revoke a LearnHouse session already issued (access token 8 h, refresh up to 30 days of inactivity, `LEARNHOUSE_AUTH_REFRESH_TOKEN_DAYS`, minimum 14). See the session notes in the project history.
 - Implementation: `apps/api/src/services/auth/mka_google_only.py`; hook sites listed in `.codebase-memory/upstream-modifications.md`.
 
+**Local dev (signup proxy)**
+- Outside the container the API runs on port 1338, but the signup route calls the API on loopback `http://127.0.0.1:9000` by default (non-SaaS only, no fallback), which gives a 502 locally. Set `LEARNHOUSE_INTERNAL_API_URL=http://127.0.0.1:1338/api/v1/` in `apps/web/.env.local`.
+
 ## Reference
 
 - Upstream: LearnHouse (`learnhouse/learnhouse`). This fork tracks it but ships its own image built from this repo.

@@ -75,3 +75,9 @@ export async function mkaSignupFetch(
   if (saas || !url.startsWith(publicBase)) return fetchImpl(url, init)
   return fetchImpl((opts.internalBase ?? mkaInternalApiUrl()) + url.slice(publicBase.length), init)
 }
+
+/** Extra response headers to pass from the API's reply to the browser: Retry-After on a 429 from the signup limiter. */
+export function mkaSignupResponseHeaders(backend: Headers): Record<string, string> {
+  const retryAfter = backend.get('retry-after')
+  return retryAfter ? { 'Retry-After': retryAfter } : {}
+}

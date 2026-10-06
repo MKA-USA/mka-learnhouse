@@ -5,6 +5,7 @@ import {
   mkaInternalApiUrl,
   mkaSignupFetch,
   mkaSignupForwardHeaders,
+  mkaSignupResponseHeaders,
 } from "../lib/mka-signup-proxy.ts";
 
 const incoming = (obj) => new Headers(obj);
@@ -160,5 +161,17 @@ describe("mka signup fetch", () => {
       },
     });
     expect(calls).toEqual(["https://other/users/"]);
+  });
+});
+
+describe("mka signup response headers", () => {
+  test("passes Retry-After through", () => {
+    expect(mkaSignupResponseHeaders(new Headers({ "Retry-After": "1500" }))).toEqual({
+      "Retry-After": "1500",
+    });
+  });
+
+  test("returns nothing when the API sent no Retry-After", () => {
+    expect(mkaSignupResponseHeaders(new Headers({ "Content-Type": "application/json" }))).toEqual({});
   });
 });
