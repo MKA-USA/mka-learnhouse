@@ -150,12 +150,16 @@ describe("hook guard: upstream MKA hook lines exist (re-apply after pulling upst
     const s = read("components/Dashboard/Menus/DashLeftMenu.tsx");
     expect(s).toContain("const mkaScope = useMkaComplianceScope() // MKA fork");
     expect(s).toContain('href="/dash/compliance"');
-    expect(s).toMatch(/import \{ ShieldCheck \} from '@phosphor-icons\/react' \/\/ MKA fork/);
+    // ShieldCheck must be imported from phosphor. Since #18 (moderation) it lives in the shared
+    // multi-line phosphor import instead of the fork's own `// MKA fork` import line; accept either form.
+    expect(s).toMatch(/import \{[^}]*\bShieldCheck\b[^}]*\} from '@phosphor-icons\/react'/);
+    expect(s).toContain('<MenuLink href="/dash/compliance" icon={<ShieldCheck');
   });
   test("H2 DashMobileMenu", () => {
     const s = read("components/Dashboard/Menus/DashMobileMenu.tsx");
     expect(s).toContain("const mkaScope = useMkaComplianceScope() // MKA fork");
     expect(s).toContain('<PanelItem href="/dash/compliance"');
+    expect(s).toMatch(/import \{[^}]*\bShieldCheck\b[^}]*\} from '@phosphor-icons\/react'/);
   });
   test("H3 course subpage", () => {
     const s = read("app/orgs/[orgslug]/dash/courses/course/[courseuuid]/[subpage]/page.tsx");

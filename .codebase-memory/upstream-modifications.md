@@ -1551,6 +1551,7 @@ diff --git a/apps/web/components/Auth/TurnstileWidget.tsx b/apps/web/components/
 - **Reason**: Native "Compliance" nav item + course tab. All logic is fork-only (`services/mka/compliance*.ts`, `components/mka/compliance/*`, `app/orgs/[orgslug]/dash/compliance/*`, dev-only `app/examples/mka-compliance-preview/*`, test `tests/mka-compliance-format.test.mjs`). Upstream files get ONLY the pure-addition lines below (no existing line edited). Visibility is cosmetic; the API enforces on every endpoint. Spec: `docs/superpowers/specs/2026-10-04-mka-native-compliance-analytics-design.md`.
 - **Re-apply after pulling upstream**: `grep -rn "MKA fork" apps/web/components/Dashboard/Menus apps/web/app/orgs/*/dash/courses` and run `bun test tests/mka-compliance-format.test.mjs` (the "hook guard" tests fail if a hook line is lost).
 - **No extension point exists**: nav items and course tabs are hard-coded JSX / an inline array in upstream.
+- **Amended 2026-10-06**: since #18 (moderation) also uses `ShieldCheck`, both menus import it from the shared multi-line `@phosphor-icons/react` import instead of the separate `import { ShieldCheck } ... // MKA fork` lines shown below. If upstream drops `ShieldCheck` from that import on a pull, re-add it (or restore the fork line). The hook-guard test accepts either form.
 
 1. H1 `apps/web/components/Dashboard/Menus/DashLeftMenu.tsx` (hook placed beside `useAdminStatus()`, before the early return, to respect Rules of Hooks; `MenuLink` is a local const so the link must live in this file)
 ```diff
