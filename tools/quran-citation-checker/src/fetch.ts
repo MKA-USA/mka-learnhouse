@@ -17,6 +17,8 @@ export const KNOWN_EDITIONS = ['en', 'zk', 'ur', 'sc', 'v5', 'sp_en', 'sp_ur'] a
 
 export interface QuranLike {
   getVersesWithMeta(chapter: number, start: number, end: number, editions: Edition[]): Promise<{ retrievedAt: string; verses: Record<string, unknown>[] }>;
+  /** Only needed for the unreferenced-quote search. */
+  search?(query: string, mode: 'keyword' | 'semantic', editions?: Edition[]): Promise<Record<string, unknown>>;
 }
 
 export interface FetchedVerse {
@@ -68,20 +70,26 @@ export async function fetchVerses(
   start: number,
   end: number,
   editions: Edition[] = ['en'],
+  numberingMap = true,
 ): Promise<FetchResult> {
   const warnings: string[] = [];
-  const off = alIslamOffset(chapter);
+  const off = numberingMap ? alIslamOffset(chapter) : 0;
   try {
     const { retrievedAt, verses } = await client.getVersesWithMeta(chapter, start + off, end + off, editions);
-    const rows = verses.filter(r => Number(r.v_) >= start && Number(r.v_) <= end);
-    if (rows.length !== end - start + 1) warnings.push(`expected ${end - start + 1} verse(s) with v_ in ${start}..${end}, got ${rows.length}; check numbering`);
+    let rows = verses;
+    if (numberingMap) {
+      rows = verses.filter(r => Number(r.v_) >= start && Number(r.v_) <= end);
+      if (rows.length !== end - start + 1) warnings.push(`expected ${end - start + 1} verse(s) with v_ in ${start}..${end}, got ${rows.length}; check numbering`);
+    } else if (alIslamOffset(chapter) !== 0) {
+      warnings.push('numbering map disabled: verse numbers are Al Islam numbering (Bismillah = verse 1), off by one from standard citations');
+    }
     return {
       ok: true,
       retrievedAt,
       source: SOURCE,
       warnings,
       verses: rows.map(r => ({
-        citedVerse: Number(r.v_),
+        citedVerse: Number(numberingMap ? r.v_ : r.v),
         alIslamV: r.v,
         alIslamVUnderscore: r.v_,
         arabic: String(r.arabic ?? r.ar ?? ''),

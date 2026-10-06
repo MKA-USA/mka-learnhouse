@@ -133,16 +133,47 @@ export const SURAHS: Surah[] = [
 
 export const TOTAL_VERSES = SURAHS.reduce((n, s) => n + s.verses, 0); // 6236
 
-/** Lowercase, strip diacritics/apostrophes/hyphens/spaces. */
-export function normalizeName(raw: string): string {
-  return raw
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z]/g, '');
+/** Arabic-script names (without the word "surah"), index = surah number - 1. */
+export const ARABIC_NAMES: string[] = (
+  'الفاتحة البقرة|آل عمران النساء المائدة الأنعام الأعراف الأنفال التوبة يونس هود يوسف الرعد إبراهيم الحجر النحل الإسراء الكهف مريم طه ' +
+  'الأنبياء الحج المؤمنون النور الفرقان الشعراء النمل القصص العنكبوت الروم لقمان السجدة الأحزاب سبأ فاطر يس الصافات ص الزمر غافر ' +
+  'فصلت الشورى الزخرف الدخان الجاثية الأحقاف محمد الفتح الحجرات ق الذاريات الطور النجم القمر الرحمن الواقعة الحديد المجادلة الحشر ' +
+  'الممتحنة الصف الجمعة المنافقون التغابن الطلاق التحريم الملك القلم الحاقة المعارج نوح الجن المزمل المدثر القيامة الإنسان المرسلات ' +
+  'النبأ النازعات عبس التكوير الانفطار المطففين الانشقاق البروج الطارق الأعلى الغاشية الفجر البلد الشمس الليل الضحى الشرح التين ' +
+  'العلق القدر البينة الزلزلة العاديات القارعة التكاثر العصر الهمزة الفيل قريش الماعون الكوثر الكافرون النصر المسد الإخلاص الفلق الناس'
+)
+  .replace('|', ' ')
+  .replace('آل عمران', 'آل_عمران') // two-word name; split on spaces below, restore the underscore after
+  .split(' ')
+  .map(n => n.replace('_', ' '));
+
+/**
+ * Length-preserving-per-character canonical form used for Arabic text matching:
+ * removes diacritics/tatweel, unifies alef/yaa/taa-marbuta variants.
+ * Exported so candidates.ts can build its index map with the same rules.
+ */
+export const ARABIC_DIACRITICS = /[ً-ٰٟۖ-ۭـ]/;
+export function canonArabicChar(ch: string): string {
+  if ('أإآٱ'.includes(ch)) return 'ا';
+  if (ch === 'ى') return 'ي';
+  if (ch === 'ة') return 'ه';
+  return ch;
 }
 
-const ARTICLE = /^(?:al|an|ar|as|ash|at|ad|adh|az|ath|aal)(?=[a-z]{3,})/;
+/** Lowercase, strip diacritics/apostrophes/hyphens/spaces. Keeps Latin a-z and Arabic letters. */
+export function normalizeName(raw: string): string {
+  let out = '';
+  for (const ch of raw.normalize('NFD')) {
+    if (ARABIC_DIACRITICS.test(ch)) continue;
+    out += canonArabicChar(ch);
+  }
+  return out
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-zء-ي]/g, '');
+}
+
+const ARTICLE = /^(?:al|an|ar|as|ash|at|ad|adh|az|ath|aal)(?=[a-z]{3,})|^ال(?=[ء-ي]{2,})/;
 
 /** Normalized keys for a name: full form and form without a leading Arabic article. */
 function keysFor(raw: string): string[] {
@@ -153,7 +184,7 @@ function keysFor(raw: string): string[] {
 
 const LOOKUP = new Map<string, number>();
 for (const s of SURAHS) {
-  for (const n of [s.name, ...s.aliases]) {
+  for (const n of [s.name, ...s.aliases, ARABIC_NAMES[s.number - 1]]) {
     for (const k of keysFor(n)) if (!LOOKUP.has(k)) LOOKUP.set(k, s.number);
   }
 }

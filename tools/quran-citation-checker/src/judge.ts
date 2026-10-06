@@ -6,6 +6,7 @@
  */
 import { choice, noul, TypeSafeClient } from '@typesafe-ai/sdk';
 import type { Candidate } from './candidates.js';
+import { surahByNumber } from './surahs.js';
 
 /** UNTUNED defaults. Calibrate against labelled examples before relying on them. */
 export interface Thresholds {
@@ -44,27 +45,28 @@ export function createJevClient(): TypeSafeClient {
 
 export async function judgeCandidate(jev: JevLike, c: Candidate): Promise<Judgement> {
   const quoted = JSON.stringify(c.span);
+  const mention = c.kind === 'surah_mention';
   const ref = `${c.chapter}:${c.start}${c.end !== c.start ? `-${c.end}` : ''}`;
   const state = {
     text_excerpt: c.contextWindow,
     candidate_span: c.span,
-    parsed_reference: { chapter: c.chapter, first_verse: c.start, last_verse: c.end, as_text: ref },
+    parsed_reference: mention
+      ? { chapter: c.chapter, surah_name: surahByNumber(c.chapter)?.name ?? null, first_verse: null, last_verse: null }
+      : { chapter: c.chapter, first_verse: c.start, last_verse: c.end, as_text: ref },
   };
+  const citeQuestion = mention
+    ? `In text_excerpt, does the candidate_span ${quoted} refer to a chapter (surah) of the Quran, the Islamic scripture? Answer no if it refers to something else, such as a chapter of a non-Quran book or an unrelated person, place or word that merely shares the name.`
+    : `In text_excerpt, does the candidate_span ${quoted} cite a verse or passage of the Quran (the Islamic scripture) as chapter:verse? Answer no if it is something else, such as a clock time like 2:55 pm, a ratio, a sports score, a Bible verse, a page or section number, or a timestamp.`;
   const res = await jev.systemOne({
     state,
     questions: {
-      cite: noul(
-        `In text_excerpt, does the candidate_span ${quoted} cite a verse or passage of the Quran (the Islamic scripture) as chapter:verse? Answer no if it is something else, such as a clock time like 2:55 pm, a ratio, a sports score, a Bible verse, a page or section number, or a timestamp.`,
-      ),
-      kind: choice(
-        `How does text_excerpt use the candidate_span ${quoted}?`,
-        {
-          explicit_reference: 'A bare reference to a Quran verse, with no verse text quoted.',
-          quoted_verse_with_reference: 'A reference to a Quran verse together with its text quoted or closely paraphrased nearby.',
-          passing_mention: 'Mentions a Quran chapter or verse only in passing.',
-          not_a_citation: 'Not a Quran citation at all (a time, score, ratio, Bible verse, page number, etc.).',
-        },
-      ),
+      cite: noul(citeQuestion),
+      kind: choice(`How does text_excerpt use the candidate_span ${quoted}?`, {
+        explicit_reference: 'A bare reference to a Quran verse or surah, with no verse text quoted.',
+        quoted_verse_with_reference: 'A reference to a Quran verse together with its text quoted or closely paraphrased nearby.',
+        passing_mention: 'Mentions a Quran chapter or verse only in passing.',
+        not_a_citation: 'Not a Quran citation at all (a time, score, ratio, Bible verse, page number, etc.).',
+      }),
       quoted: noul(
         `In text_excerpt, is the wording of a verse (a quoted passage, in English or Arabic) given right next to the candidate_span ${quoted}, as opposed to the reference standing alone?`,
       ),
@@ -77,6 +79,29 @@ export async function judgeCandidate(jev: JevLike, c: Candidate): Promise<Judgem
     kindConfidence: a.kind.confidence,
     quotedProbability: a.quoted.noul,
   };
+}
+
+export interface PassageHit {
+  chapter: number;
+  verse: number; // standard numbering
+  arabic: string;
+  translation: string;
+}
+
+/** For an unreferenced quote: probability, per proposed verse, that the passage quotes/paraphrases it. */
+export async function judgePassageMatches(jev: JevLike, passage: string, hits: PassageHit[]): Promise<number[]> {
+  const state = {
+    quoted_passage: passage,
+    candidate_verses: hits.map(h => ({ reference: `${h.chapter}:${h.verse}`, arabic: h.arabic, english_translation: h.translation })),
+  };
+  const questions: Record<string, unknown> = {};
+  hits.forEach((h, i) => {
+    questions[`m${i}`] = noul(
+      `Does quoted_passage quote, or closely paraphrase, the Quran verse ${h.chapter}:${h.verse} as given in candidate_verses (in its Arabic text or its English translation)? Answer no if it only shares a few common words or a general theme.`,
+    );
+  });
+  const res = await jev.systemOne({ state, questions });
+  return hits.map((_, i) => res.answers[`m${i}`].noul as number);
 }
 
 /** Pure threshold logic. */

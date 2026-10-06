@@ -1,16 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { extractCandidates } from '../src/candidates.js';
-import { SURAHS, TOTAL_VERSES, surahNumberFromName, validateReference } from '../src/surahs.js';
+import { ARABIC_NAMES, SURAHS, TOTAL_VERSES, surahNumberFromName, validateReference } from '../src/surahs.js';
 import { decide, DEFAULT_THRESHOLDS, type JevLike } from '../src/judge.js';
 import { fetchVerses, parseEditions, type QuranLike } from '../src/fetch.js';
 import { compareQuote, extractQuotedText } from '../src/quote.js';
 import { checkText } from '../src/index.js';
+import { findQuotedPassages } from '../src/quote.js';
 
 const ref = (t: string) => extractCandidates(t).map(c => `${c.chapter}:${c.start}-${c.end}`);
 
 describe('surahs', () => {
   it('has 114 surahs and 6236 verses', () => {
     expect(SURAHS).toHaveLength(114);
+    expect(ARABIC_NAMES).toHaveLength(114);
     expect(TOTAL_VERSES).toBe(6236);
     SURAHS.forEach((s, i) => expect(s.number).toBe(i + 1));
   });
@@ -54,8 +56,44 @@ describe('candidate extraction', () => {
   it('alias', () => {
     expect(ref('Recite Ayat al-Kursi tonight')).toEqual(['2:255-255']);
   });
-  it('surah mention without verse is not a candidate', () => {
-    expect(ref('We read Surah al-Kahf on Fridays')).toEqual([]);
+  it('surah mention without verse is a verseless surah_mention candidate', () => {
+    const [c] = extractCandidates('We read Surah al-Kahf on Fridays');
+    expect(c.kind).toBe('surah_mention');
+    expect(c.chapter).toBe(18);
+    expect(c.span).toBe('Surah al-Kahf');
+    expect(extractCandidates('This chapter 3 is long')).toEqual([]);
+    expect(extractCandidates('Surah Genesis')).toEqual([]);
+  });
+  it('verse-first word order', () => {
+    expect(ref('verse 255 of Surah al-Baqarah')).toEqual(['2:255-255']);
+    expect(ref('ayah 255 of chapter 2')).toEqual(['2:255-255']);
+    expect(ref('verses 255-257 of the Surah al-Baqarah')).toEqual(['2:255-257']);
+    const c = extractCandidates('He recited verse 255 of Surah al-Baqarah today');
+    expect(c).toHaveLength(1);
+    expect(c[0].span).toBe('verse 255 of Surah al-Baqarah');
+  });
+  it('Arabic-script names and Arabic-Indic / Persian digits', () => {
+    expect(ref('سورة البقرة آية ٢٥٥')).toEqual(['2:255-255']);
+    expect(ref('سورة البقرة آية ۲۵۵')).toEqual(['2:255-255']);
+    expect(ref('سُورَةُ الْبَقَرَةِ آيَةُ ٢٥٥')).toEqual(['2:255-255']);
+    expect(ref('آية ٢٥٥ من سورة البقرة')).toEqual(['2:255-255']);
+    expect(ref('قال تعالى (البقرة: ٢٥٥)')).toEqual(['2:255-255']);
+    expect(ref('القرآن ٢:٢٥٥')).toEqual(['2:255-255']);
+    expect(ref('سورة آل عمران آية 18')).toEqual(['3:18-18']);
+    expect(extractCandidates('سورة الكهف')[0]).toMatchObject({ kind: 'surah_mention', chapter: 18 });
+    expect(ref('آية الكرسي')).toEqual(['2:255-255']);
+  });
+  it('span refers to the original text even with diacritics', () => {
+    const t = 'قال: سُورَةُ الْبَقَرَةِ آيَةُ ٢٥٥ هي';
+    const [c] = extractCandidates(t);
+    expect(t.slice(c.index, c.endIndex)).toBe(c.span);
+    expect(c.span.startsWith('سُورَةُ')).toBe(true);
+    expect(c.span.endsWith('٢٥٥')).toBe(true);
+  });
+  it('"Surah 2:255" is a numeric reference, not a surah mention', () => {
+    const c = extractCandidates('Surah 2:255');
+    expect(c).toHaveLength(1);
+    expect(c[0].kind).toBe('numeric');
   });
   it('time-like strings are still candidates (the judge decides), glued digits are not', () => {
     expect(ref('meet at 2:55 pm')).toEqual(['2:55-55']);
@@ -95,19 +133,33 @@ describe('threshold logic', () => {
 });
 
 // ---- stubs ----
-function stubJev(cite: number, kind = 'explicit_reference', quoted = 0): JevLike & { calls: number } {
+function stubJev(cite: number, kind = 'explicit_reference', quoted = 0, match: number[] = []): JevLike & { calls: number; states: any[] } {
   const s = {
     calls: 0,
-    systemOne: async () => {
+    states: [] as any[],
+    systemOne: async (req: { state: unknown; questions: Record<string, unknown> }) => {
       s.calls++;
-      return { answers: { cite: { type: 'noul', noul: cite }, kind: { type: 'choice', choice: kind, confidence: 0.9 }, quoted: { type: 'noul', noul: quoted } } };
+      s.states.push(req.state);
+      const answers: Record<string, any> = {};
+      for (const k of Object.keys(req.questions)) {
+        if (k === 'cite') answers.cite = { type: 'noul', noul: cite };
+        else if (k === 'kind') answers.kind = { type: 'choice', choice: kind, confidence: 0.9 };
+        else if (k === 'quoted') answers.quoted = { type: 'noul', noul: quoted };
+        else answers[k] = { type: 'noul', noul: match[Number(k.slice(1))] ?? 0 };
+      }
+      return { answers };
     },
   };
   return s;
 }
-function stubQuran(): QuranLike & { requests: number[][] } {
+function stubQuran(searchRows: { ch: number; v: number; v_: number }[] = []): QuranLike & { requests: number[][]; searches: [string, string][] } {
   const s = {
     requests: [] as number[][],
+    searches: [] as [string, string][],
+    search: async (q: string, mode: 'keyword' | 'semantic') => {
+      s.searches.push([q, mode]);
+      return { verses: searchRows };
+    },
     getVersesWithMeta: async (ch: number, a: number, b: number) => {
       s.requests.push([ch, a, b]);
       if (ch === 1 && b > 7) throw new Error('Upstream rejected the request (HTTP 400); check chapter/verse reference');
@@ -214,3 +266,101 @@ describe('checkText with stubs', () => {
     expect(out2.results[0].quoteChecks).toBeUndefined();
   });
 });
+
+describe('Arabic names', () => {
+  it('every Arabic name resolves to its own surah number', () => {
+    ARABIC_NAMES.forEach((n, i) => expect(surahNumberFromName(n)).toBe(i + 1));
+  });
+});
+
+describe('surah_mention', () => {
+  it('is judged by Jev but never fetches verses', async () => {
+    const jev = stubJev(0.95);
+    const quran = stubQuran();
+    const out = await checkText('Surah Al-Kahf is read on Fridays.', { jev, quran });
+    expect(jev.calls).toBe(1);
+    expect(jev.states[0].parsed_reference).toMatchObject({ chapter: 18, first_verse: null });
+    expect(out.results[0].verdict).toBe('surah_mention');
+    expect(out.results[0].surah).toEqual({ chapter: 18, name: 'Al-Kahf' });
+    expect(out.results[0].fetched).toBeUndefined();
+    expect(quran.requests).toEqual([]);
+    expect(out.containsCitation).toBe(false);
+  });
+  it('is rejected when Jev says it is not the Quran', async () => {
+    const out = await checkText('Surah Al-Kahf is read on Fridays.', { jev: stubJev(0.05, 'not_a_citation'), quran: stubQuran() });
+    expect(out.results[0].verdict).toBe('rejected');
+  });
+});
+
+describe('numberingMap option', () => {
+  it('false requests the cited numbers unchanged and warns', async () => {
+    const q = stubQuran();
+    const r = await fetchVerses(q, 2, 255, 255, ['en'], false);
+    expect(q.requests).toEqual([[2, 255, 255]]);
+    expect(r.warnings[0]).toMatch(/off by one/);
+    expect(r.verses[0].citedVerse).toBe(255);
+    const q2 = stubQuran();
+    await checkText('Quran 2:255', { jev: stubJev(0.95), quran: q2, numberingMap: false });
+    expect(q2.requests).toEqual([[2, 255, 255]]);
+  });
+  it('defaults to on', async () => {
+    const q = stubQuran();
+    await checkText('Quran 2:255', { jev: stubJev(0.95), quran: q });
+    expect(q.requests).toEqual([[2, 256, 256]]);
+  });
+});
+
+describe('unreferenced quotes', () => {
+  const arabic = 'اَللّٰهُ لَاۤ اِلٰهَ اِلَّا هُوَ الْحَیُّ الْقَیُّوْمُ';
+  const rows = [{ ch: 2, v: 256, v_: 255 }, { ch: 3, v: 3, v_: 2 }];
+
+  it('finds Arabic runs (>= 4 words) and English quotes', () => {
+    expect(findQuotedPassages(`قال ${arabic} ثم`).some(p => p.language === 'arabic')).toBe(true);
+    expect(findQuotedPassages('كلمتان فقط هنا')).toEqual([]);
+    const en = findQuotedPassages('He said "There is no god but He, the Living" here');
+    expect(en).toHaveLength(1);
+    expect(en[0].language).toBe('english');
+  });
+  it('is off by default: no search calls', async () => {
+    const quran = stubQuran(rows);
+    const out = await checkText(`قال ${arabic}`, { jev: stubJev(0.9), quran });
+    expect(out.unreferenced).toBeUndefined();
+    expect(quran.searches).toEqual([]);
+  });
+  it('Arabic uses keyword search, proposes needs_review (never confirmed), best match first, fetched attached', async () => {
+    const quran = stubQuran(rows);
+    const jev = stubJev(0.9, 'explicit_reference', 0, [0.3, 0.92]);
+    const out = await checkText(`قال تعالى ${arabic}`, { jev, quran, findUnreferenced: true });
+    expect(out.containsCitation).toBe(false);
+    expect(quran.searches[0][1]).toBe('keyword');
+    const u = out.unreferenced![0];
+    expect(u.verdict).toBe('needs_review');
+    expect(u.proposals.map(p => `${p.chapter}:${p.verse}`)).toEqual(['3:2', '2:255']);
+    expect(u.proposals[0].matchProbability).toBe(0.92);
+    expect(u.proposals[0].fetched.verses[0].arabic).toBe('AR3:2');
+    // fetched with the cited->Al Islam mapping (2:255 -> 256, 3:2 -> 3)
+    expect(quran.requests).toContainEqual([2, 256, 256]);
+    expect(quran.requests).toContainEqual([3, 3, 3]);
+  });
+  it('English quote uses semantic search; weak matches become no_match', async () => {
+    const quran = stubQuran(rows);
+    const out = await checkText('He said "Allah there is no God but He the Living" to them.', { jev: stubJev(0.9, 'explicit_reference', 0, [0.05, 0.1]), quran, findUnreferenced: true });
+    expect(quran.searches[0][1]).toBe('semantic');
+    expect(out.unreferenced![0].verdict).toBe('no_match');
+    expect(out.unreferenced![0].proposals.length).toBe(2);
+  });
+  it('skips passages that already have a reference nearby', async () => {
+    const quran = stubQuran(rows);
+    const out = await checkText(`Quran 2:255: ${arabic}`, { jev: stubJev(0.95), quran, findUnreferenced: true });
+    expect(out.unreferenced).toEqual([]);
+    expect(quran.searches).toEqual([]);
+  });
+  it('search failure is reported on the result, not thrown', async () => {
+    const quran = stubQuran(rows);
+    quran.search = async () => { throw new Error('upstream down'); };
+    const out = await checkText(arabic, { jev: stubJev(0.9), quran, findUnreferenced: true });
+    expect(out.unreferenced![0].error).toMatch(/upstream down/);
+    expect(out.unreferenced![0].verdict).toBe('no_match');
+  });
+});
+

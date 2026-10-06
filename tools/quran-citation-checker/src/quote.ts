@@ -11,6 +11,33 @@ export function extractQuotedText(context: string): string | null {
   return best;
 }
 
+export interface Passage {
+  text: string;
+  index: number;
+  endIndex: number;
+  language: 'arabic' | 'english';
+}
+
+const ARABIC_CH = String.raw`[\u0600-\u06FF\uFB50-\uFDFF\uFE70-\uFEFF]`;
+/** Arabic-script run of at least 4 whitespace-separated words. */
+const ARABIC_RUN = new RegExp(String.raw`${ARABIC_CH}+(?:\s+${ARABIC_CH}+){3,}`, 'g');
+
+/** Quote-marked English passages (>= 20 chars, >= 3 Latin words) and Arabic runs (>= 4 words), in text order. */
+export function findQuotedPassages(text: string): Passage[] {
+  const out: Passage[] = [];
+  for (const m of text.matchAll(ARABIC_RUN)) out.push({ text: m[0], index: m.index, endIndex: m.index + m[0].length, language: 'arabic' });
+  for (const re of QUOTE_PATTERNS) {
+    for (const m of text.matchAll(re)) {
+      const inner = m[1];
+      if ((inner.match(/[A-Za-z]+/g) ?? []).length < 3) continue;
+      const index = m.index + 1;
+      if (out.some(p => index < p.endIndex && p.index < index + inner.length)) continue;
+      out.push({ text: inner, index, endIndex: index + inner.length, language: 'english' });
+    }
+  }
+  return out.sort((a, b) => a.index - b.index);
+}
+
 export function normalizeForCompare(s: string): string {
   return s
     .replace(/\[[A-Za-z0-9]+\]/g, '') // footnote markers like [a], [1]
