@@ -57,11 +57,8 @@ for (const [i, p] of PERSONAS.entries()) {
   })
 }
 
-// FINDING-2 (docs/screens/audience/e2e/FINDINGS.md): the learner note never renders because the learner filter / notes
-// effect in AudienceChrome never takes effect in the running stack. Expected-failure: when the product bug is fixed this
-// test starts passing, Playwright reports "expected to fail but passed", and the annotation should be removed.
+// FINDING-2 (fixed; see docs/screens/audience/e2e/FINDINGS.md): learner note for an unrecognized account.
 test('Unrecognized account: sees the "tailored by role" note', async ({ browser }) => {
-  test.fail(true, 'FINDING-2: unrecognized note is not rendered (see FINDINGS.md)')
   const { ctx, page } = await openLesson(browser, 'unrecognized')
   try {
     const note = page.getByTestId('mka-note-unrecognized')

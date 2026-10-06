@@ -41,8 +41,10 @@ export interface PersonaDef {
   region: string | null
   /** "Parts of this lesson are tailored by role" note expected. */
   unrecognizedNote: boolean
-  /** Counterparts card rows (mailto addresses), in order; null = the "once your role is recognized" card instead. */
+  /** Counterparts card rows (mailto addresses), in order; [] = no card at all (own office omitted); null = a notice card (counterpartsText). */
   counterparts: CounterpartRow[] | null
+  /** Text of the notice card when `counterparts` is null. */
+  counterpartsText?: string
 }
 
 export const ALL_SECTIONS: SectionKey[] = SECTION_KEYS
@@ -72,7 +74,8 @@ export const PERSONAS: PersonaDef[] = [
     majlis: null,
     region: 'Northeast',
     unrecognizedNote: false,
-    counterparts: null, // no department and role not in {qaid, naib_qaid, motamid} => reason no_department => "recognized" card (see FINDINGS.md)
+    counterparts: null,
+    counterpartsText: 'No department contacts apply to your role.',
   },
   {
     key: 'mohtamim',
@@ -83,7 +86,7 @@ export const PERSONAS: PersonaDef[] = [
     majlis: null,
     region: null,
     unrecognizedNote: false,
-    counterparts: [NATIONAL_TABLIGH],
+    counterparts: [], // own office omitted: nothing left to show, no card
   },
   {
     key: 'regionalNazim',
@@ -106,6 +109,7 @@ export const PERSONAS: PersonaDef[] = [
     region: null,
     unrecognizedNote: true,
     counterparts: null,
+    counterpartsText: 'Counterparts appear once your role is recognized.',
   },
   {
     key: 'notOfficeholder',
@@ -117,6 +121,7 @@ export const PERSONAS: PersonaDef[] = [
     region: null,
     unrecognizedNote: false,
     counterparts: null,
+    counterpartsText: 'Counterparts appear once your role is recognized.',
   },
   {
     key: 'author',

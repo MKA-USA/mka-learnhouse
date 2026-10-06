@@ -15,7 +15,12 @@ for (const p of PERSONAS.filter((x) => x.key !== 'author')) {
     try {
       if (p.counterparts === null) {
         await expect(page.getByTestId('mka-counterparts-card')).toHaveCount(0)
-        await expect(page.getByText('Counterparts appear once your role is recognized.')).toBeVisible()
+        await expect(page.getByText(p.counterpartsText!)).toBeVisible()
+        return
+      }
+      if (p.counterparts.length === 0) {
+        await expect(page.getByTestId('mka-counterparts-card')).toHaveCount(0)
+        await expect(page.getByText(/Counterparts appear|No department contacts/)).toHaveCount(0)
         return
       }
       const card = page.getByTestId('mka-counterparts-card')

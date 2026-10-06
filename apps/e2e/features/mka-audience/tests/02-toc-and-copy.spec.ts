@@ -22,9 +22,8 @@ for (const p of learners) {
     }
   })
 
-  // FINDING-1 (FINDINGS.md): the learner's table of contents lists the headings of sections hidden from them.
+  // FINDING-1/3 (fixed, see FINDINGS.md)
   test(`${p.label}: table of contents does not list hidden headings`, async ({ browser }) => {
-    test.fail(true, 'FINDING-1: TOC leaks hidden section headings (see FINDINGS.md)')
     const { ctx, page } = await openLesson(browser, p.key)
     try {
       const toc = (await tocTexts(page)).join('\n')
@@ -34,10 +33,8 @@ for (const p of learners) {
     }
   })
 
-  // FINDING-3 (FINDINGS.md): select-all + copy serializes the WHOLE lesson, hidden sections included (the editor state is
-  // never filtered for the learner). The DOM selection itself is clean; the clipboard payload is not.
+  // FINDING-1/3 (fixed, see FINDINGS.md)
   test(`${p.label}: select-all + copy contains no hidden text`, async ({ browser }) => {
-    test.fail(HIDDEN_FOR(p.visible).length > 0, 'FINDING-3: copied text includes hidden sections (see FINDINGS.md)')
     const { ctx, page } = await openLesson(browser, p.key)
     try {
       await page.evaluate(() => {

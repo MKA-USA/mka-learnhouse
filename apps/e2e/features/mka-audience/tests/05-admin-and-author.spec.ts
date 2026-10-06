@@ -42,7 +42,9 @@ for (const v of VIEWERS) {
           await expect(body).toContainText(SECTIONS[k].body)
         }
         await expect(body).toContainText(UNTARGETED.body)
-        // fields/counterparts are shown as author chips (the bar is not asserted here: see FINDING-0)
+        // the Audience bar mounts on the LEARNER page every time (FINDING-0 fixed)
+        await expect(audienceBar(page)).toContainText('Everything (author view)')
+        await expect(audienceBar(page)).toContainText('5 audience sections')
         await expect(page.getByTestId('mka-field-chip')).toHaveCount(2)
         await expect(page.getByTestId('mka-counterparts-sample')).toBeVisible()
         // read-only badges, one per section
@@ -63,7 +65,6 @@ for (const v of VIEWERS) {
     // FINDING-4 (FINDINGS.md): the read-only badge for a "Hide from" section reads "Hidden from: Everyone except national
     // officeholders", i.e. the opposite of the rule (the author header strips "Everyone except"; the badge does not).
     test(`"Hide from National" badge reads "Hidden from: National officeholders"`, async ({ browser }) => {
-      test.fail(true, 'FINDING-4: inverted badge text for hide rules (see FINDINGS.md)')
       const { ctx, page } = await openLesson(browser, v.key)
       try {
         await expect(page.getByText(/Hidden from:\s*Everyone except/)).toHaveCount(0, { timeout: 3_000 })
@@ -72,10 +73,11 @@ for (const v of VIEWERS) {
       }
     })
 
-    test(`can switch Preview-as personas and sees exactly what each persona sees`, async ({ browser }, testInfo) => {
+    for (const route of ['editor', 'learner'] as const) test(`${route} page: can switch Preview-as personas and sees exactly what each persona sees`, async ({ browser }, testInfo) => {
       testInfo.setTimeout(120_000)
-      const { ctx, page } = await openEditor(browser, v.key)
+      const { ctx, page } = route === 'editor' ? await openEditor(browser, v.key) : await openLesson(browser, v.key)
       try {
+        await expect(audienceBar(page)).toBeVisible({ timeout: 10_000 })
         const body = editorText(page)
         // authoring view first: the editable header shows who sees each section
         await expect(audienceBar(page)).toContainText('5 audience sections')
@@ -99,7 +101,7 @@ for (const v of VIEWERS) {
           )
           if (p.note) await expect(page.getByTestId('mka-note-unrecognized')).toBeVisible()
           else await expect(page.getByTestId('mka-note-unrecognized')).toHaveCount(0)
-          if (i === 0) await screenshot(page, `11-${v.key}-editor-preview-local-nazim`)
+          if (i === 0) await screenshot(page, `11-${v.key}-${route}-preview-local-nazim`)
         }
         // As me: the admin / author account itself is unrecognized -> untargeted + Hide-from content only
         await chooseView(page, 'As me')
@@ -116,9 +118,9 @@ for (const v of VIEWERS) {
   })
 }
 
-test('admin can preview as a specific person (writes an audit row)', async ({ browser }) => {
+for (const route of ['editor', 'learner'] as const) test(`admin can preview as a specific person on the ${route} page`, async ({ browser }) => {
   const s = seeded()
-  const { ctx, page } = await openEditor(browser, 'admin')
+  const { ctx, page } = route === 'editor' ? await openEditor(browser, 'admin') : await openLesson(browser, 'admin')
   try {
     await audienceBar(page).getByRole('button', { name: /Viewing:/ }).click()
     await page.getByRole('button', { name: /A specific person/ }).click()
