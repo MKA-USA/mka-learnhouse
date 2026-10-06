@@ -1,0 +1,15 @@
+{
+  "body": {
+    "by_level": {
+      "local": 1,
+      "national": 0,
+      "regional": 0
+    },
+    "count": 1,
+    "expected": null,
+    "total_officeholders": 3,
+    "unrecognized": 1
+  },
+  "path": "audience/count",
+  "status": 200
+}

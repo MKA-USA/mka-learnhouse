@@ -1,0 +1,13 @@
+{
+ "mission": "learner-local-nazim-tabligh-albany",
+ "ok": true,
+ "detail": "oracle check passed",
+ "steps": 0,
+ "modelCalls": 0,
+ "wallMs": 1737,
+ "modelMs": 0,
+ "trace": [],
+ "log": [],
+ "issues": [],
+ "stoppedBy": "done"
+}

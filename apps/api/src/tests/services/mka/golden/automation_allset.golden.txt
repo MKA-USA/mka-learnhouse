@@ -1,0 +1,17 @@
+SUBJECT: You are all set for 2026-27
+
+--- TEXT ---
+Hello Nazim Tabligh, Albany,
+
+You are all set for 2026-27. We have your sign-offs for every course required of you.
+
+There is nothing more to do. Keep this email for your records.
+
+View your courses: https://ilm.example.invalid/courses/general
+
+Questions? Write to help@example.invalid.
+
+This is an automatic notice from MKA USA.
+
+--- HTML ---
+<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.5;color:#222;max-width:560px"><p style="margin:0 0 12px">Hello Nazim Tabligh, Albany,</p><p style="margin:0 0 12px">You are all set for 2026-27. We have your sign-offs for every course required of you.</p><p style="margin:0 0 12px">There is nothing more to do. Keep this email for your records.</p><p style="margin:0 0 12px"><a href="https://ilm.example.invalid/courses/general">View your courses</a></p><p style="margin:0 0 12px">Questions? Write to <a href="mailto:help@example.invalid">help@example.invalid</a>.</p><p style="margin:16px 0 0;color:#666;font-size:12px">This is an automatic notice from MKA USA.</p></div>

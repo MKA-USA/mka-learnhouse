@@ -1,0 +1,7 @@
+{
+  "body": {
+    "detail": "mode must be 'show' or 'hide'"
+  },
+  "path": "audience/count",
+  "status": 422
+}

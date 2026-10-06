@@ -32,6 +32,7 @@ import Scenarios from './Extensions/Scenarios/Scenarios'
 import CodePlayground from './Extensions/CodePlayground/CodePlayground'
 import UserBlock from './Extensions/Users/UserBlock'
 import MagicBlock from './Extensions/MagicBlocks/MagicBlock'
+import { mkaEditorExtensions } from '@components/mka/editor' // MKA fork
 
 // Lowlight — slim grammar set; see editorLowlight.ts
 import { lowlight } from './editorLowlight'
@@ -154,6 +155,7 @@ function EditorPreview({ content, activity }: EditorPreviewProps) {
         editable: false,
         activity: activity,
       }),
+      ...mkaEditorExtensions({ editable: false, activity }), // MKA fork
     ],
     content: content,
     immediatelyRender: false,

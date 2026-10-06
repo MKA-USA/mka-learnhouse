@@ -1,0 +1,708 @@
+{
+ "mission": "break-picker-desktop",
+ "ok": false,
+ "detail": "model gave up",
+ "steps": 37,
+ "modelCalls": 41,
+ "wallMs": 47269,
+ "modelMs": 28146.588000999996,
+ "trace": [
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(4) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(1) > div:nth-child(3) > button:nth-child(1)",
+   "label": "button \"Edit\""
+  },
+  {
+   "t": "press",
+   "key": "Escape"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(3) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(1) > div:nth-child(3) > button:nth-child(1)",
+   "label": "button \"Edit\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(11) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(1)",
+   "label": "other \"Show or hide\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(11) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(2) > div:nth-child(2) > div:nth-child(2) > div:nth-child(1) > button:nth-child(1)",
+   "label": "button \"Department: Any department. Choose…\" [collapsed, closed]"
+  },
+  {
+   "t": "type",
+   "text": "",
+   "label": "type \"\""
+  },
+  {
+   "t": "type",
+   "text": " ",
+   "label": "type \" \""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(12) > div:nth-child(1) > div:nth-child(1) > div:nth-child(3) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(12)",
+   "label": "option \"Nau Mubaeen\" [false]"
+  },
+  {
+   "t": "press",
+   "key": "Escape"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(11) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(2) > div:nth-child(2) > div:nth-child(2) > div:nth-child(1) > span:nth-child(1) > button:nth-child(2)",
+   "label": "button \"Remove Nau Mubaeen\""
+  },
+  {
+   "t": "press",
+   "key": "Tab"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(3) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(3) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(1) > div:nth-child(3) > button:nth-child(1)",
+   "label": "button \"Edit\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(3) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(1) > div:nth-child(3) > button:nth-child(1)",
+   "label": "button \"Edit\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(11) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(2) > div:nth-child(2) > div:nth-child(2) > div:nth-child(1) > button:nth-child(1)",
+   "label": "button \"Department: Any department. Choose…\" [collapsed, closed]"
+  },
+  {
+   "t": "press",
+   "key": "Escape"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(3) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(3) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(1) > div:nth-child(3) > button:nth-child(3)",
+   "label": "button \"Collapse section\" [expanded]"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(3) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(1) > div:nth-child(3) > button:nth-child(3)",
+   "label": "button \"Expand section\" [collapsed]"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(5) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(1) > div:nth-child(3) > button:nth-child(3)",
+   "label": "button \"Collapse section\" [expanded]"
+  },
+  {
+   "t": "press",
+   "key": "Tab"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(3) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(1) > div:nth-child(3) > button:nth-child(1)",
+   "label": "button \"Edit\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(11) > div:nth-child(1) > div:nth-child(1) > div:nth-child(3) > div:nth-child(1) > button:nth-child(1)",
+   "label": "button \"Remove section\""
+  },
+  {
+   "t": "press",
+   "key": "Escape"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(5) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(1) > div:nth-child(3) > button:nth-child(2)",
+   "label": "button \"Preview\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > button:nth-child(2)",
+   "label": "button \"Viewing: As me\" [collapsed, closed]"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(3) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > button:nth-child(2)",
+   "label": "button \"Viewing: As me\" [expanded, open]"
+  },
+  {
+   "t": "press",
+   "key": "Tab"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > button:nth-child(2)",
+   "label": "button \"Viewing: As me\" [collapsed, closed]"
+  },
+  {
+   "t": "press",
+   "key": "Escape"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(4) > button:nth-child(1)",
+   "label": "button \"Exit preview\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > button:nth-child(2)",
+   "label": "button \"Viewing: Everything (author view)\" [collapsed, closed]"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(11) > div:nth-child(1) > div:nth-child(1) > button:nth-child(12)",
+   "label": "button \"Custom…\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(3) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > button:nth-child(2)",
+   "label": "button \"Viewing: Everything (author view)\" [expanded, open]"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(5) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(1) > div:nth-child(3) > button:nth-child(2)",
+   "label": "button \"Preview\""
+  },
+  {
+   "t": "press",
+   "key": "Escape"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(7) > div:nth-child(1) > div:nth-child(1) > ul:nth-child(2) > li:nth-child(2) > a:nth-child(2)",
+   "label": "link \"tabligh.northeast@example.invalid\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(7) > div:nth-child(1) > div:nth-child(1) > ul:nth-child(2) > li:nth-child(3) > a:nth-child(2)",
+   "label": "link \"qaid.northeast@example.invalid\""
+  },
+  {
+   "t": "press",
+   "key": "Enter"
+  }
+ ],
+ "log": [
+  {
+   "n": 1,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Edit\"",
+   "backend": "random",
+   "confidence": 0,
+   "p": 0,
+   "margin": 0,
+   "ms": 0,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-01.jpg"
+  },
+  {
+   "n": 2,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "press Escape",
+   "backend": "clef",
+   "confidence": 0.2181125323051566,
+   "p": 0.3848928857062818,
+   "margin": 0.28893200552014897,
+   "ms": 0,
+   "escalated": false,
+   "cached": true,
+   "changed": true,
+   "shot": "step-02.jpg"
+  },
+  {
+   "n": 3,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Edit\"",
+   "backend": "jev",
+   "confidence": 0.26,
+   "p": 0.3,
+   "margin": 0.13999999999999999,
+   "ms": 0,
+   "escalated": true,
+   "cached": true,
+   "changed": true,
+   "shot": "step-03.jpg"
+  },
+  {
+   "n": 4,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "other \"Show or hide\"",
+   "backend": "random",
+   "confidence": 0,
+   "p": 0,
+   "margin": 0,
+   "ms": 0,
+   "escalated": false,
+   "cached": false,
+   "changed": false,
+   "shot": "step-04.jpg"
+  },
+  {
+   "n": 5,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Department: Any department. Choose…\" [collapsed, closed]",
+   "backend": "jev",
+   "confidence": 0.15,
+   "p": 0.19,
+   "margin": 0.01999999999999999,
+   "ms": 0,
+   "escalated": true,
+   "cached": true,
+   "changed": true,
+   "shot": "step-05.jpg"
+  },
+  {
+   "n": 6,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"\"",
+   "backend": "jev",
+   "confidence": 0.14,
+   "p": 0.17,
+   "margin": 0.020000000000000018,
+   "ms": 0,
+   "escalated": true,
+   "cached": true,
+   "changed": false,
+   "shot": "step-06.jpg"
+  },
+  {
+   "n": 7,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \" \"",
+   "backend": "random",
+   "confidence": 0,
+   "p": 0,
+   "margin": 0,
+   "ms": 0,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-07.jpg"
+  },
+  {
+   "n": 8,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "option \"Nau Mubaeen\" [false]",
+   "backend": "random",
+   "confidence": 0,
+   "p": 0,
+   "margin": 0,
+   "ms": 0,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-08.jpg"
+  },
+  {
+   "n": 9,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "press Escape",
+   "backend": "clef",
+   "confidence": 0.5669052801157168,
+   "p": 0.7119159793612054,
+   "margin": 0.6624634420402153,
+   "ms": 0,
+   "escalated": false,
+   "cached": true,
+   "changed": true,
+   "shot": "step-09.jpg"
+  },
+  {
+   "n": 10,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Remove Nau Mubaeen\"",
+   "backend": "jev",
+   "confidence": 0.22,
+   "p": 0.26,
+   "margin": 0.09,
+   "ms": 0,
+   "escalated": true,
+   "cached": true,
+   "changed": true,
+   "shot": "step-10.jpg"
+  },
+  {
+   "n": 11,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "press Tab",
+   "backend": "random",
+   "confidence": 0,
+   "p": 0,
+   "margin": 0,
+   "ms": 0,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-11.jpg"
+  },
+  {
+   "n": 12,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Edit\"",
+   "backend": "jev",
+   "confidence": 0.14,
+   "p": 0.19,
+   "margin": 0.04999999999999999,
+   "ms": 0,
+   "escalated": true,
+   "cached": true,
+   "changed": true,
+   "shot": "step-12.jpg"
+  },
+  {
+   "n": 13,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Edit\"",
+   "backend": "jev",
+   "confidence": 0.21,
+   "p": 0.27,
+   "margin": 0.12000000000000002,
+   "ms": 0,
+   "escalated": true,
+   "cached": true,
+   "changed": true,
+   "shot": "step-13.jpg"
+  },
+  {
+   "n": 14,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Department: Any department. Choose…\" [collapsed, closed]",
+   "backend": "jev",
+   "confidence": 0.15,
+   "p": 0.2,
+   "margin": 0.05000000000000002,
+   "ms": 2391.2406670000055,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-14.jpg"
+  },
+  {
+   "n": 15,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "press Escape",
+   "backend": "jev",
+   "confidence": 0.54,
+   "p": 0.5700000000000001,
+   "margin": 0.45000000000000007,
+   "ms": 0,
+   "escalated": true,
+   "cached": true,
+   "changed": true,
+   "shot": "step-15.jpg"
+  },
+  {
+   "n": 16,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Collapse section\" [expanded]",
+   "backend": "random",
+   "confidence": 0,
+   "p": 0,
+   "margin": 0,
+   "ms": 0,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-16.jpg"
+  },
+  {
+   "n": 17,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Expand section\" [collapsed]",
+   "backend": "random",
+   "confidence": 0,
+   "p": 0,
+   "margin": 0,
+   "ms": 0,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-17.jpg"
+  },
+  {
+   "n": 18,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Collapse section\" [expanded]",
+   "backend": "random",
+   "confidence": 0,
+   "p": 0,
+   "margin": 0,
+   "ms": 0,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-18.jpg"
+  },
+  {
+   "n": 19,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "press Tab",
+   "backend": "clef",
+   "confidence": 0.17469461531918207,
+   "p": 0.3470735153910873,
+   "margin": 0.23002124878580088,
+   "ms": 2076.898125000007,
+   "escalated": false,
+   "cached": false,
+   "changed": false,
+   "shot": "step-19.jpg"
+  },
+  {
+   "n": 20,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Edit\"",
+   "backend": "jev",
+   "confidence": 0.25,
+   "p": 0.31,
+   "margin": 0.06,
+   "ms": 1758.733957999997,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-20.jpg"
+  },
+  {
+   "n": 21,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Remove section\"",
+   "backend": "random",
+   "confidence": 0,
+   "p": 0,
+   "margin": 0,
+   "ms": 0,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-21.jpg"
+  },
+  {
+   "n": 22,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "press Escape",
+   "backend": "clef",
+   "confidence": 0.57528926432418,
+   "p": 0.7653990225634573,
+   "margin": 0.7139479619096754,
+   "ms": 1539.698040999996,
+   "escalated": false,
+   "cached": false,
+   "changed": false,
+   "shot": "step-22.jpg"
+  },
+  {
+   "n": 23,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Preview\"",
+   "backend": "random",
+   "confidence": 0,
+   "p": 0,
+   "margin": 0,
+   "ms": 0,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-23.jpg"
+  },
+  {
+   "n": 24,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Viewing: As me\" [collapsed, closed]",
+   "backend": "jev",
+   "confidence": 0.58,
+   "p": 0.61,
+   "margin": 0.31,
+   "ms": 1345.2221250000002,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-24.jpg"
+  },
+  {
+   "n": 25,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Viewing: As me\" [expanded, open]",
+   "backend": "jev",
+   "confidence": 0.32,
+   "p": 0.35,
+   "margin": 0.04999999999999999,
+   "ms": 2580.1105829999724,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-25.jpg"
+  },
+  {
+   "n": 26,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "press Tab",
+   "backend": "clef",
+   "confidence": 0.26225820777505904,
+   "p": 0.4522016348718615,
+   "margin": 0.2716787981027666,
+   "ms": 1188.3276250000054,
+   "escalated": false,
+   "cached": false,
+   "changed": false,
+   "shot": "step-26.jpg"
+  },
+  {
+   "n": 27,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Viewing: As me\" [collapsed, closed]",
+   "backend": "jev",
+   "confidence": 0.41,
+   "p": 0.47,
+   "margin": 0.26999999999999996,
+   "ms": 1327.9175830000022,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-27.jpg"
+  },
+  {
+   "n": 28,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "press Escape",
+   "backend": "clef",
+   "confidence": 0.5058970847229626,
+   "p": 0.6974751402764215,
+   "margin": 0.6549733842591063,
+   "ms": 1646.026790999982,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-28.jpg"
+  },
+  {
+   "n": 29,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Exit preview\"",
+   "backend": "clef",
+   "confidence": 0.24674587773444767,
+   "p": 0.48468145419680453,
+   "margin": 0.34148092654551165,
+   "ms": 1066.4613749999844,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-29.jpg"
+  },
+  {
+   "n": 30,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Viewing: Everything (author view)\" [collapsed, closed]",
+   "backend": "jev",
+   "confidence": 0.6,
+   "p": 0.62,
+   "margin": 0.51,
+   "ms": 1618.3966669999936,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-30.jpg"
+  },
+  {
+   "n": 31,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Custom…\"",
+   "backend": "jev",
+   "confidence": 0.19,
+   "p": 0.22,
+   "margin": 0,
+   "ms": 3552.219043000019,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-31.jpg"
+  },
+  {
+   "n": 32,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Viewing: Everything (author view)\" [expanded, open]",
+   "backend": "jev",
+   "confidence": 0.25,
+   "p": 0.3,
+   "margin": 0.19,
+   "ms": 2675.0287510000053,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-32.jpg"
+  },
+  {
+   "n": 33,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Preview\"",
+   "backend": "random",
+   "confidence": 0,
+   "p": 0,
+   "margin": 0,
+   "ms": 0,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-33.jpg"
+  },
+  {
+   "n": 34,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "press Escape",
+   "backend": "clef",
+   "confidence": 0.6970459217599403,
+   "p": 0.8630324129022691,
+   "margin": 0.7885896270008798,
+   "ms": 1080.2239580000169,
+   "escalated": false,
+   "cached": false,
+   "changed": false,
+   "shot": "step-34.jpg"
+  },
+  {
+   "n": 35,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "link \"tabligh.northeast@example.invalid\"",
+   "backend": "random",
+   "confidence": 0,
+   "p": 0,
+   "margin": 0,
+   "ms": 0,
+   "escalated": false,
+   "cached": false,
+   "changed": false,
+   "shot": "step-35.jpg"
+  },
+  {
+   "n": 36,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "link \"qaid.northeast@example.invalid\"",
+   "backend": "random",
+   "confidence": 0,
+   "p": 0,
+   "margin": 0,
+   "ms": 0,
+   "escalated": false,
+   "cached": false,
+   "changed": false,
+   "shot": "step-36.jpg"
+  },
+  {
+   "n": 37,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "press Enter",
+   "backend": "jev",
+   "confidence": 0.29,
+   "p": 0.46,
+   "margin": 0.030000000000000027,
+   "ms": 1205.2205419999955,
+   "escalated": true,
+   "cached": false,
+   "changed": false,
+   "shot": "step-37.jpg"
+  }
+ ],
+ "issues": [],
+ "stoppedBy": "stuck"
+}

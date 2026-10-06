@@ -1,0 +1,41 @@
+name: MKA wait for healthy
+description: Sleep, then poll a URL until it returns HTTP 200 or the timeout elapses.
+inputs:
+  url:
+    description: URL to poll (expects HTTP 200)
+    required: true
+  timeout-seconds:
+    description: Total seconds to keep polling after the initial sleep
+    required: false
+    default: "1800"
+  initial-sleep:
+    description: Seconds to wait before the first poll (lets the old container go down)
+    required: false
+    default: "120"
+runs:
+  using: composite
+  steps:
+    - name: Poll until healthy
+      shell: bash
+      env:
+        HEALTH_URL: ${{ inputs.url }}
+        TIMEOUT_SECONDS: ${{ inputs.timeout-seconds }}
+        INITIAL_SLEEP: ${{ inputs.initial-sleep }}
+      run: |
+        set -u
+        echo "Sleeping ${INITIAL_SLEEP}s before polling ${HEALTH_URL}"
+        sleep "$INITIAL_SLEEP"
+        deadline=$(( $(date +%s) + TIMEOUT_SECONDS ))
+        while true; do
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "$HEALTH_URL" || true)
+          echo "$(date -u +%H:%M:%S) ${HEALTH_URL} -> ${code:-none}"
+          if [ "$code" = "200" ]; then
+            echo "Healthy."
+            exit 0
+          fi
+          if [ "$(date +%s)" -ge "$deadline" ]; then
+            echo "::error::Timed out after ${TIMEOUT_SECONDS}s waiting for ${HEALTH_URL} (last status: ${code:-none})"
+            exit 1
+          fi
+          sleep 30
+        done

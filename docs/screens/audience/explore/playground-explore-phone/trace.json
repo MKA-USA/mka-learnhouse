@@ -1,0 +1,772 @@
+{
+ "mission": "playground-explore-phone",
+ "ok": false,
+ "detail": "budget exhausted",
+ "steps": 40,
+ "modelCalls": 46,
+ "wallMs": 24863,
+ "modelMs": 0,
+ "trace": [
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > section:nth-child(3) > div:nth-child(3) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(1) > div:nth-child(2) > button:nth-child(5)",
+   "label": "button \"Motamids\" [false]"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > section:nth-child(2) > div:nth-child(3) > button:nth-child(1)",
+   "label": "button \"Open picker (sheet under 640px)\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(12) > div:nth-child(3) > div:nth-child(1) > div:nth-child(2) > div:nth-child(3) > button:nth-child(3)",
+   "label": "button \"More filters: role, region, Majlis\" [collapsed]"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(12) > div:nth-child(3) > div:nth-child(1) > div:nth-child(2) > div:nth-child(2) > button:nth-child(1)",
+   "label": "checkbox \"Show to\" [checked, on]"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(12) > div:nth-child(3) > div:nth-child(1) > div:nth-child(2) > div:nth-child(2) > button:nth-child(2)",
+   "label": "checkbox \"Hide from\" [unchecked, off]"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(12) > div:nth-child(3) > div:nth-child(1) > div:nth-child(2) > div:nth-child(2) > button:nth-child(2)",
+   "label": "checkbox \"Hide from\" [checked, on]"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(12) > div:nth-child(3) > div:nth-child(1) > div:nth-child(2) > div:nth-child(3) > div:nth-child(2) > div:nth-child(2) > div:nth-child(1) > button:nth-child(1)",
+   "label": "button \"Department: Any department. Choose…\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(14) > div:nth-child(3) > div:nth-child(1) > div:nth-child(4) > button:nth-child(2)",
+   "label": "button \"Done\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(12) > div:nth-child(3) > div:nth-child(1) > div:nth-child(2) > div:nth-child(1) > div:nth-child(2) > button:nth-child(1)",
+   "label": "button \"Local officeholders\" [false]"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(12) > div:nth-child(3) > div:nth-child(1) > div:nth-child(2) > div:nth-child(1) > div:nth-child(2) > button:nth-child(1)",
+   "label": "button \"Local officeholders\" [true]"
+  },
+  {
+   "t": "press",
+   "key": "ArrowDown"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(12) > div:nth-child(3) > div:nth-child(1) > div:nth-child(2) > div:nth-child(3) > div:nth-child(1) > div:nth-child(2) > div:nth-child(1) > div:nth-child(1) > button:nth-child(1)",
+   "label": "button \"National\" [false]"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(12) > div:nth-child(3) > div:nth-child(1) > div:nth-child(2) > div:nth-child(3) > div:nth-child(1) > div:nth-child(2) > div:nth-child(1) > div:nth-child(1) > button:nth-child(1)",
+   "label": "button \"National\" [true]"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(12) > div:nth-child(3) > div:nth-child(1) > div:nth-child(2) > div:nth-child(1) > div:nth-child(2) > button:nth-child(2)",
+   "label": "button \"Regional Qaids\" [false]"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(12) > div:nth-child(3) > div:nth-child(1) > div:nth-child(2) > div:nth-child(1) > div:nth-child(2) > button:nth-child(3)",
+   "label": "button \"National team\" [false]"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(12) > div:nth-child(3) > div:nth-child(1) > div:nth-child(2) > div:nth-child(1) > div:nth-child(2) > button:nth-child(2)",
+   "label": "button \"Regional Qaids\" [false]"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(12) > div:nth-child(3) > div:nth-child(1) > div:nth-child(2) > div:nth-child(2)",
+   "label": "other \"Show or hide\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(12) > div:nth-child(3) > div:nth-child(1) > div:nth-child(2) > div:nth-child(3) > div:nth-child(3) > div:nth-child(2) > div:nth-child(1) > button:nth-child(2)",
+   "label": "button \"Add role\""
+  },
+  {
+   "t": "type",
+   "text": "Tabligh",
+   "label": "type \"Tabligh\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(14) > div:nth-child(3) > div:nth-child(1) > div:nth-child(4) > button:nth-child(2)",
+   "label": "button \"Done\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(12) > div:nth-child(3) > div:nth-child(1) > div:nth-child(2) > div:nth-child(3) > div:nth-child(4) > div:nth-child(2) > div:nth-child(1) > button:nth-child(1)",
+   "label": "button \"Region: Any region. Choose…\""
+  },
+  {
+   "t": "type",
+   "text": "Albany",
+   "label": "type \"Albany\""
+  },
+  {
+   "t": "type",
+   "text": "zzzzzzzz",
+   "label": "type \"zzzzzzzz\""
+  },
+  {
+   "t": "type",
+   "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "label": "type \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\""
+  },
+  {
+   "t": "type",
+   "text": "Tabligh",
+   "label": "type \"Tabligh\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(14) > div:nth-child(3) > div:nth-child(1) > div:nth-child(4) > button:nth-child(2)",
+   "label": "button \"Done\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(12) > div:nth-child(3) > div:nth-child(1) > div:nth-child(2) > div:nth-child(1) > div:nth-child(2) > button:nth-child(2)",
+   "label": "button \"Regional Qaids\" [true]"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(12) > div:nth-child(3) > div:nth-child(1) > div:nth-child(2) > div:nth-child(1) > div:nth-child(2) > button:nth-child(1)",
+   "label": "button \"Local officeholders\" [false]"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(12) > div:nth-child(3) > div:nth-child(1) > div:nth-child(2) > div:nth-child(1) > div:nth-child(2) > button:nth-child(1)",
+   "label": "button \"Local officeholders\" [true]"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(12) > div:nth-child(3) > div:nth-child(1) > div:nth-child(2) > div:nth-child(3) > div:nth-child(2) > div:nth-child(2) > div:nth-child(1) > button:nth-child(1)",
+   "label": "button \"Department: Any department. Choose…\""
+  },
+  {
+   "t": "type",
+   "text": "Tabligh",
+   "label": "type \"Tabligh\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(14) > div:nth-child(3) > div:nth-child(1) > div:nth-child(3) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1)",
+   "label": "option \"Tabligh\" [true]"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(14) > div:nth-child(3) > div:nth-child(1) > div:nth-child(4) > button:nth-child(2)",
+   "label": "button \"Done\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(12) > div:nth-child(3) > div:nth-child(1) > div:nth-child(2) > div:nth-child(3) > div:nth-child(3) > div:nth-child(2) > div:nth-child(1) > button:nth-child(1)",
+   "label": "button \"Role: Any role. Choose…\""
+  },
+  {
+   "t": "type",
+   "text": "",
+   "label": "type \"\""
+  },
+  {
+   "t": "type",
+   "text": "Tabligh",
+   "label": "type \"Tabligh\""
+  },
+  {
+   "t": "type",
+   "text": "zzzzzzzz",
+   "label": "type \"zzzzzzzz\""
+  },
+  {
+   "t": "type",
+   "text": "Albany",
+   "label": "type \"Albany\""
+  },
+  {
+   "t": "press",
+   "key": "ArrowDown"
+  },
+  {
+   "t": "press",
+   "key": "Enter"
+  }
+ ],
+ "log": [
+  {
+   "n": 1,
+   "url": "/examples/mka-audience-playground",
+   "action": "button \"Motamids\" [false]",
+   "backend": "random",
+   "confidence": 0,
+   "p": 0,
+   "margin": 0,
+   "ms": 0,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-01.jpg"
+  },
+  {
+   "n": 2,
+   "url": "/examples/mka-audience-playground",
+   "action": "button \"Open picker (sheet under 640px)\"",
+   "backend": "clef",
+   "confidence": 0.20518842850417696,
+   "p": 0.3969725765048934,
+   "margin": 0.2815663785706748,
+   "ms": 0,
+   "escalated": false,
+   "cached": true,
+   "changed": true,
+   "shot": "step-02.jpg"
+  },
+  {
+   "n": 3,
+   "url": "/examples/mka-audience-playground",
+   "action": "button \"More filters: role, region, Majlis\" [collapsed]",
+   "backend": "clef",
+   "confidence": 0.18814879013489483,
+   "p": 0.36670884953136507,
+   "margin": 0.30485268389063575,
+   "ms": 0,
+   "escalated": false,
+   "cached": true,
+   "changed": true,
+   "shot": "step-03.jpg"
+  },
+  {
+   "n": 4,
+   "url": "/examples/mka-audience-playground",
+   "action": "checkbox \"Show to\" [checked, on]",
+   "backend": "random",
+   "confidence": 0,
+   "p": 0,
+   "margin": 0,
+   "ms": 0,
+   "escalated": false,
+   "cached": false,
+   "changed": false,
+   "shot": "step-04.jpg"
+  },
+  {
+   "n": 5,
+   "url": "/examples/mka-audience-playground",
+   "action": "checkbox \"Hide from\" [unchecked, off]",
+   "backend": "jev",
+   "confidence": 0.17,
+   "p": 0.22,
+   "margin": 0.04000000000000001,
+   "ms": 0,
+   "escalated": true,
+   "cached": true,
+   "changed": true,
+   "shot": "step-05.jpg"
+  },
+  {
+   "n": 6,
+   "url": "/examples/mka-audience-playground",
+   "action": "checkbox \"Hide from\" [checked, on]",
+   "backend": "jev",
+   "confidence": 0.22,
+   "p": 0.25,
+   "margin": 0.03,
+   "ms": 0,
+   "escalated": true,
+   "cached": true,
+   "changed": false,
+   "shot": "step-06.jpg"
+  },
+  {
+   "n": 7,
+   "url": "/examples/mka-audience-playground",
+   "action": "button \"Department: Any department. Choose…\"",
+   "backend": "random",
+   "confidence": 0,
+   "p": 0,
+   "margin": 0,
+   "ms": 0,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-07.jpg"
+  },
+  {
+   "n": 8,
+   "url": "/examples/mka-audience-playground",
+   "action": "button \"Done\"",
+   "backend": "random",
+   "confidence": 0,
+   "p": 0,
+   "margin": 0,
+   "ms": 0,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-08.jpg"
+  },
+  {
+   "n": 9,
+   "url": "/examples/mka-audience-playground",
+   "action": "button \"Local officeholders\" [false]",
+   "backend": "jev",
+   "confidence": 0.3,
+   "p": 0.34,
+   "margin": 0.19,
+   "ms": 0,
+   "escalated": true,
+   "cached": true,
+   "changed": true,
+   "shot": "step-09.jpg"
+  },
+  {
+   "n": 10,
+   "url": "/examples/mka-audience-playground",
+   "action": "button \"Local officeholders\" [true]",
+   "backend": "jev",
+   "confidence": 0.19,
+   "p": 0.24000000000000002,
+   "margin": 0.11000000000000001,
+   "ms": 0,
+   "escalated": true,
+   "cached": true,
+   "changed": false,
+   "shot": "step-10.jpg"
+  },
+  {
+   "n": 11,
+   "url": "/examples/mka-audience-playground",
+   "action": "press ArrowDown",
+   "backend": "random",
+   "confidence": 0,
+   "p": 0,
+   "margin": 0,
+   "ms": 0,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-11.jpg"
+  },
+  {
+   "n": 12,
+   "url": "/examples/mka-audience-playground",
+   "action": "button \"National\" [false]",
+   "backend": "jev",
+   "confidence": 0.11,
+   "p": 0.15,
+   "margin": 0,
+   "ms": 0,
+   "escalated": true,
+   "cached": true,
+   "changed": true,
+   "shot": "step-12.jpg"
+  },
+  {
+   "n": 13,
+   "url": "/examples/mka-audience-playground",
+   "action": "button \"National\" [true]",
+   "backend": "jev",
+   "confidence": 0.19,
+   "p": 0.23,
+   "margin": 0.07,
+   "ms": 0,
+   "escalated": true,
+   "cached": true,
+   "changed": true,
+   "shot": "step-13.jpg"
+  },
+  {
+   "n": 14,
+   "url": "/examples/mka-audience-playground",
+   "action": "button \"Regional Qaids\" [false]",
+   "backend": "jev",
+   "confidence": 0.22,
+   "p": 0.26,
+   "margin": 0.09,
+   "ms": 0,
+   "escalated": true,
+   "cached": true,
+   "changed": true,
+   "shot": "step-14.jpg"
+  },
+  {
+   "n": 15,
+   "url": "/examples/mka-audience-playground",
+   "action": "button \"National team\" [false]",
+   "backend": "jev",
+   "confidence": 0.22,
+   "p": 0.26,
+   "margin": 0.11000000000000001,
+   "ms": 0,
+   "escalated": true,
+   "cached": true,
+   "changed": true,
+   "shot": "step-15.jpg"
+  },
+  {
+   "n": 16,
+   "url": "/examples/mka-audience-playground",
+   "action": "button \"Regional Qaids\" [false]",
+   "backend": "random",
+   "confidence": 0,
+   "p": 0,
+   "margin": 0,
+   "ms": 0,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-16.jpg"
+  },
+  {
+   "n": 17,
+   "url": "/examples/mka-audience-playground",
+   "action": "other \"Show or hide\"",
+   "backend": "random",
+   "confidence": 0,
+   "p": 0,
+   "margin": 0,
+   "ms": 0,
+   "escalated": false,
+   "cached": false,
+   "changed": false,
+   "shot": "step-17.jpg"
+  },
+  {
+   "n": 18,
+   "url": "/examples/mka-audience-playground",
+   "action": "button \"Add role\"",
+   "backend": "random",
+   "confidence": 0,
+   "p": 0,
+   "margin": 0,
+   "ms": 0,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-18.jpg"
+  },
+  {
+   "n": 19,
+   "url": "/examples/mka-audience-playground",
+   "action": "type \"Tabligh\"",
+   "backend": "jev",
+   "confidence": 0.16,
+   "p": 0.19999999999999998,
+   "margin": 0.03999999999999998,
+   "ms": 0,
+   "escalated": true,
+   "cached": true,
+   "changed": true,
+   "shot": "step-19.jpg"
+  },
+  {
+   "n": 20,
+   "url": "/examples/mka-audience-playground",
+   "action": "button \"Done\"",
+   "backend": "jev",
+   "confidence": 0.16,
+   "p": 0.23,
+   "margin": 0.06,
+   "ms": 0,
+   "escalated": true,
+   "cached": true,
+   "changed": true,
+   "shot": "step-20.jpg"
+  },
+  {
+   "n": 21,
+   "url": "/examples/mka-audience-playground",
+   "action": "button \"Region: Any region. Choose…\"",
+   "backend": "random",
+   "confidence": 0,
+   "p": 0,
+   "margin": 0,
+   "ms": 0,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-21.jpg"
+  },
+  {
+   "n": 22,
+   "url": "/examples/mka-audience-playground",
+   "action": "type \"Albany\"",
+   "backend": "jev",
+   "confidence": 0.16,
+   "p": 0.19999999999999998,
+   "margin": 0.04999999999999999,
+   "ms": 0,
+   "escalated": true,
+   "cached": true,
+   "changed": true,
+   "shot": "step-22.jpg"
+  },
+  {
+   "n": 23,
+   "url": "/examples/mka-audience-playground",
+   "action": "type \"zzzzzzzz\"",
+   "backend": "random",
+   "confidence": 0,
+   "p": 0,
+   "margin": 0,
+   "ms": 0,
+   "escalated": false,
+   "cached": false,
+   "changed": false,
+   "shot": "step-23.jpg"
+  },
+  {
+   "n": 24,
+   "url": "/examples/mka-audience-playground",
+   "action": "type \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"",
+   "backend": "clef",
+   "confidence": 0.15911917869797443,
+   "p": 0.36043705566554063,
+   "margin": 0.231248600344052,
+   "ms": 0,
+   "escalated": false,
+   "cached": true,
+   "changed": false,
+   "shot": "step-24.jpg"
+  },
+  {
+   "n": 25,
+   "url": "/examples/mka-audience-playground",
+   "action": "type \"Tabligh\"",
+   "backend": "clef",
+   "confidence": 0.2824550163298002,
+   "p": 0.5093550126927721,
+   "margin": 0.4008741333706193,
+   "ms": 0,
+   "escalated": false,
+   "cached": true,
+   "changed": false,
+   "shot": "step-25.jpg"
+  },
+  {
+   "n": 26,
+   "url": "/examples/mka-audience-playground",
+   "action": "button \"Done\"",
+   "backend": "jev",
+   "confidence": 0.3,
+   "p": 0.38,
+   "margin": 0.22,
+   "ms": 0,
+   "escalated": true,
+   "cached": true,
+   "changed": true,
+   "shot": "step-26.jpg"
+  },
+  {
+   "n": 27,
+   "url": "/examples/mka-audience-playground",
+   "action": "button \"Regional Qaids\" [true]",
+   "backend": "jev",
+   "confidence": 0.43,
+   "p": 0.45,
+   "margin": 0.35,
+   "ms": 0,
+   "escalated": true,
+   "cached": true,
+   "changed": false,
+   "shot": "step-27.jpg"
+  },
+  {
+   "n": 28,
+   "url": "/examples/mka-audience-playground",
+   "action": "button \"Local officeholders\" [false]",
+   "backend": "jev",
+   "confidence": 0.18,
+   "p": 0.23,
+   "margin": 0.11000000000000001,
+   "ms": 0,
+   "escalated": true,
+   "cached": true,
+   "changed": true,
+   "shot": "step-28.jpg"
+  },
+  {
+   "n": 29,
+   "url": "/examples/mka-audience-playground",
+   "action": "button \"Local officeholders\" [true]",
+   "backend": "jev",
+   "confidence": 0.19,
+   "p": 0.24000000000000002,
+   "margin": 0.1,
+   "ms": 0,
+   "escalated": true,
+   "cached": true,
+   "changed": false,
+   "shot": "step-29.jpg"
+  },
+  {
+   "n": 30,
+   "url": "/examples/mka-audience-playground",
+   "action": "button \"Department: Any department. Choose…\"",
+   "backend": "jev",
+   "confidence": 0.18,
+   "p": 0.22,
+   "margin": 0.1,
+   "ms": 0,
+   "escalated": true,
+   "cached": true,
+   "changed": true,
+   "shot": "step-30.jpg"
+  },
+  {
+   "n": 31,
+   "url": "/examples/mka-audience-playground",
+   "action": "type \"Tabligh\"",
+   "backend": "jev",
+   "confidence": 0.34,
+   "p": 0.37,
+   "margin": 0.22999999999999998,
+   "ms": 0,
+   "escalated": true,
+   "cached": true,
+   "changed": true,
+   "shot": "step-31.jpg"
+  },
+  {
+   "n": 32,
+   "url": "/examples/mka-audience-playground",
+   "action": "option \"Tabligh\" [true]",
+   "backend": "jev",
+   "confidence": 0.3,
+   "p": 0.35,
+   "margin": 0.21999999999999997,
+   "ms": 0,
+   "escalated": true,
+   "cached": true,
+   "changed": true,
+   "shot": "step-32.jpg"
+  },
+  {
+   "n": 33,
+   "url": "/examples/mka-audience-playground",
+   "action": "button \"Done\"",
+   "backend": "random",
+   "confidence": 0,
+   "p": 0,
+   "margin": 0,
+   "ms": 0,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-33.jpg"
+  },
+  {
+   "n": 34,
+   "url": "/examples/mka-audience-playground",
+   "action": "button \"Role: Any role. Choose…\"",
+   "backend": "jev",
+   "confidence": 0.18,
+   "p": 0.23,
+   "margin": 0.12000000000000001,
+   "ms": 0,
+   "escalated": true,
+   "cached": true,
+   "changed": true,
+   "shot": "step-34.jpg"
+  },
+  {
+   "n": 35,
+   "url": "/examples/mka-audience-playground",
+   "action": "type \"\"",
+   "backend": "random",
+   "confidence": 0,
+   "p": 0,
+   "margin": 0,
+   "ms": 0,
+   "escalated": false,
+   "cached": false,
+   "changed": false,
+   "shot": "step-35.jpg"
+  },
+  {
+   "n": 36,
+   "url": "/examples/mka-audience-playground",
+   "action": "type \"Tabligh\"",
+   "backend": "random",
+   "confidence": 0,
+   "p": 0,
+   "margin": 0,
+   "ms": 0,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-36.jpg"
+  },
+  {
+   "n": 37,
+   "url": "/examples/mka-audience-playground",
+   "action": "type \"zzzzzzzz\"",
+   "backend": "jev",
+   "confidence": 0.15,
+   "p": 0.23,
+   "margin": 0.06,
+   "ms": 0,
+   "escalated": true,
+   "cached": true,
+   "changed": false,
+   "shot": "step-37.jpg"
+  },
+  {
+   "n": 38,
+   "url": "/examples/mka-audience-playground",
+   "action": "type \"Albany\"",
+   "backend": "jev",
+   "confidence": 0.26,
+   "p": 0.32,
+   "margin": 0.17,
+   "ms": 0,
+   "escalated": true,
+   "cached": true,
+   "changed": false,
+   "shot": "step-38.jpg"
+  },
+  {
+   "n": 39,
+   "url": "/examples/mka-audience-playground",
+   "action": "press ArrowDown",
+   "backend": "random",
+   "confidence": 0,
+   "p": 0,
+   "margin": 0,
+   "ms": 0,
+   "escalated": false,
+   "cached": false,
+   "changed": false,
+   "shot": "step-39.jpg"
+  },
+  {
+   "n": 40,
+   "url": "/examples/mka-audience-playground",
+   "action": "press Enter",
+   "backend": "random",
+   "confidence": 0,
+   "p": 0,
+   "margin": 0,
+   "ms": 0,
+   "escalated": false,
+   "cached": false,
+   "changed": false,
+   "shot": "step-40.jpg"
+  }
+ ],
+ "issues": [],
+ "stoppedBy": "max-steps"
+}

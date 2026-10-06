@@ -1,0 +1,193 @@
+[
+ {
+  "id": "slash-click-audience-section",
+  "ok": true,
+  "expected": "one audience section exists and the picker opens (same as pressing Enter)",
+  "actual": "1 sections, picker open=true",
+  "shot": "probes/slash-click-audience-section.png",
+  "kind": "bug",
+  "title": "Mouse-selecting \"Audience section\" in the slash menu creates a section",
+  "passes": 3,
+  "runs": 3
+ },
+ {
+  "id": "slash-enter-audience-section",
+  "ok": true,
+  "expected": "one section and picker open",
+  "actual": "1 sections, picker open=true",
+  "kind": "bug",
+  "title": "Keyboard Enter on \"Audience section\" in the slash menu creates a section (control for the click probe)",
+  "passes": 3,
+  "runs": 3
+ },
+ {
+  "id": "shortcut-audience-section",
+  "ok": true,
+  "expected": "one section wrapping the paragraph",
+  "actual": "1 sections",
+  "kind": "bug",
+  "title": "Cmd/Ctrl+Alt+A wraps the selected paragraph in a section",
+  "passes": 3,
+  "runs": 3
+ },
+ {
+  "id": "escape-reverts-and-closes",
+  "ok": true,
+  "expected": "picker closed, rules unchanged",
+  "actual": "open=false unchanged=true",
+  "shot": "probes/escape-reverts-and-closes.png",
+  "kind": "bug",
+  "title": "Escape closes the picker and discards unsaved changes",
+  "passes": 3,
+  "runs": 3
+ },
+ {
+  "id": "cancel-reverts",
+  "ok": true,
+  "expected": "rules unchanged",
+  "actual": "[{\"v\":1,\"mode\":\"show\",\"groups\":[{\"level\":[\"local\"]}]},{\"v\":1,\"mode\":\"show\",\"groups\":[{\"level\":[\"regional\"]}]},{\"v\":1,\"mode\":\"hide\",\"groups\":[{\"level\":[\"local\"]}]}]",
+  "kind": "bug",
+  "title": "Cancel discards unsaved changes",
+  "passes": 3,
+  "runs": 3
+ },
+ {
+  "id": "focus-returns-after-close",
+  "ok": true,
+  "expected": "after Escape and after Cancel focus lands back on the opener (Edit) or inside the editor, not on <body>",
+  "actual": "Escape: BUTTON[Edit] \"Edit\" | Cancel: BUTTON[Edit] \"Edit\" | Done: BUTTON[Edit] \"Edit\"",
+  "shot": "probes/focus-returns-after-close.png",
+  "kind": "ux",
+  "title": "Keyboard focus returns to the opener (Edit) after the picker closes",
+  "passes": 3,
+  "runs": 3
+ },
+ {
+  "id": "focus-trap-in-picker",
+  "ok": true,
+  "expected": "focus never leaves the open picker in 24 Tab presses",
+  "actual": "focus left the picker 0 times; e.g. ",
+  "shot": "probes/focus-trap-in-picker.png",
+  "kind": "bug",
+  "title": "While the picker is open, Tab stays inside it (or it is non-modal by design)",
+  "passes": 3,
+  "runs": 3
+ },
+ {
+  "id": "escape-nested-popover",
+  "ok": true,
+  "expected": "picker still open after first Escape",
+  "actual": "picker open=true",
+  "shot": "probes/escape-nested-popover.png",
+  "kind": "bug",
+  "title": "Escape inside the department popover closes only the popover, not the whole picker",
+  "passes": 3,
+  "runs": 3
+ },
+ {
+  "id": "empty-hide-warning",
+  "ok": true,
+  "expected": "the note \"Only people who aren't officeholders will see this.\"",
+  "actual": "Who should see this? Show to Hide from Hide from National Regional Local (any level) in department Any department More filters: role, region, Majlis READS AS Everyone except all officeholders Counting… Only people who aren't officeholders will see this. This controls what people see. It is not a sec",
+  "shot": "probes/empty-hide-warning.png",
+  "kind": "ux",
+  "title": "Hide-from with no filters (hides from every officeholder) warns the author",
+  "passes": 3,
+  "runs": 3
+ },
+ {
+  "id": "unknown-and-damaged-rules",
+  "ok": true,
+  "expected": "no crash; damaged/unknown rules are labelled for the author; picker opens on an unknown-valued rule",
+  "actual": "crashed=false cue=true pickerOpensOnUnknown=true text=\"Viewing: Everything (author view) 4 audience sections Visible to: Galactic (unknown) officeholders in zzz (unknown) ≈0 Edit Preview Unknown: 'galactic', Unknown: 'zzz' Nobody currently matches this. C\"",
+  "shot": "probes/unknown-and-damaged-rules.png",
+  "kind": "bug",
+  "title": "Unknown rule values and damaged rules do not crash the editor; learners fail safe",
+  "passes": 3,
+  "runs": 3
+ },
+ {
+  "id": "phone-picker-sheet",
+  "ok": true,
+  "expected": "no h-scroll, Done fully inside the 375x667 viewport, every control >= 40x40",
+  "actual": "scrollWidth=375/375 doneBox={\"x\":192.5,\"y\":559,\"width\":169.5,\"height\":44} doneInView=true smallTargets=[]",
+  "shot": "probes/phone-picker-sheet.png",
+  "kind": "bug",
+  "title": "On a 375x667 phone (iPhone SE size) the picker footer (Cancel/Done) is visible without scrolling",
+  "passes": 3,
+  "runs": 3
+ },
+ {
+  "id": "phone-editor-page",
+  "ok": true,
+  "expected": "scrollWidth <= 375",
+  "actual": "scrollWidth=375",
+  "shot": "probes/phone-editor-page.png",
+  "kind": "bug",
+  "title": "At 375px the editor page (section headers, Viewing bar) has no horizontal overflow",
+  "passes": 3,
+  "runs": 3
+ },
+ {
+  "id": "xss-in-department-search",
+  "ok": true,
+  "expected": "no script execution",
+  "actual": "window.__xss=undefined",
+  "shot": "probes/xss-in-department-search.png",
+  "kind": "bug",
+  "title": "HTML typed into the department search renders as text, never executes",
+  "passes": 3,
+  "runs": 3
+ },
+ {
+  "id": "unknown-viewer-id-fails-closed",
+  "ok": true,
+  "expected": "unknown id => unrecognized viewer (no LOCAL-ONLY section)",
+  "actual": "LOCAL-ONLY visible=false",
+  "shot": "probes/unknown-viewer-id-fails-closed.png",
+  "kind": "quirk",
+  "title": "?mka_viewer=<unknown id> does not silently show the first persona content (mock layer)",
+  "passes": 3,
+  "runs": 3
+ },
+ {
+  "id": "pointerdown-in-editor-cancels-new",
+  "ok": true,
+  "expected": "picker open after Enter; after clicking editor text: 0 sections, picker closed",
+  "actual": "openBefore=true sections=0 openAfter=false",
+  "kind": "bug",
+  "title": "New section (slash + Enter): clicking into the editor text cancels it (section removed, picker closed)",
+  "passes": 3,
+  "runs": 3
+ },
+ {
+  "id": "pointerdown-in-editor-reverts-existing",
+  "ok": true,
+  "expected": "rules unchanged, picker closed",
+  "actual": "unchanged=true open=false rules=[{\"v\":1,\"mode\":\"show\",\"groups\":[{\"level\":[\"local\"]}]},{\"v\":1,\"mode\":\"show\",\"groups\":[{\"level\":[\"regional\"]}]},{\"v\":1,\"mode\":\"hide\",\"groups\":[{\"level\":[\"local\"]}",
+  "kind": "bug",
+  "title": "Existing section: change a chip, click into the editor -> rule reverted and picker closed",
+  "passes": 3,
+  "runs": 3
+ },
+ {
+  "id": "slash-click-then-done",
+  "ok": true,
+  "expected": "one section, level local, picker closed",
+  "actual": "rules=[{\"v\":1,\"mode\":\"show\",\"groups\":[{\"level\":[\"local\"]}],\"label\":\"Local officeholders\"}] open=false",
+  "kind": "bug",
+  "title": "Mouse slash insert -> pick Local -> Done keeps the section with the rule",
+  "passes": 3,
+  "runs": 3
+ },
+ {
+  "id": "rapid-open-close",
+  "ok": true,
+  "expected": "no page errors, picker closed",
+  "actual": "errors=[] open=false",
+  "kind": "bug",
+  "title": "Rapidly toggling the picker / double-clicking Done leaves exactly one consistent state, no errors",
+  "passes": 3,
+  "runs": 3
+ }
+]

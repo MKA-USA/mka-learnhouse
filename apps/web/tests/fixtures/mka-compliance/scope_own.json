@@ -1,0 +1,33 @@
+{
+  "body": {
+    "courses": [
+      {
+        "course_uuid": "course_tabligh",
+        "department": "tabligh",
+        "department_name": "Tabligh",
+        "kind": "department",
+        "name": "Tabligh 2026-27"
+      }
+    ],
+    "cycle": {
+      "deadline_on": "2026-12-01",
+      "id": 1,
+      "label": "2026-27",
+      "starts_on": "2026-11-01"
+    },
+    "cycles": [
+      {
+        "deadline_on": "2026-12-01",
+        "id": 1,
+        "label": "2026-27",
+        "starts_on": "2026-11-01"
+      }
+    ],
+    "departments": [
+      "tabligh"
+    ],
+    "scope": "own"
+  },
+  "path": "scope",
+  "status": 200
+}

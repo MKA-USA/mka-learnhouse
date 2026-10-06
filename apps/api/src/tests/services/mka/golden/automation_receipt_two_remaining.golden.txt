@@ -1,0 +1,15 @@
+SUBJECT: We have recorded your sign-off: Tabligh Department
+
+--- TEXT ---
+Hello Ahmad,
+
+We have recorded your sign-off for “Tabligh Department” on November 12, 2026 at 3:05 PM EST.
+
+You still need to complete: General course and Maal Department.
+
+Open your courses: https://ilm.example.invalid/courses/general
+
+This is an automatic notice from MKA USA.
+
+--- HTML ---
+<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.5;color:#222;max-width:560px"><p style="margin:0 0 12px">Hello Ahmad,</p><p style="margin:0 0 12px">We have recorded your sign-off for “Tabligh Department” on November 12, 2026 at 3:05 PM EST.</p><p style="margin:0 0 12px">You still need to complete: General course and Maal Department.</p><p style="margin:0 0 12px"><a href="https://ilm.example.invalid/courses/general">Open your courses</a></p><p style="margin:16px 0 0;color:#666;font-size:12px">This is an automatic notice from MKA USA.</p></div>

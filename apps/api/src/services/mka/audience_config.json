@@ -1,0 +1,50 @@
+{
+  "_comment": "MKA fork. Data, not code: reviewed in PRs; validated at load by services/mka/audience_config.py and exercised by tests/services/mka/test_audience_config.py. Presets must pass validate_rule; persona attributes must be consistent with identity_rules/<version>.json and MAJLIS_TO_REGION (synthetic personas, never real people). Contract: docs/superpowers/specs/2026-10-05-mka-audience-contracts.md s2.1.",
+  "copy": {
+    "not_secret": "Visibility is for convenience, not secrecy. Anyone enrolled can technically access this section, so don't put confidential information in it.",
+    "unrecognized_note": "Parts of this lesson are tailored by role. We couldn't recognise your role from your sign-in, so you may not see everything meant for you. Contact your administrator.",
+    "empty_lesson": "Nothing in this lesson applies to your role. You can mark it complete and continue.",
+    "count_tooltip": "Counts members of this organization who have signed in at least once (or were added to the roster), using their current role."
+  },
+  "_comment_role_plurals": "Plural display names for every role key in role_titles (keys with ':' are title-lookup only and are not roles).",
+  "role_plurals": {
+    "sadr": "Sadrs",
+    "naib_sadr": "Naib Sadrs",
+    "mohtamim": "Mohtamims",
+    "nazim_dept": "Nazims",
+    "qaid": "Qaids",
+    "naib_qaid": "Naib Qaids",
+    "regional_qaid": "Regional Qaids",
+    "motamid": "Motamids",
+    "regional_nazim_dept": "Regional Nazims",
+    "regional_motamid": "Regional Motamids",
+    "nazim_atfal": "Nazims Atfal",
+    "murabbi_atfal": "Murabbis Atfal",
+    "national_staff": "National staff"
+  },
+  "_comment_presets": "'my-department' has no department yet: the client fills groups[0].department from the author's own /me (needs_author_department) and hides the preset when the author has none.",
+  "presets": [
+    {"id": "local", "label": "Local officeholders", "rule": {"v": 1, "mode": "show", "groups": [{"level": ["local"]}]}},
+    {"id": "regional-qaids", "label": "Regional Qaids", "rule": {"v": 1, "mode": "show", "groups": [{"level": ["regional"], "role": ["regional_qaid"]}]}},
+    {"id": "national-team", "label": "National team", "rule": {"v": 1, "mode": "show", "groups": [{"level": ["national"]}]}},
+    {"id": "qaids-naib-qaids", "label": "Qaids & Naib Qaids", "rule": {"v": 1, "mode": "show", "groups": [{"role": ["qaid", "naib_qaid"]}]}},
+    {"id": "motamids", "label": "Motamids", "rule": {"v": 1, "mode": "show", "groups": [{"role": ["motamid", "regional_motamid"]}]}},
+    {"id": "my-department", "label": "My department", "rule": {"v": 1, "mode": "show", "groups": [{}]}, "needs_author_department": true}
+  ],
+  "personas": [
+    {"id": "local-nazim-tabligh-albany", "label": "Local Nazim Tabligh · Albany",
+     "attributes": {"status": "matched", "is_officeholder": true, "level": "local", "department": "tabligh", "role": "nazim_dept", "role_title": "Nazim Tabligh", "majlis": "Albany", "region": "Northeast"}},
+    {"id": "local-qaid-houston", "label": "Local Qaid · Houston",
+     "attributes": {"status": "matched", "is_officeholder": true, "level": "local", "department": null, "role": "qaid", "role_title": "Qaid", "majlis": "Houston", "region": "Gulf"}},
+    {"id": "regional-qaid-northeast", "label": "Regional Qaid · Northeast",
+     "attributes": {"status": "matched", "is_officeholder": true, "level": "regional", "department": null, "role": "regional_qaid", "role_title": "Regional Qaid", "majlis": null, "region": "Northeast"}},
+    {"id": "mohtamim-tabligh-national", "label": "Mohtamim Tabligh (National)",
+     "attributes": {"status": "matched", "is_officeholder": true, "level": "national", "department": "tabligh", "role": "mohtamim", "role_title": "Mohtamim Tabligh", "majlis": null, "region": null}},
+    {"id": "regional-nazim-tabligh-northeast", "label": "Regional Nazim Tabligh · Northeast",
+     "attributes": {"status": "matched", "is_officeholder": true, "level": "regional", "department": "tabligh", "role": "regional_nazim_dept", "role_title": "Regional Nazim Tabligh", "majlis": null, "region": "Northeast"}},
+    {"id": "unrecognized", "label": "Unrecognized account",
+     "attributes": {"status": "unrecognized", "is_officeholder": null, "level": null, "department": null, "role": null, "role_title": null, "majlis": null, "region": null}},
+    {"id": "not-an-officeholder", "label": "Not an officeholder",
+     "attributes": {"status": "not_applicable", "is_officeholder": false, "level": null, "department": null, "role": null, "role_title": null, "majlis": null, "region": null}}
+  ]
+}

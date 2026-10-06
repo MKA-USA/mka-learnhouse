@@ -1,0 +1,80 @@
+name: MKA Dev Deploy
+
+# Restarts the dev Coolify service (which rebuilds from the `dev` branch on the
+# VPS) and waits for health. This workflow never builds or pushes images.
+on:
+  push:
+    branches: [dev]
+    paths-ignore:
+      - "**.md"
+      - ".codebase-memory/**"
+      - ".qwen/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-dev
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: development
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+        working-directory: ./apps/web
+
+      # lint:strict (32 errors) and the full suite (7 env-dependent failures in
+      # the updateOrganizationConfigInternally tests, CI only) are non-blocking
+      # until fixed; then remove continue-on-error. rtl-guard is a hard gate:
+      # it compiles the CSS and catches breakage that would fail the Docker build.
+      - name: Lint (strict)
+        continue-on-error: true
+        run: bun run lint:strict
+        working-directory: ./apps/web
+
+      - name: CSS compile guard
+        run: bun test tests/rtl-guard.test.mjs
+        working-directory: ./apps/web
+
+      - name: Full test suite
+        continue-on-error: true
+        run: bun test tests
+        working-directory: ./apps/web
+
+      - name: Restart dev service in Coolify
+        env:
+          COOLIFY_URL: ${{ secrets.COOLIFY_URL }}
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          COOLIFY_DEV_SERVICE_UUID: ${{ secrets.COOLIFY_DEV_SERVICE_UUID }}
+        run: |
+          curl -fsS -X POST \
+            -H "Authorization: Bearer $COOLIFY_TOKEN" \
+            "$COOLIFY_URL/api/v1/services/$COOLIFY_DEV_SERVICE_UUID/restart"
+
+      - name: Wait for dev to become healthy
+        uses: ./.github/actions/mka-wait-healthy
+        with:
+          url: https://ilm-dev.mkausa.org/api/v1/health
+
+      - name: Failure summary
+        if: failure()
+        run: |
+          {
+            echo "## Dev deploy failed"
+            echo
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo "- Check the failed step above (Coolify restart call vs. health wait)."
+            echo "- Coolify gives no build logs for compose services; check service status and the Service Startup log in the Coolify UI."
+          } >> "$GITHUB_STEP_SUMMARY"

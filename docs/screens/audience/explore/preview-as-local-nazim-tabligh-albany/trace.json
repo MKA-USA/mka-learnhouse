@@ -1,0 +1,53 @@
+{
+ "mission": "preview-as-local-nazim-tabligh-albany",
+ "ok": true,
+ "detail": "bar: Viewing: Local Nazim Tabligh · Albany",
+ "steps": 2,
+ "modelCalls": 3,
+ "wallMs": 2842,
+ "modelMs": 0,
+ "trace": [
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > button:nth-child(2)",
+   "label": "button \"Viewing: Everything (author view)\" [collapsed, closed]"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(11) > div:nth-child(1) > div:nth-child(1) > button:nth-child(4)",
+   "label": "button \"Local Nazim Tabligh · Albany\""
+  }
+ ],
+ "log": [
+  {
+   "n": 1,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Viewing: Everything (author view)\" [collapsed, closed]",
+   "backend": "jev",
+   "confidence": 0.34,
+   "p": 0.4,
+   "margin": 0.030000000000000027,
+   "ms": 0,
+   "escalated": true,
+   "cached": true,
+   "changed": true,
+   "shot": "step-01.jpg"
+  },
+  {
+   "n": 2,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Local Nazim Tabligh · Albany\"",
+   "backend": "clef",
+   "confidence": 0.6537328653441895,
+   "p": 0.7980455373307355,
+   "margin": 0.7709785166073604,
+   "ms": 0,
+   "escalated": false,
+   "cached": true,
+   "changed": true,
+   "shot": "step-02.jpg"
+  }
+ ],
+ "issues": [],
+ "stoppedBy": "success"
+}

@@ -19,6 +19,7 @@ import { PlanLevel } from '@services/plans/plans';
 import FeatureGate from '@components/Dashboard/Shared/FeatureGate/FeatureGate';
 import CourseAnalyticsTab from '@components/Dashboard/Analytics/Course/CourseAnalyticsTab';
 import { DashTabBar, DashTabItem } from '@components/Dashboard/Shared/DashTabBar/DashTabBar';
+import MkaCourseComplianceTab, { useMkaCourseTabs } from '@components/mka/compliance/course-tab' // MKA fork
 
 export type CourseOverviewParams = {
   orgslug: string
@@ -94,6 +95,7 @@ function CourseOverviewPage(props: { params: Promise<CourseOverviewParams> }) {
       requiresPlan: 'pro' as PlanLevel
     }
   ]
+  tabs.push(...useMkaCourseTabs(params.courseuuid)) // MKA fork
 
   // Filter tabs based on permissions
   const visibleTabs = tabs.filter(tab => hasPermission(tab.requiredPermission))
@@ -202,6 +204,7 @@ function CourseOverviewPage(props: { params: Promise<CourseOverviewParams> }) {
                 <CourseAnalyticsTab courseUUID={courseuuid} />
               </FeatureGate>
             ) : null}
+            {!rightsLoading && params.subpage == 'compliance' && hasPermission('update') ? <MkaCourseComplianceTab courseUUID={courseuuid} /> : null} {/* MKA fork */}
           </div>
         </motion.div>
       </CourseProvider>

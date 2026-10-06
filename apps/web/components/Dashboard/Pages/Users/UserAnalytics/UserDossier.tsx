@@ -17,6 +17,7 @@ import CodeSection from './sections/CodeSection'
 import CommunitySection from './sections/CommunitySection'
 import CertificatesSection from './sections/CertificatesSection'
 import BehaviorSection from './sections/BehaviorSection'
+import ModerationFlagsSection from '@components/Dashboard/Moderation/ModerationFlagsSection'
 
 export default function UserDossier({ dossier }: { dossier: any }) {
   const { t } = useTranslation()
@@ -89,6 +90,9 @@ export default function UserDossier({ dossier }: { dossier: any }) {
         <TabsContent value="certificates"><CertificatesSection certificates={dossier?.certificates || []} /></TabsContent>
         <TabsContent value="behavior"><BehaviorSection behavior={behavior} /></TabsContent>
       </Tabs>
+
+      {/* Staff-only AI moderation flags (review aids, not verdicts) */}
+      <ModerationFlagsSection userUuid={user.user_uuid} />
 
       {/* Coverage notes (server-provided, rendered as-is) */}
       {(dossier?.coverage_notes || []).length > 0 && (

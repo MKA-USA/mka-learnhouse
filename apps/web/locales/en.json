@@ -6689,5 +6689,84 @@
       "from": "from",
       "subscription": "subscription"
     }
+  },
+  "moderation": {
+    "nav": "Moderation",
+    "title": "Review queue",
+    "subtitle": "Content that an automated check marked for a closer look. These are review aids, not verdicts.",
+    "flag_title": "Possible issue for review",
+    "flagged_badge": "Flagged for review",
+    "status": {
+      "open": "Open",
+      "reviewed": "Reviewed",
+      "dismissed": "Dismissed",
+      "all": "All"
+    },
+    "severity": {
+      "medium": "Worth a look",
+      "high": "Higher priority"
+    },
+    "content_type": {
+      "all": "All content",
+      "discussion": "Discussion post",
+      "discussion_comment": "Discussion comment",
+      "assignment_submission": "Assignment submission",
+      "user_profile": "Profile"
+    },
+    "scores": {
+      "pii": "Personal info",
+      "toxicity": "Tone",
+      "spam": "Spam",
+      "academic_integrity": "Integrity"
+    },
+    "integrity_note": "Possible integrity concern — review the work yourself",
+    "advisory": "Automated signal only. It can be wrong and has no effect on grades or visibility.",
+    "reasons": "Why it was flagged",
+    "view_content": "View content",
+    "mark_reviewed": "Mark reviewed",
+    "dismiss": "Dismiss",
+    "reopen": "Reopen",
+    "update_failed": "Could not update this flag",
+    "updated": "Flag updated",
+    "empty_title": "Nothing to review",
+    "empty_body": "No content matches these filters. Flags appear here when AI content moderation is turned on and something is marked for a closer look.",
+    "load_error": "Could not load the review queue",
+    "retry": "Retry",
+    "prev": "Previous",
+    "next": "Next",
+    "showing": "{{from}}–{{to}} of {{total}}",
+    "flagged_on": "Flagged {{date}}",
+    "reviewed_on": "Reviewed {{date}}",
+    "dossier": {
+      "title": "Content flags",
+      "subtitle": "Items marked for review. Not a verdict.",
+      "none": "No flags for this user."
+    },
+    "settings": {
+      "title": "AI content moderation",
+      "subtitle": "Mark possible issues in learner-written text for staff to review.",
+      "toggle_label": "Enable AI content moderation",
+      "toggle_help": "Off by default. When on, new or edited text is checked in the background after it is saved.",
+      "privacy_title": "What this does with your data",
+      "saving": "Saving…",
+      "saved": "Settings saved",
+      "error": "Could not save moderation settings",
+      "admin_only": "Only organization admins can change this setting.",
+      "privacy_1": "Text only. Files, images and uploads are never checked.",
+      "privacy_2": "Covered text: discussion posts and comments, submitted assignment answers, and profile name and bio.",
+      "privacy_3": "The text is sent, truncated, to a third-party AI provider to be scored. Review your privacy notice and local requirements before turning this on.",
+      "privacy_4": "The content itself is not stored by moderation. Only the scores, reasons and ids are kept.",
+      "privacy_5": "Flags are visible to staff only. They are review aids, never grade-affecting and never shown to learners.",
+      "loading": "Loading settings…",
+      "load_error": "Could not load moderation settings.",
+      "no_provider": "No AI provider is configured on this server; moderation will not run.",
+      "surfaces_title": "Check these areas",
+      "surface": {
+        "discussion": "Discussion posts",
+        "discussion_comment": "Discussion comments",
+        "assignment_submission": "Assignment submissions",
+        "user_profile": "Profiles (name and bio)"
+      }
+    }
   }
 }

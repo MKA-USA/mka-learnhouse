@@ -1,0 +1,19 @@
+SUBJECT: Weekly compliance update: Northeast region
+
+--- TEXT ---
+Hello Regional Qaid, Northeast,
+
+Here is this week's compliance update for Northeast region (2026-27).
+
+Signed off: 12 of 12
+In progress: 0
+Not started: 0
+Not signed in yet: 0
+Overdue: 0
+
+See the full list: https://ilm.example.invalid/courses/general
+
+This is an automatic notice from MKA USA.
+
+--- HTML ---
+<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.5;color:#222;max-width:560px"><p style="margin:0 0 12px">Hello Regional Qaid, Northeast,</p><p style="margin:0 0 12px">Here is this week&#x27;s compliance update for Northeast region (2026-27).</p><p style="margin:0 0 12px">Signed off: 12 of 12<br>In progress: 0<br>Not started: 0<br>Not signed in yet: 0<br>Overdue: 0</p><p style="margin:0 0 12px"><a href="https://ilm.example.invalid/courses/general">See the full list</a></p><p style="margin:16px 0 0;color:#666;font-size:12px">This is an automatic notice from MKA USA.</p></div>

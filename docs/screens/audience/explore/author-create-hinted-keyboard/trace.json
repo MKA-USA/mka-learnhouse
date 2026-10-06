@@ -1,0 +1,451 @@
+{
+ "mission": "author-create-hinted-keyboard",
+ "ok": true,
+ "detail": "rule {\"v\":1,\"mode\":\"show\",\"groups\":[{\"level\":[\"local\"],\"role\":[\"nazim_dept\"],\"department\":[\"tabligh\"]}],\"label\":\"Nazims in Tabligh\"}",
+ "steps": 23,
+ "modelCalls": 39,
+ "wallMs": 61989,
+ "modelMs": 47860.768374000036,
+ "trace": [
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2)",
+   "label": "editor \"rich-text editor (document body)\""
+  },
+  {
+   "t": "type",
+   "text": "/",
+   "label": "type \"/\""
+  },
+  {
+   "t": "type",
+   "text": "audience",
+   "label": "type \"audience\""
+  },
+  {
+   "t": "press",
+   "key": "Enter"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(11) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(3) > div:nth-child(1) > div:nth-child(2) > div:nth-child(1) > div:nth-child(1) > button:nth-child(3)",
+   "label": "button \"Local\" [false]"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(11) > div:nth-child(1) > div:nth-child(1) > div:nth-child(3) > div:nth-child(2) > button:nth-child(2)",
+   "label": "button \"Done\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(4) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(1) > div:nth-child(3) > button:nth-child(1)",
+   "label": "button \"Edit\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(11) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(2) > button:nth-child(3)",
+   "label": "button \"More filters: role, region, Majlis\" [collapsed]"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(11) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(2) > div:nth-child(3) > div:nth-child(2) > div:nth-child(1) > button:nth-child(1)",
+   "label": "button \"Role: Any role. Choose…\" [collapsed, closed]"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(12) > div:nth-child(1) > div:nth-child(1) > div:nth-child(3) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(4)",
+   "label": "option \"Nazim (department)\" [false]"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(12) > div:nth-child(1) > div:nth-child(1) > div:nth-child(4) > button:nth-child(2)",
+   "label": "button \"Done\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(11) > div:nth-child(1) > div:nth-child(1) > div:nth-child(3) > div:nth-child(2) > button:nth-child(2)",
+   "label": "button \"Done\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(4) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(1) > div:nth-child(3) > button:nth-child(1)",
+   "label": "button \"Edit\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(11) > div:nth-child(1) > div:nth-child(1) > div:nth-child(3) > div:nth-child(2) > button:nth-child(2)",
+   "label": "button \"Done\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > button:nth-child(2)",
+   "label": "button \"Viewing: Everything (author view)\" [collapsed, closed]"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(11) > div:nth-child(1) > div:nth-child(1) > button:nth-child(4)",
+   "label": "button \"Local Nazim Tabligh · Albany\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(4) > button:nth-child(1)",
+   "label": "button \"Exit preview\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > button:nth-child(2)",
+   "label": "button \"Viewing: Everything (author view)\" [collapsed, closed]"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(3) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(4) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(1) > div:nth-child(3) > button:nth-child(1)",
+   "label": "button \"Edit\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(11) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(2) > div:nth-child(2) > div:nth-child(2) > div:nth-child(1) > button:nth-child(1)",
+   "label": "button \"Department: Any department. Choose…\" [collapsed, closed]"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(12) > div:nth-child(1) > div:nth-child(1) > div:nth-child(3) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2)",
+   "label": "option \"Tabligh\" [false]"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(12) > div:nth-child(1) > div:nth-child(1) > div:nth-child(4) > button:nth-child(2)",
+   "label": "button \"Done\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(11) > div:nth-child(1) > div:nth-child(1) > div:nth-child(3) > div:nth-child(2) > button:nth-child(2)",
+   "label": "button \"Done\""
+  }
+ ],
+ "log": [
+  {
+   "n": 1,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "editor \"rich-text editor (document body)\"",
+   "backend": "clef",
+   "confidence": 0.3319752859508809,
+   "p": 0.6290452723025304,
+   "margin": 0.49036824111911104,
+   "ms": 0,
+   "escalated": false,
+   "cached": true,
+   "changed": false,
+   "shot": "step-01.jpg"
+  },
+  {
+   "n": 2,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"/\"",
+   "backend": "jev",
+   "confidence": 0.62,
+   "p": 0.66,
+   "margin": 0.53,
+   "ms": 0,
+   "escalated": true,
+   "cached": true,
+   "changed": true,
+   "shot": "step-02.jpg"
+  },
+  {
+   "n": 3,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"audience\"",
+   "backend": "jev",
+   "confidence": 0.64,
+   "p": 0.66,
+   "margin": 0.5700000000000001,
+   "ms": 0,
+   "escalated": true,
+   "cached": true,
+   "changed": true,
+   "shot": "step-03.jpg"
+  },
+  {
+   "n": 4,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "press Enter",
+   "backend": "jev",
+   "confidence": 0.7,
+   "p": 0.73,
+   "margin": 0.59,
+   "ms": 1583.1410409999953,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-04.jpg"
+  },
+  {
+   "n": 5,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Local\" [false]",
+   "backend": "jev",
+   "confidence": 0.3,
+   "p": 0.33,
+   "margin": 0,
+   "ms": 2636.250165999998,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-05.jpg"
+  },
+  {
+   "n": 6,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Done\"",
+   "backend": "clef",
+   "confidence": 0.3233498969471539,
+   "p": 0.4273958877649124,
+   "margin": 0.2474005671276029,
+   "ms": 2087.239207999999,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-06.jpg"
+  },
+  {
+   "n": 8,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Edit\"",
+   "backend": "jev",
+   "confidence": 0.56,
+   "p": 0.59,
+   "margin": 0.45999999999999996,
+   "ms": 1776.6892500000104,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-08.jpg"
+  },
+  {
+   "n": 9,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"More filters: role, region, Majlis\" [collapsed]",
+   "backend": "jev",
+   "confidence": 0.41,
+   "p": 0.45,
+   "margin": 0.16000000000000003,
+   "ms": 2149.083958000003,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-09.jpg"
+  },
+  {
+   "n": 10,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Role: Any role. Choose…\" [collapsed, closed]",
+   "backend": "jev",
+   "confidence": 0.43,
+   "p": 0.46,
+   "margin": 0.14,
+   "ms": 3161.923332999999,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-10.jpg"
+  },
+  {
+   "n": 11,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "option \"Nazim (department)\" [false]",
+   "backend": "jev",
+   "confidence": 0.75,
+   "p": 0.77,
+   "margin": 0.67,
+   "ms": 2575.6102929999906,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-11.jpg"
+  },
+  {
+   "n": 12,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Done\"",
+   "backend": "clef",
+   "confidence": 0.33712964066006945,
+   "p": 0.5084971220704189,
+   "margin": 0.4394049569415535,
+   "ms": 2546.701375000004,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-12.jpg"
+  },
+  {
+   "n": 13,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Done\"",
+   "backend": "clef",
+   "confidence": 0.25010941795109876,
+   "p": 0.4289013877718529,
+   "margin": 0.34317759432642353,
+   "ms": 2863.6818750000093,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-13.jpg"
+  },
+  {
+   "n": 14,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Edit\"",
+   "backend": "jev",
+   "confidence": 0.41,
+   "p": 0.47000000000000003,
+   "margin": 0.2,
+   "ms": 2773.0392500000016,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-14.jpg"
+  },
+  {
+   "n": 15,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Done\"",
+   "backend": "clef",
+   "confidence": 0.23863141278615274,
+   "p": 0.41013841605041185,
+   "margin": 0.3206695846722831,
+   "ms": 2107.047875000004,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-15.jpg"
+  },
+  {
+   "n": 16,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Viewing: Everything (author view)\" [collapsed, closed]",
+   "backend": "jev",
+   "confidence": 0.46,
+   "p": 0.5,
+   "margin": 0.32999999999999996,
+   "ms": 1284.0242499999877,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-16.jpg"
+  },
+  {
+   "n": 17,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Local Nazim Tabligh · Albany\"",
+   "backend": "jev",
+   "confidence": 0.47,
+   "p": 0.51,
+   "margin": 0.16000000000000003,
+   "ms": 2502.9705829999875,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-17.jpg"
+  },
+  {
+   "n": 18,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Exit preview\"",
+   "backend": "clef",
+   "confidence": 0.30587465682479464,
+   "p": 0.5892215303120575,
+   "margin": 0.44617713388011515,
+   "ms": 715.0876670000143,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-18.jpg"
+  },
+  {
+   "n": 19,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Viewing: Everything (author view)\" [collapsed, closed]",
+   "backend": "jev",
+   "confidence": 0.46,
+   "p": 0.52,
+   "margin": 0.28,
+   "ms": 1569.4305010000244,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-19.jpg"
+  },
+  {
+   "n": 20,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Edit\"",
+   "backend": "jev",
+   "confidence": 0.31,
+   "p": 0.35000000000000003,
+   "margin": 0.08000000000000002,
+   "ms": 2792.841833000013,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-20.jpg"
+  },
+  {
+   "n": 21,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Department: Any department. Choose…\" [collapsed, closed]",
+   "backend": "jev",
+   "confidence": 0.33,
+   "p": 0.33999999999999997,
+   "margin": 0.05999999999999994,
+   "ms": 2800.9437919999764,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-21.jpg"
+  },
+  {
+   "n": 22,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "option \"Tabligh\" [false]",
+   "backend": "jev",
+   "confidence": 0.69,
+   "p": 0.71,
+   "margin": 0.63,
+   "ms": 2679.166790999996,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-22.jpg"
+  },
+  {
+   "n": 23,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Done\"",
+   "backend": "clef",
+   "confidence": 0.40975765067864267,
+   "p": 0.5645099846187728,
+   "margin": 0.46477781300870785,
+   "ms": 3177.480542000005,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-23.jpg"
+  },
+  {
+   "n": 24,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Done\"",
+   "backend": "clef",
+   "confidence": 0.22221204544260598,
+   "p": 0.3764123334324349,
+   "margin": 0.26451496941608166,
+   "ms": 2602.3008330000157,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-24.jpg"
+  }
+ ],
+ "issues": [],
+ "stoppedBy": "success"
+}

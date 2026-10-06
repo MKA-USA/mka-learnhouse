@@ -1,0 +1,264 @@
+{
+  "body": {
+    "as_of": "2026-11-16",
+    "attested_pct": 20.0,
+    "by_level": [
+      {
+        "attested": 1,
+        "attested_pct": 25.0,
+        "completed": 1,
+        "completed_pct": 50.0,
+        "contact_mismatches": 2,
+        "expected": 4,
+        "expected_attested_pct": 50.0,
+        "in_progress": 0,
+        "last_activity_at": "2026-11-09",
+        "level": "local",
+        "median_days_to_complete": 6.0,
+        "not_signed_in": 2,
+        "not_started": 0,
+        "overdue": 0,
+        "rag": "red",
+        "reasons": [
+          "2 of 4 never signed in",
+          "attested 25% vs 50% expected",
+          "2 contact self-check mismatches"
+        ],
+        "score": 40.0,
+        "started_pct": 50.0,
+        "summary": "2 of 4 never signed in; attested 25% vs 50% expected; 2 contact self-check mismatches"
+      },
+      {
+        "attested": 0,
+        "attested_pct": 0.0,
+        "completed": 0,
+        "completed_pct": 0.0,
+        "contact_mismatches": 0,
+        "expected": 1,
+        "expected_attested_pct": 50.0,
+        "in_progress": 0,
+        "last_activity_at": null,
+        "level": "national",
+        "median_days_to_complete": null,
+        "not_signed_in": 1,
+        "not_started": 0,
+        "overdue": 0,
+        "rag": "red",
+        "reasons": [
+          "1 of 1 never signed in",
+          "attested 0% vs 50% expected"
+        ],
+        "score": 50.0,
+        "started_pct": 0.0,
+        "summary": "1 of 1 never signed in; attested 0% vs 50% expected"
+      }
+    ],
+    "by_majlis": [
+      {
+        "attested": 0,
+        "attested_pct": 0.0,
+        "completed": 0,
+        "completed_pct": 0.0,
+        "contact_mismatches": 0,
+        "expected": 1,
+        "expected_attested_pct": 50.0,
+        "in_progress": 0,
+        "last_activity_at": null,
+        "majlis": null,
+        "median_days_to_complete": null,
+        "not_signed_in": 1,
+        "not_started": 0,
+        "overdue": 0,
+        "rag": "red",
+        "reasons": [
+          "1 of 1 never signed in",
+          "attested 0% vs 50% expected"
+        ],
+        "score": 50.0,
+        "started_pct": 0.0,
+        "summary": "1 of 1 never signed in; attested 0% vs 50% expected"
+      },
+      {
+        "attested": 1,
+        "attested_pct": 50.0,
+        "completed": 0,
+        "completed_pct": 50.0,
+        "contact_mismatches": 0,
+        "expected": 2,
+        "expected_attested_pct": 50.0,
+        "in_progress": 0,
+        "last_activity_at": "2026-11-07",
+        "majlis": "Albany",
+        "median_days_to_complete": 4,
+        "not_signed_in": 1,
+        "not_started": 0,
+        "overdue": 0,
+        "rag": "amber",
+        "reasons": [
+          "1 of 2 never signed in"
+        ],
+        "score": 10.0,
+        "started_pct": 50.0,
+        "summary": "1 of 2 never signed in"
+      },
+      {
+        "attested": 0,
+        "attested_pct": 0.0,
+        "completed": 1,
+        "completed_pct": 100.0,
+        "contact_mismatches": 2,
+        "expected": 1,
+        "expected_attested_pct": 50.0,
+        "in_progress": 0,
+        "last_activity_at": "2026-11-09",
+        "majlis": "Boston",
+        "median_days_to_complete": 8,
+        "not_signed_in": 0,
+        "not_started": 0,
+        "overdue": 0,
+        "rag": "red",
+        "reasons": [
+          "attested 0% vs 50% expected",
+          "2 contact self-check mismatches"
+        ],
+        "score": 45.0,
+        "started_pct": 100.0,
+        "summary": "attested 0% vs 50% expected; 2 contact self-check mismatches"
+      },
+      {
+        "attested": 0,
+        "attested_pct": 0.0,
+        "completed": 0,
+        "completed_pct": 0.0,
+        "contact_mismatches": 0,
+        "expected": 1,
+        "expected_attested_pct": 50.0,
+        "in_progress": 0,
+        "last_activity_at": null,
+        "majlis": "Dallas",
+        "median_days_to_complete": null,
+        "not_signed_in": 1,
+        "not_started": 0,
+        "overdue": 0,
+        "rag": "red",
+        "reasons": [
+          "1 of 1 never signed in",
+          "attested 0% vs 50% expected"
+        ],
+        "score": 50.0,
+        "started_pct": 0.0,
+        "summary": "1 of 1 never signed in; attested 0% vs 50% expected"
+      }
+    ],
+    "by_region": [
+      {
+        "attested": 0,
+        "attested_pct": 0.0,
+        "completed": 0,
+        "completed_pct": 0.0,
+        "contact_mismatches": 0,
+        "expected": 1,
+        "expected_attested_pct": 50.0,
+        "in_progress": 0,
+        "last_activity_at": null,
+        "median_days_to_complete": null,
+        "not_signed_in": 1,
+        "not_started": 0,
+        "overdue": 0,
+        "rag": "red",
+        "reasons": [
+          "1 of 1 never signed in",
+          "attested 0% vs 50% expected"
+        ],
+        "region": null,
+        "score": 50.0,
+        "started_pct": 0.0,
+        "summary": "1 of 1 never signed in; attested 0% vs 50% expected"
+      },
+      {
+        "attested": 1,
+        "attested_pct": 33.3,
+        "completed": 1,
+        "completed_pct": 66.7,
+        "contact_mismatches": 2,
+        "expected": 3,
+        "expected_attested_pct": 50.0,
+        "in_progress": 0,
+        "last_activity_at": "2026-11-09",
+        "median_days_to_complete": 6.0,
+        "not_signed_in": 1,
+        "not_started": 0,
+        "overdue": 0,
+        "rag": "red",
+        "reasons": [
+          "1 of 3 never signed in",
+          "attested 33% vs 50% expected",
+          "2 contact self-check mismatches"
+        ],
+        "region": "Northeast",
+        "score": 31.7,
+        "started_pct": 66.7,
+        "summary": "1 of 3 never signed in; attested 33% vs 50% expected; 2 contact self-check mismatches"
+      },
+      {
+        "attested": 0,
+        "attested_pct": 0.0,
+        "completed": 0,
+        "completed_pct": 0.0,
+        "contact_mismatches": 0,
+        "expected": 1,
+        "expected_attested_pct": 50.0,
+        "in_progress": 0,
+        "last_activity_at": null,
+        "median_days_to_complete": null,
+        "not_signed_in": 1,
+        "not_started": 0,
+        "overdue": 0,
+        "rag": "red",
+        "reasons": [
+          "1 of 1 never signed in",
+          "attested 0% vs 50% expected"
+        ],
+        "region": "Southwest",
+        "score": 50.0,
+        "started_pct": 0.0,
+        "summary": "1 of 1 never signed in; attested 0% vs 50% expected"
+      }
+    ],
+    "completed_pct": 40.0,
+    "course": {
+      "course_uuid": "course_tabligh",
+      "department": "tabligh",
+      "department_name": "Tabligh",
+      "kind": "department",
+      "name": "Tabligh 2026-27"
+    },
+    "cycle": {
+      "deadline_on": "2026-12-01",
+      "id": 1,
+      "label": "2026-27",
+      "starts_on": "2026-11-01"
+    },
+    "expected_attested_pct": 50.0,
+    "lessons_total": 2,
+    "rag": "red",
+    "reasons": [
+      "3 of 5 never signed in",
+      "attested 20% vs 50% expected",
+      "2 contact self-check mismatches"
+    ],
+    "score": 45.0,
+    "summary": "3 of 5 never signed in; attested 20% vs 50% expected; 2 contact self-check mismatches",
+    "totals": {
+      "attested": 1,
+      "completed": 1,
+      "expected": 5,
+      "in_progress": 0,
+      "not_signed_in": 3,
+      "not_started": 0,
+      "overdue": 0
+    }
+  },
+  "path": "courses/course_tabligh/summary",
+  "status": 200
+}

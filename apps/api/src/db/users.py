@@ -34,6 +34,8 @@ class UserCreate(UserBase):
     # request could write an arbitrary blob. Values here are validated against
     # the org's declared fields before anything is stored.
     custom_fields: Optional[dict] = None
+    # MKA fork: Majlis/Region profile (validated in services/users/mka_profile.py)
+    mka_profile: Optional[dict] = None
 
 
 class UserUpdate(UserBase):

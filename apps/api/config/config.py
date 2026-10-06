@@ -29,6 +29,26 @@ class Judge0Config(BaseModel):
     client_secret: str | None
 
 
+class JevConfig(BaseModel):
+    enabled: bool = False
+    api_key: str = ""
+    timeout: float = 3.0
+    # Explicit opt-in: an empty list disables Jev for every organization.
+    allowed_org_ids: list[int] = []
+    quiz_validation_enabled: bool = False
+    guardrails_enabled: bool = True
+    intent_routing_enabled: bool = False
+    # Provider-neutral System One backend: 'typesafe' (Jev via typesafe-sdk) or
+    # 'cloudflare' (Workers AI Clef). ``api_key`` is the TypeSafe key OR a
+    # Cloudflare API token scoped to Workers AI.
+    provider: str = "typesafe"
+    # None => SDK default (typesafe) / 'clef-flash' (cloudflare).
+    model: str | None = None
+    cloudflare_account_id: str = ""
+    # Optional per-capability model overrides (rerank|guardrails|moderation|intent|quiz).
+    models: dict[str, str] = {}
+
+
 class GeneralConfig(BaseModel):
     development_mode: bool
     sentry_config: SentryConfig
@@ -43,10 +63,10 @@ class SecurityConfig(BaseModel):
 class AIConfig(BaseModel):
     is_ai_enabled: bool | None
     # Provider-agnostic generation config (Pydantic AI). `provider` selects the SDK
-    # ("google" | "openai" | "anthropic" | "deepseek" | "moonshot" | "mistral" | "openrouter" | "bedrock"
-    # | "ollama" | ...); `api_key`/`base_url` are the single credentials used regardless of
-    # provider. For "openrouter" base_url is auto-set; for "bedrock" use standard AWS
-    # credentials (env/role/profile) + AWS_REGION, with api_key optional.
+    # ("google" | "openai" | "anthropic" | "deepseek" | "fireworks" | "moonshot" | "mistral"
+    # | "openrouter" | "bedrock" | "ollama" | ...); `api_key`/`base_url` are the single
+    # credentials used regardless of provider. For "openrouter" base_url is auto-set; for
+    # "bedrock" use standard AWS credentials (env/role/profile) + AWS_REGION, with api_key optional.
     provider: str | None = None
     api_key: str | None = None
     base_url: str | None = None
@@ -57,6 +77,8 @@ class AIConfig(BaseModel):
     model_pro: str | None = None
     # RAG embeddings follow the chosen provider where it supports embeddings (Google, OpenAI
     # family incl. Ollama). Optionally override the embeddings provider/model/dimensions.
+    # Fireworks embeddings are opt-in: set embedding_provider="fireworks" and an explicit
+    # embedding_model (the shared api_key is used); a Fireworks main provider alone does not enable them.
     # Output dimensions default to 768 to match the Vector(768) pgvector column.
     embedding_provider: str | None = None
     embedding_model: str | None = None
@@ -154,6 +176,7 @@ class LearnHouseConfig(BaseModel):
     payments_config: InternalPaymentsConfig
     tinybird_config: TinybirdConfig | None
     judge0_config: Judge0Config | None
+    jev_config: JevConfig | None
 
 
 def _env_bool(env_value, yaml_value):
@@ -176,6 +199,94 @@ def _env_bool(env_value, yaml_value):
     # and the quoted form is easy to write by accident. Parse both sides the
     # same way rather than only fixing the env side.
     return str(value).strip().lower() in ("true", "1", "yes", "on")
+
+
+def _parse_jev_float(env_value, yaml_value, default: float) -> float:
+    """Parse a float setting; log a warning and use the default on bad input."""
+    raw = yaml_value if env_value is None or env_value == "" else env_value
+    if raw is None or raw == "":
+        return default
+    try:
+        value = float(raw)
+        if value <= 0:
+            raise ValueError("must be positive")
+        return value
+    except (TypeError, ValueError):
+        import logging as _jev_log
+        _jev_log.getLogger(__name__).warning(
+            "Invalid Jev timeout setting; using default %s", default
+        )
+        return default
+
+
+def _parse_jev_org_ids(env_value, yaml_value) -> list[int]:
+    """Parse a list of org IDs from a comma-separated env string or a YAML list.
+
+    Invalid entries are skipped with a warning; config load never fails.
+    """
+    raw = yaml_value if env_value is None or env_value == "" else env_value
+    if raw is None or raw == "":
+        return []
+    if isinstance(raw, (list, tuple)):
+        items = list(raw)
+    else:
+        items = str(raw).split(",")
+    ids: list[int] = []
+    for item in items:
+        text = str(item).strip()
+        if not text:
+            continue
+        try:
+            ids.append(int(text))
+        except ValueError:
+            import logging as _jev_log
+            _jev_log.getLogger(__name__).warning(
+                "Ignoring invalid Jev allowed org id entry"
+            )
+    return ids
+
+
+JEV_PROVIDERS = ("typesafe", "cloudflare")
+JEV_CAPABILITIES = ("rerank", "guardrails", "moderation", "intent", "quiz")
+
+
+def _parse_jev_provider(env_value, yaml_value) -> str:
+    """Return 'typesafe' or 'cloudflare'; warn and default on anything else."""
+    raw = yaml_value if env_value is None or env_value == "" else env_value
+    if raw is None or str(raw).strip() == "":
+        return "typesafe"
+    value = str(raw).strip().lower()
+    if value in JEV_PROVIDERS:
+        return value
+    import logging as _jev_log
+    _jev_log.getLogger(__name__).warning(
+        "Invalid Jev provider setting; using default 'typesafe'"
+    )
+    return "typesafe"
+
+
+def _clean_jev_str(env_value, yaml_value) -> str | None:
+    raw = yaml_value if env_value is None or env_value == "" else env_value
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    return text or None
+
+
+def _parse_jev_models(yaml_value) -> dict[str, str]:
+    """Per-capability model overrides from env (``LEARNHOUSE_JEV_MODEL_<CAP>``)
+    layered over the YAML ``models`` mapping. Unknown capabilities are ignored."""
+    models: dict[str, str] = {}
+    if isinstance(yaml_value, dict):
+        for cap in JEV_CAPABILITIES:
+            val = _clean_jev_str(None, yaml_value.get(cap))
+            if val:
+                models[cap] = val
+    for cap in JEV_CAPABILITIES:
+        val = _clean_jev_str(os.environ.get(f"LEARNHOUSE_JEV_MODEL_{cap.upper()}"), None)
+        if val:
+            models[cap] = val
+    return models
 
 
 _yaml_cache: dict = {}
@@ -554,6 +665,59 @@ def get_learnhouse_config() -> LearnHouseConfig:
             client_secret=judge0_client_secret,
         )
 
+    # Jev (TypeSafe) config — requires enabled flag AND an API key. Per-org
+    # opt-in is enforced at call time via allowed_org_ids (empty = nobody).
+    jev_yaml = yaml_config.get("jev_config", {}) or {}
+    jev_api_key = os.environ.get("LEARNHOUSE_JEV_API_KEY") or jev_yaml.get("api_key") or ""
+    jev_enabled = bool(
+        _env_bool(os.environ.get("LEARNHOUSE_JEV_ENABLED"), jev_yaml.get("enabled", False))
+    )
+
+    jev_provider = _parse_jev_provider(
+        os.environ.get("LEARNHOUSE_JEV_PROVIDER"), jev_yaml.get("provider")
+    )
+    jev_cf_account = _clean_jev_str(
+        os.environ.get("LEARNHOUSE_JEV_CLOUDFLARE_ACCOUNT_ID"),
+        jev_yaml.get("cloudflare_account_id"),
+    ) or ""
+    jev_ready = bool(jev_enabled and jev_api_key)
+    if jev_ready and jev_provider == "cloudflare" and not jev_cf_account:
+        import logging as _jev_log
+        _jev_log.getLogger(__name__).warning(
+            "Jev provider 'cloudflare' needs LEARNHOUSE_JEV_CLOUDFLARE_ACCOUNT_ID; Jev disabled"
+        )
+        jev_ready = False
+
+    jev_config = None
+    if jev_ready:
+        jev_config = JevConfig(
+            provider=jev_provider,
+            model=_clean_jev_str(os.environ.get("LEARNHOUSE_JEV_MODEL"), jev_yaml.get("model")),
+            cloudflare_account_id=jev_cf_account,
+            models=_parse_jev_models(jev_yaml.get("models")),
+            enabled=True,
+            api_key=str(jev_api_key),
+            timeout=_parse_jev_float(
+                os.environ.get("LEARNHOUSE_JEV_TIMEOUT"), jev_yaml.get("timeout"), 3.0
+            ),
+            allowed_org_ids=_parse_jev_org_ids(
+                os.environ.get("LEARNHOUSE_JEV_ALLOWED_ORG_IDS"),
+                jev_yaml.get("allowed_org_ids"),
+            ),
+            quiz_validation_enabled=bool(_env_bool(
+                os.environ.get("LEARNHOUSE_JEV_QUIZ_VALIDATION"),
+                jev_yaml.get("quiz_validation_enabled", False),
+            )),
+            guardrails_enabled=bool(_env_bool(
+                os.environ.get("LEARNHOUSE_JEV_GUARDRAILS"),
+                jev_yaml.get("guardrails_enabled", True),
+            )),
+            intent_routing_enabled=bool(_env_bool(
+                os.environ.get("LEARNHOUSE_JEV_INTENT_ROUTING"),
+                jev_yaml.get("intent_routing_enabled", False),
+            )),
+        )
+
     # Payments config
     env_stripe_secret_key = os.environ.get("LEARNHOUSE_STRIPE_SECRET_KEY")
     env_stripe_publishable_key = os.environ.get("LEARNHOUSE_STRIPE_PUBLISHABLE_KEY")
@@ -753,6 +917,7 @@ def get_learnhouse_config() -> LearnHouseConfig:
         ),
         tinybird_config=tinybird_config,
         judge0_config=judge0_config,
+        jev_config=jev_config,
     )
 
     return config

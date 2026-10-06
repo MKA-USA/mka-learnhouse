@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react'
 import CopilotBubble from '@components/Copilot/CopilotBubble'
 import Image from 'next/image'
 import Link from 'next/link'
+import mkaLogo from '@public/logos/mka-usa-long-dark.svg'
 import { useQuery } from '@tanstack/react-query'
 import { queryKeys } from '@/lib/query/keys'
 import { getUriWithOrg } from '@services/config/config'
@@ -159,7 +160,7 @@ export const OrgMenu = (props: any) => {
                   {org?.logo_image ? (
                     <img
                       src={`${getOrgLogoMediaDirectory(org.org_uuid, org?.logo_image)}`}
-                      alt="Learnhouse"
+                      alt="MKA Ilm"
                       style={{ width: 'auto', height: '100%' }}
                       className="rounded-md"
                     />
@@ -560,8 +561,9 @@ const CopilotMenuButton = ({
 const LearnHouseLogo = ({ logoFilter }: { logoFilter: string }) => {
   return (
     <Image
-      src="/lrn-text.svg"
-      alt="LearnHouse logo"
+      unoptimized
+      src={mkaLogo}
+      alt="MKA Ilm"
       width={133}
       height={40}
       style={{ height: 'auto', filter: logoFilter }}

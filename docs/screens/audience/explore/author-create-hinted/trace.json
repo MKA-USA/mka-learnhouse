@@ -1,0 +1,312 @@
+{
+ "mission": "author-create-hinted",
+ "ok": false,
+ "detail": "model gave up | final check: no matching section yet ([])",
+ "steps": 16,
+ "modelCalls": 30,
+ "wallMs": 39371,
+ "modelMs": 29038.808170000062,
+ "trace": [
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2)",
+   "label": "editor \"rich-text editor (document body)\""
+  },
+  {
+   "t": "type",
+   "text": "/",
+   "label": "type \"/\""
+  },
+  {
+   "t": "type",
+   "text": "audience",
+   "label": "type \"audience\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(10) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > button:nth-child(2)",
+   "label": "button \"Audience section Show this only to certain officeholders\""
+  },
+  {
+   "t": "press",
+   "key": "Enter"
+  },
+  {
+   "t": "type",
+   "text": "role",
+   "label": "type \"role\""
+  },
+  {
+   "t": "type",
+   "text": "/",
+   "label": "type \"/\""
+  },
+  {
+   "t": "press",
+   "key": "ArrowDown"
+  },
+  {
+   "t": "press",
+   "key": "Enter"
+  },
+  {
+   "t": "type",
+   "text": "audience",
+   "label": "type \"audience\""
+  },
+  {
+   "t": "press",
+   "key": "Enter"
+  },
+  {
+   "t": "type",
+   "text": "role",
+   "label": "type \"role\""
+  },
+  {
+   "t": "type",
+   "text": "/",
+   "label": "type \"/\""
+  },
+  {
+   "t": "press",
+   "key": "ArrowDown"
+  },
+  {
+   "t": "press",
+   "key": "Enter"
+  },
+  {
+   "t": "press",
+   "key": "Tab"
+  }
+ ],
+ "log": [
+  {
+   "n": 1,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "editor \"rich-text editor (document body)\"",
+   "backend": "clef",
+   "confidence": 0.3319752859508809,
+   "p": 0.6290452723025304,
+   "margin": 0.49036824111911104,
+   "ms": 0,
+   "escalated": false,
+   "cached": true,
+   "changed": false,
+   "shot": "step-01.jpg"
+  },
+  {
+   "n": 2,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"/\"",
+   "backend": "jev",
+   "confidence": 0.62,
+   "p": 0.66,
+   "margin": 0.53,
+   "ms": 1254.2894589999996,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-02.jpg"
+  },
+  {
+   "n": 3,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"audience\"",
+   "backend": "jev",
+   "confidence": 0.64,
+   "p": 0.66,
+   "margin": 0.5700000000000001,
+   "ms": 2927.693707999999,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-03.jpg"
+  },
+  {
+   "n": 4,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Audience section Show this only to certain officeholders\"",
+   "backend": "clef",
+   "confidence": 0.4401739707117597,
+   "p": 0.6769179496412677,
+   "margin": 0.6195120845208738,
+   "ms": 1327.1777500000026,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-04.jpg"
+  },
+  {
+   "n": 5,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "press Enter",
+   "backend": "jev",
+   "confidence": 0.21,
+   "p": 0.29,
+   "margin": 0.009999999999999953,
+   "ms": 2076.8987079999933,
+   "escalated": true,
+   "cached": false,
+   "changed": false,
+   "shot": "step-05.jpg"
+  },
+  {
+   "n": 6,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"role\"",
+   "backend": "jev",
+   "confidence": 0.22,
+   "p": 0.3,
+   "margin": 0.07999999999999999,
+   "ms": 4067.5669999999955,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-06.jpg"
+  },
+  {
+   "n": 7,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"/\"",
+   "backend": "jev",
+   "confidence": 0.17,
+   "p": 0.25,
+   "margin": 0.01999999999999999,
+   "ms": 1323.895251000009,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-07.jpg"
+  },
+  {
+   "n": 8,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "press ArrowDown",
+   "backend": "jev",
+   "confidence": 0.54,
+   "p": 0.59,
+   "margin": 0.42999999999999994,
+   "ms": 2727.163750000007,
+   "escalated": true,
+   "cached": false,
+   "changed": false,
+   "shot": "step-08.jpg"
+  },
+  {
+   "n": 9,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "press Enter",
+   "backend": "jev",
+   "confidence": 0.23,
+   "p": 0.3,
+   "margin": 0.09999999999999998,
+   "ms": 1735.5998340000078,
+   "escalated": true,
+   "cached": false,
+   "changed": false,
+   "shot": "step-09.jpg"
+  },
+  {
+   "n": 10,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"audience\"",
+   "backend": "jev",
+   "confidence": 0.37,
+   "p": 0.45,
+   "margin": 0.31,
+   "ms": 1362.573917000016,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-10.jpg"
+  },
+  {
+   "n": 11,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "press Enter",
+   "backend": "jev",
+   "confidence": 0.19,
+   "p": 0.26,
+   "margin": 0.13,
+   "ms": 2359.970125000007,
+   "escalated": true,
+   "cached": false,
+   "changed": false,
+   "shot": "step-11.jpg"
+  },
+  {
+   "n": 12,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"role\"",
+   "backend": "jev",
+   "confidence": 0.25,
+   "p": 0.33,
+   "margin": 0.16,
+   "ms": 1208.629459000018,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-12.jpg"
+  },
+  {
+   "n": 13,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"/\"",
+   "backend": "jev",
+   "confidence": 0.52,
+   "p": 0.56,
+   "margin": 0.41000000000000003,
+   "ms": 1620.8576259999973,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-13.jpg"
+  },
+  {
+   "n": 14,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "press ArrowDown",
+   "backend": "jev",
+   "confidence": 0.53,
+   "p": 0.57,
+   "margin": 0.4099999999999999,
+   "ms": 1469.5397090000042,
+   "escalated": true,
+   "cached": false,
+   "changed": false,
+   "shot": "step-14.jpg"
+  },
+  {
+   "n": 15,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "press Enter",
+   "backend": "jev",
+   "confidence": 0.31,
+   "p": 0.38,
+   "margin": 0.2,
+   "ms": 1794.1899580000172,
+   "escalated": true,
+   "cached": false,
+   "changed": false,
+   "shot": "step-15.jpg"
+  },
+  {
+   "n": 16,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "press Tab",
+   "backend": "clef",
+   "confidence": 0.11963878910980608,
+   "p": 0.3646324301677845,
+   "margin": 0.25014044445509565,
+   "ms": 891.597207999992,
+   "escalated": false,
+   "cached": false,
+   "changed": false,
+   "shot": "step-16.jpg"
+  }
+ ],
+ "issues": [],
+ "stoppedBy": "stuck"
+}

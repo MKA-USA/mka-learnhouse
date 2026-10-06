@@ -90,6 +90,7 @@ export async function createStudent(
     password: student.password,
     first_name: student.first_name ?? '',
     last_name: student.last_name ?? '',
+    mka_profile: { majlis: 'Zion' }, // MKA fork: backend requires a Majlis for non-OAuth signup
   })
   return user.id
 }

@@ -1,0 +1,15 @@
+{
+  "name": "mka-compliance",
+  "private": true,
+  "version": "0.0.0",
+  "workspaces": ["packages/core", "apps/provisioner"],
+  "scripts": {
+    "test": "bun test packages apps",
+    "typecheck": "bun run --filter '*' typecheck",
+    "probe": "bun run --cwd apps/provisioner probe",
+    "db:generate": "bun run --cwd packages/core db:generate",
+    "db:migrate": "bun run --cwd packages/core db:migrate",
+    "db:seed": "bun run --cwd packages/core db:seed",
+    "db:up": "docker compose --env-file .env up -d db"
+  }
+}

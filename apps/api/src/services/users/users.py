@@ -15,6 +15,8 @@ from src.security.features_utils.usage import (
 )
 from src.core.deployment_mode import get_deployment_mode
 from src.services.users.usergroups import add_users_to_usergroup
+from src.services.auth.mka_google_only import block_email_change, block_non_google_auth  # MKA fork
+from src.services.users.mka_profile import save_signup_profile, validate_signup_profile  # MKA fork
 from src.services.users.emails import (
     send_account_creation_email,
 )
@@ -48,6 +50,7 @@ from src.services.security.profile_validation import validate_profile_fields
 from src.services.analytics.analytics import track
 from src.services.analytics import events as analytics_events
 from src.services.webhooks.dispatch import dispatch_webhooks
+from src.services.moderation_ai import schedule_moderation, profile_text
 
 
 def _reject_urls_in_profile_fields(**fields) -> None:
@@ -175,6 +178,8 @@ async def create_user(
     is_oauth: bool = False,
     signup_provider: str = "email",
 ):
+    if not is_oauth:  # MKA fork
+        block_non_google_auth(user_object.email)
     # Validate password complexity (skip for OAuth users who have empty passwords)
     if user_object.password and not is_oauth:
         validation_result = validate_password_complexity(user_object.password)
@@ -200,6 +205,7 @@ async def create_user(
 
     # RBAC check
     await rbac_check(request, current_user, "create", "user_x", db_session)
+    mka_profile = await validate_signup_profile(db_session, user_object.mka_profile, is_oauth)  # MKA fork
 
     # Complete the user object
     user.user_uuid = f"user_{uuid4()}"
@@ -274,6 +280,7 @@ async def create_user(
     db_session.add(user)
     await db_session.commit()
     await db_session.refresh(user)
+    await save_signup_profile(db_session, user, mka_profile)  # MKA fork
 
     # Link user and organization
     user_organization = UserOrganization(
@@ -423,6 +430,8 @@ async def create_user_without_org(
     is_oauth: bool = False,
     signup_provider: str = "email",
 ):
+    if not is_oauth:  # MKA fork
+        block_non_google_auth(user_object.email)
     # Validate password complexity (skip for OAuth users who have empty passwords)
     if user_object.password and not is_oauth:
         validation_result = validate_password_complexity(user_object.password)
@@ -448,6 +457,7 @@ async def create_user_without_org(
 
     # RBAC check
     await rbac_check(request, current_user, "create", "user_x", db_session)
+    mka_profile = await validate_signup_profile(db_session, user_object.mka_profile, is_oauth)  # MKA fork
 
     # Complete the user object
     user.user_uuid = f"user_{uuid4()}"
@@ -500,6 +510,7 @@ async def create_user_without_org(
     db_session.add(user)
     await db_session.commit()
     await db_session.refresh(user)
+    await save_signup_profile(db_session, user, mka_profile)  # MKA fork
 
     user_read = UserRead.model_validate(user)
 
@@ -563,6 +574,8 @@ async def update_user(
             detail="Email or username is already in use",
         )
 
+    block_email_change(user.email, user_object.email)  # MKA fork
+
     # Update user; strip protected fields to prevent privilege escalation.
     # email_verified is also protected so changing the email cannot leave
     # the account appearing "already verified" on the new address.
@@ -598,6 +611,7 @@ async def update_user(
     db_session.add(user)
     await db_session.commit()
     await db_session.refresh(user)
+    schedule_moderation(kind="general", content_type="user_profile", content_uuid=user.user_uuid, org_id=None, author_user_id=user.id, text_loader=profile_text(user.bio, user.first_name, user.last_name))
 
     user = UserRead.model_validate(user)
 

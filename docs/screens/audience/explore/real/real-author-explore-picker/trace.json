@@ -1,0 +1,578 @@
+{
+ "mission": "real-author-explore-picker",
+ "ok": false,
+ "detail": "budget exhausted",
+ "steps": 30,
+ "modelCalls": 33,
+ "wallMs": 121839,
+ "modelMs": 80068.74887300002,
+ "trace": [
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(2) > div:nth-child(2) > div:nth-child(2) > div:nth-child(1) > div:nth-child(2) > div:nth-child(2) > div:nth-child(4) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(1) > div:nth-child(3) > button:nth-child(3)",
+   "label": "button \"Collapse section\" [expanded]"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(2) > div:nth-child(2) > div:nth-child(2) > div:nth-child(1) > div:nth-child(2) > div:nth-child(2) > div:nth-child(5) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(1) > div:nth-child(3) > button:nth-child(1)",
+   "label": "button \"Edit\""
+  },
+  {
+   "t": "press",
+   "key": "Escape"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(2) > div:nth-child(2) > div:nth-child(2) > div:nth-child(1) > div:nth-child(2) > div:nth-child(2) > div:nth-child(5) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(1) > div:nth-child(3) > button:nth-child(1)",
+   "label": "button \"Edit\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(10) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(2) > div:nth-child(5) > div:nth-child(2) > div:nth-child(1) > button:nth-child(1)",
+   "label": "button \"Majlis: Any Majlis. Choose…\" [collapsed, closed]"
+  },
+  {
+   "t": "type",
+   "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "label": "type \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(11) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > input:nth-child(2)",
+   "label": "text \"Search Majlis or region…\" [expanded, has value]"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(10) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(1) > button:nth-child(2)",
+   "label": "checkbox \"Hide from\" [unchecked, off]"
+  },
+  {
+   "t": "press",
+   "key": "Escape"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(2) > div:nth-child(2) > div:nth-child(2) > div:nth-child(1) > div:nth-child(2) > div:nth-child(2) > div:nth-child(5) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(1) > div:nth-child(3) > button:nth-child(1)",
+   "label": "button \"Edit\""
+  },
+  {
+   "t": "press",
+   "key": "ArrowDown"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(10) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(2) > div:nth-child(5) > div:nth-child(2) > div:nth-child(1) > button:nth-child(1)",
+   "label": "button \"Majlis: Any Majlis. Choose…\" [collapsed, closed]"
+  },
+  {
+   "t": "type",
+   "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "label": "type \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\""
+  },
+  {
+   "t": "type",
+   "text": "",
+   "label": "type \"\""
+  },
+  {
+   "t": "press",
+   "key": "Escape"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(3) > div:nth-child(1) > div:nth-child(2) > div:nth-child(2) > div:nth-child(2) > div:nth-child(1) > div:nth-child(2) > div:nth-child(2) > div:nth-child(5) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(1) > div:nth-child(3) > button:nth-child(2)",
+   "label": "button \"Preview\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(2) > div:nth-child(2) > div:nth-child(1) > div:nth-child(3) > div:nth-child(3) > a:nth-child(3)",
+   "label": "link [closed]"
+  },
+  {
+   "t": "press",
+   "key": "Enter"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(2) > div:nth-child(2) > div:nth-child(2) > div:nth-child(1) > div:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(4) > button:nth-child(1)",
+   "label": "button \"Exit preview\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(2) > div:nth-child(2) > div:nth-child(2) > div:nth-child(1) > div:nth-child(2) > div:nth-child(2) > div:nth-child(5) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(1) > div:nth-child(3) > button:nth-child(1)",
+   "label": "button \"Edit\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(10) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(2) > div:nth-child(1) > div:nth-child(2) > div:nth-child(1) > div:nth-child(1) > button:nth-child(3)",
+   "label": "button \"Local\" [false]"
+  },
+  {
+   "t": "press",
+   "key": "Escape"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(2) > div:nth-child(2) > div:nth-child(2) > div:nth-child(1) > div:nth-child(2) > div:nth-child(2) > div:nth-child(4) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(1) > div:nth-child(3) > button:nth-child(3)",
+   "label": "button \"Expand section\" [collapsed]"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(2) > div:nth-child(2) > div:nth-child(2) > div:nth-child(1) > div:nth-child(2) > div:nth-child(2) > div:nth-child(6) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(1) > div:nth-child(3) > button:nth-child(1)",
+   "label": "button \"Edit\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(10) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(1) > button:nth-child(1)",
+   "label": "checkbox \"Show to\" [checked, on]"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(10) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(2) > button:nth-child(3)",
+   "label": "button \"More filters: role, region, Majlis\" [collapsed]"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(10) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(2) > div:nth-child(5) > div:nth-child(2) > div:nth-child(1) > button:nth-child(1)",
+   "label": "button \"Majlis: Any Majlis. Choose…\" [collapsed, closed]"
+  },
+  {
+   "t": "press",
+   "key": "Escape"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(10) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2) > div:nth-child(2) > div:nth-child(3) > div:nth-child(2) > div:nth-child(1) > button:nth-child(1)",
+   "label": "button \"Role: Any role. Choose…\" [collapsed, closed]"
+  },
+  {
+   "t": "type",
+   "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "label": "type \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\""
+  }
+ ],
+ "log": [
+  {
+   "n": 1,
+   "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+   "action": "button \"Collapse section\" [expanded]",
+   "backend": "random",
+   "confidence": 0,
+   "p": 0,
+   "margin": 0,
+   "ms": 0,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-01.jpg"
+  },
+  {
+   "n": 2,
+   "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+   "action": "button \"Edit\"",
+   "backend": "jev",
+   "confidence": 0.26,
+   "p": 0.3,
+   "margin": 0.11999999999999997,
+   "ms": 3044.441042000006,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-02.jpg"
+  },
+  {
+   "n": 3,
+   "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+   "action": "press Escape",
+   "backend": "clef",
+   "confidence": 0.1408450588811817,
+   "p": 0.28824252168472836,
+   "margin": 0.22554688379814475,
+   "ms": 4496.817332999999,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-03.jpg"
+  },
+  {
+   "n": 4,
+   "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+   "action": "button \"Edit\"",
+   "backend": "random",
+   "confidence": 0,
+   "p": 0,
+   "margin": 0,
+   "ms": 0,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-04.jpg"
+  },
+  {
+   "n": 5,
+   "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+   "action": "button \"Majlis: Any Majlis. Choose…\" [collapsed, closed]",
+   "backend": "jev",
+   "confidence": 0.19,
+   "p": 0.21,
+   "margin": 0.11999999999999998,
+   "ms": 5667.5426670000015,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-05.jpg"
+  },
+  {
+   "n": 6,
+   "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+   "action": "type \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"",
+   "backend": "clef",
+   "confidence": 0.3031436912878326,
+   "p": 0.4156873279326066,
+   "margin": 0.30805512282600694,
+   "ms": 4208.555833000006,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-06.jpg"
+  },
+  {
+   "n": 7,
+   "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+   "action": "text \"Search Majlis or region…\" [expanded, has value]",
+   "backend": "random",
+   "confidence": 0,
+   "p": 0,
+   "margin": 0,
+   "ms": 0,
+   "escalated": false,
+   "cached": false,
+   "changed": false,
+   "shot": "step-07.jpg"
+  },
+  {
+   "n": 8,
+   "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+   "action": "checkbox \"Hide from\" [unchecked, off]",
+   "backend": "random",
+   "confidence": 0,
+   "p": 0,
+   "margin": 0,
+   "ms": 0,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-08.jpg"
+  },
+  {
+   "n": 9,
+   "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+   "action": "press Escape",
+   "backend": "clef",
+   "confidence": 0.43175920547686697,
+   "p": 0.6191526382802691,
+   "margin": 0.5912864355316163,
+   "ms": 4697.322249999997,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-09.jpg"
+  },
+  {
+   "n": 10,
+   "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+   "action": "button \"Edit\"",
+   "backend": "jev",
+   "confidence": 0.09,
+   "p": 0.12,
+   "margin": 0.01999999999999999,
+   "ms": 3809.596125000011,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-10.jpg"
+  },
+  {
+   "n": 11,
+   "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+   "action": "press ArrowDown",
+   "backend": "random",
+   "confidence": 0,
+   "p": 0,
+   "margin": 0,
+   "ms": 0,
+   "escalated": false,
+   "cached": false,
+   "changed": false,
+   "shot": "step-11.jpg"
+  },
+  {
+   "n": 12,
+   "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+   "action": "button \"Majlis: Any Majlis. Choose…\" [collapsed, closed]",
+   "backend": "jev",
+   "confidence": 0.17,
+   "p": 0.19,
+   "margin": 0.1,
+   "ms": 5562.600833000004,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-12.jpg"
+  },
+  {
+   "n": 13,
+   "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+   "action": "type \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"",
+   "backend": "clef",
+   "confidence": 0.33593717902256015,
+   "p": 0.453686525865732,
+   "margin": 0.34124792021202294,
+   "ms": 4134.8832500000135,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-13.jpg"
+  },
+  {
+   "n": 14,
+   "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+   "action": "type \"\"",
+   "backend": "jev",
+   "confidence": 0.35,
+   "p": 0.38,
+   "margin": 0.19999999999999998,
+   "ms": 5138.821125000017,
+   "escalated": true,
+   "cached": false,
+   "changed": false,
+   "shot": "step-14.jpg"
+  },
+  {
+   "n": 15,
+   "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+   "action": "press Escape",
+   "backend": "jev",
+   "confidence": 0.69,
+   "p": 0.71,
+   "margin": 0.57,
+   "ms": 3760.296166999993,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-15.jpg"
+  },
+  {
+   "n": 16,
+   "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+   "action": "button \"Preview\"",
+   "backend": "random",
+   "confidence": 0,
+   "p": 0,
+   "margin": 0,
+   "ms": 0,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-16.jpg"
+  },
+  {
+   "n": 17,
+   "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+   "action": "link [closed]",
+   "backend": "random",
+   "confidence": 0,
+   "p": 0,
+   "margin": 0,
+   "ms": 0,
+   "escalated": false,
+   "cached": false,
+   "changed": false,
+   "shot": "step-17.jpg"
+  },
+  {
+   "n": 18,
+   "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+   "action": "press Enter",
+   "backend": "random",
+   "confidence": 0,
+   "p": 0,
+   "margin": 0,
+   "ms": 0,
+   "escalated": false,
+   "cached": false,
+   "changed": false,
+   "shot": "step-18.jpg"
+  },
+  {
+   "n": 19,
+   "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+   "action": "button \"Exit preview\"",
+   "backend": "clef",
+   "confidence": 0.310259024876985,
+   "p": 0.5825004365981494,
+   "margin": 0.49642353821568413,
+   "ms": 3029.9433750000026,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-19.jpg"
+  },
+  {
+   "n": 20,
+   "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+   "action": "button \"Edit\"",
+   "backend": "jev",
+   "confidence": 0.22,
+   "p": 0.24,
+   "margin": 0.1,
+   "ms": 3827.3412909999897,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-20.jpg"
+  },
+  {
+   "n": 21,
+   "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+   "action": "button \"Local\" [false]",
+   "backend": "random",
+   "confidence": 0,
+   "p": 0,
+   "margin": 0,
+   "ms": 0,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-21.jpg"
+  },
+  {
+   "n": 22,
+   "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+   "action": "press Escape",
+   "backend": "clef",
+   "confidence": 0.16681626462575538,
+   "p": 0.33379951379256395,
+   "margin": 0.27688128966508857,
+   "ms": 3488.4441670000087,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-22.jpg"
+  },
+  {
+   "n": 23,
+   "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+   "action": "button \"Expand section\" [collapsed]",
+   "backend": "random",
+   "confidence": 0,
+   "p": 0,
+   "margin": 0,
+   "ms": 0,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-23.jpg"
+  },
+  {
+   "n": 24,
+   "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+   "action": "button \"Edit\"",
+   "backend": "jev",
+   "confidence": 0.13,
+   "p": 0.17,
+   "margin": 0,
+   "ms": 4064.035042000003,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-24.jpg"
+  },
+  {
+   "n": 25,
+   "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+   "action": "checkbox \"Show to\" [checked, on]",
+   "backend": "jev",
+   "confidence": 0.16,
+   "p": 0.18,
+   "margin": 0.009999999999999981,
+   "ms": 4521.513915999996,
+   "escalated": true,
+   "cached": false,
+   "changed": false,
+   "shot": "step-25.jpg"
+  },
+  {
+   "n": 26,
+   "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+   "action": "button \"More filters: role, region, Majlis\" [collapsed]",
+   "backend": "jev",
+   "confidence": 0.11,
+   "p": 0.14,
+   "margin": 0.05000000000000002,
+   "ms": 3520.2501659999834,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-26.jpg"
+  },
+  {
+   "n": 27,
+   "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+   "action": "button \"Majlis: Any Majlis. Choose…\" [collapsed, closed]",
+   "backend": "jev",
+   "confidence": 0.26,
+   "p": 0.3,
+   "margin": 0.13999999999999999,
+   "ms": 3711.476416999998,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-27.jpg"
+  },
+  {
+   "n": 28,
+   "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+   "action": "press Escape",
+   "backend": "jev",
+   "confidence": 0.24,
+   "p": 0.27,
+   "margin": 0.08000000000000002,
+   "ms": 3357.153831999982,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-28.jpg"
+  },
+  {
+   "n": 29,
+   "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+   "action": "button \"Role: Any role. Choose…\" [collapsed, closed]",
+   "backend": "jev",
+   "confidence": 0.22,
+   "p": 0.25,
+   "margin": 0.14,
+   "ms": 3068.9061670000083,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-29.jpg"
+  },
+  {
+   "n": 30,
+   "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+   "action": "type \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"",
+   "backend": "clef",
+   "confidence": 0.3005147215362439,
+   "p": 0.41580663063001944,
+   "margin": 0.2664484985769545,
+   "ms": 2958.8078749999986,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-30.jpg"
+  }
+ ],
+ "issues": [],
+ "stoppedBy": "max-steps"
+}

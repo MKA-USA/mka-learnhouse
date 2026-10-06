@@ -1,0 +1,11 @@
+{
+  "body": {
+    "courses": [],
+    "cycle": null,
+    "cycles": [],
+    "departments": [],
+    "scope": "all"
+  },
+  "path": "scope",
+  "status": 200
+}

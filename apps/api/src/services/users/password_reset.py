@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 import json
 import secrets
+from src.services.auth.mka_google_only import block_non_google_auth, is_google_only_email  # MKA fork
 import logging
 import redis
 import string
@@ -78,6 +79,9 @@ async def send_reset_password_code(
     - Returns generic message to prevent user enumeration
     - Logs attempts for security audit
     """
+    if is_google_only_email(email):  # MKA fork: issue nothing, same response
+        return "If an account with that email exists, a reset code has been sent"
+
     # Rate limit by IP before any email lookup (prevents enumeration timing attacks)
     _ip = request.client.host if request.client else "unknown"
     ip_rate_key = f"pwd_reset_ip:{_ip}"
@@ -208,6 +212,7 @@ async def change_password_with_reset_code(
     - Uses generic error messages to prevent user/code enumeration
     - Deletes reset code after successful use (one-time use)
     """
+    block_non_google_auth(email)  # MKA fork
     # Validate new password complexity first (before any DB lookups)
     validation_result = validate_password_complexity(new_password)
     if not validation_result.is_valid:
@@ -323,6 +328,9 @@ async def send_reset_password_code_platform(
     - Returns generic message to prevent user enumeration
     - Logs attempts for security audit
     """
+    if is_google_only_email(email):  # MKA fork: issue nothing, same response
+        return "If an account with that email exists, a reset code has been sent"
+
     statement = select(User).where(User.email == email)
     user = (await db_session.execute(statement)).scalars().first()
 
@@ -388,6 +396,7 @@ async def change_password_with_reset_code_platform(
     - Uses generic error messages to prevent user/code enumeration
     - Deletes reset code after successful use (one-time use)
     """
+    block_non_google_auth(email)  # MKA fork
     validation_result = validate_password_complexity(new_password)
     if not validation_result.is_valid:
         raise HTTPException(

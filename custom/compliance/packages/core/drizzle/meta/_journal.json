@@ -1,0 +1,48 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1791166916419,
+      "tag": "0000_sweet_roxanne_simpson",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1791167297365,
+      "tag": "0001_material_wiccan",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791167368465,
+      "tag": "0002_high_luckman",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1791167616945,
+      "tag": "0003_outgoing_lake",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791172710320,
+      "tag": "0004_closed_black_queen",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791205269527,
+      "tag": "0005_unusual_terrax",
+      "breakpoints": true
+    }
+  ]
+}
