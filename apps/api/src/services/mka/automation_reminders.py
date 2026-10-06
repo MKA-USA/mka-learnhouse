@@ -229,8 +229,8 @@ async def select_pending(
     # Addresses whose sends keep failing (review N1) are quarantined; the ones with some recent failure go LAST so a few
     # bad mailboxes can never sit at the head of the queue and trip the consecutive-failure stop for everybody else.
     # Cross-kind cooldown (review N3): one reminder email of ANY kind per person per MKA_REMINDER_COOLDOWN_DAYS. A manual
-    # remind never spends the scheduled weekly slot (those are the separate checks above) but it does start a cooldown,
-    # so the person is not mailed again within days, and the scheduled reminder follows later in the window / week.
+    # remind counts toward the weekly per-person cap (round 5, spec §1.5/§2C) and also starts a cooldown, so the person
+    # is not mailed again within days; a scheduled reminder for them can follow only in a later ISO week.
     cool_cut = _naive_utc(now) - timedelta(days=cfg.reminder_cooldown_days())
     # Round 3 M1 / round 4 H1: on the LAST day of a reminder window a scheduled run lifts the cooldown that comes from a
     # MANUAL reminder, but only for manual reminders sent BEFORE local midnight (cycle TZ) of that last day. The manual
