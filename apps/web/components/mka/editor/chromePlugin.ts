@@ -60,7 +60,9 @@ export function createChromePlugin(editor: any, options: AudienceNodeOptions): P
         storage.original = view.state.doc.toJSON()
         store.set({ originalVersion: store.get().originalVersion + 1 })
       }
-      if (!swapping) captureOriginal()
+      // Only the very first plugin view captures. Later re-creations (state swap, registerPlugin/unregisterPlugin) would see
+      // the FILTERED document; explicit loads (setContent) recapture via `explicitLoad` below.
+      if (!swapping && !st()?.original) captureOriginal()
 
       // Plain-DOM notes host (no React) + the driver. Created once per editor; the state swap re-creates plugin views and
       // they inherit both.

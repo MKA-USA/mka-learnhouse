@@ -40,6 +40,9 @@ export default function AuthorSection(p: AuthorSectionProps) {
   const [isNew, setIsNew] = useState(false)
   const startRule = useRef<Rule>(norm ?? DEFAULT_RULE)
   const headerRef = useRef<HTMLDivElement>(null)
+  // One-shot allowance for the programmatic refocus of the editor that the slash command performs right after the new
+  // section's picker opens. Anything later (the author really moving focus or clicking into the editor) dismisses as usual.
+  const refocusGraceUntil = useRef(0)
   // Where focus goes when the picker closes (never <body>): an existing section's Edit button, else the editor.
   const returnTo = useRef<'edit' | 'editor'>('editor')
   const restoreFocus = () => {
@@ -71,6 +74,7 @@ export default function AuthorSection(p: AuthorSectionProps) {
       startRule.current = norm ?? DEFAULT_RULE
       setIsNew(true)
       setOpen(true)
+      refocusGraceUntil.current = Date.now() + 400
       store.set({ openPickerFor: null })
     }
   }, [st.openPickerFor, id, norm, store])
@@ -188,12 +192,14 @@ export default function AuthorSection(p: AuthorSectionProps) {
       <PopoverContent
         align="start"
         collisionPadding={8}
-        // The editor getting focus back (e.g. after a slash-menu click, which blurs it and refocuses it right after
-        // inserting the section) is not a reason to dismiss, and so must not cancel a NEW section. Pointer-downs in the
-        // editor still dismiss.
+        // The slash command re-focuses the editor right after opening a NEW section's picker (the click blurred it). That
+        // single programmatic focus must not dismiss (= cancel) the picker; any later focus or click does.
         onFocusOutside={(e) => {
           const target = e.target as Node | null
-          if (target && editor.view.dom.contains(target)) e.preventDefault()
+          if (target && editor.view.dom.contains(target) && refocusGraceUntil.current > Date.now()) {
+            refocusGraceUntil.current = 0
+            e.preventDefault()
+          }
         }}
         onCloseAutoFocus={(e) => {
           e.preventDefault()
