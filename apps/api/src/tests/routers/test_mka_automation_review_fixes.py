@@ -3,7 +3,7 @@
 Each test here FAILED before its fix (the fix commits say which). Fixtures come from the seam C router tests; the
 transport is mocked and every address is ``example.invalid``."""
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 from sqlmodel import select
@@ -93,26 +93,24 @@ async def test_manual_then_scheduled_the_same_day_skips_the_manual_recipients_bu
     assert mine["sent"] == 4 and mine["skipped_cooldown"] == 4 and mine["candidates"] == 8
 
 
-async def test_a_manual_recipient_still_gets_the_scheduled_reminder_inside_the_window(db, org, world, transport, on, real_mode, monkeypatch):  # noqa: F811
-    """Round 3 M1: a manual remind BEFORE the window's first scheduled run must not cost the person the scheduled
-    reminder (which lists ALL their outstanding courses). Real clock offsets: the manual send is at day 0 + 1 h, the
-    cron runs late on day 0 (+2 h) and on time on days 1-3, the cooldown (72 h) outlasts the last cron by an hour."""
-    monkeypatch.setenv("MKA_REMINDER_WINDOW_DAYS", "4")  # window 11-16 .. 11-19
-    manual_at = MON + timedelta(hours=1)
-    monkeypatch.setattr(rem, "current_instant", lambda: manual_at)
+async def test_a_manual_recipient_is_not_mailed_again_by_the_scheduled_run_in_the_same_iso_week(db, org, world, transport, on, real_mode, monkeypatch):  # noqa: F811
+    """Round 5 (spec 1.5 / 2C): the weekly cap counts manual sends too, so a manual remind at day 0 + 1 h means the
+    cron never mails that person again this ISO week, not even on the last window day. Everybody else gets exactly one
+    scheduled reminder."""
+    monkeypatch.setenv("MKA_REMINDER_WINDOW_DAYS", "4")  # window 11-16 .. 11-19, all in ISO week 47
+    monkeypatch.setattr(rem, "current_instant", lambda: MON + timedelta(hours=1))
     async with client_for(db, 1) as c:
         assert (await real(c, TABLIGH, org)).json()["sent"] == 4
     per_day = []
     for offset in (timedelta(hours=2), timedelta(days=1), timedelta(days=2), timedelta(days=3)):
         rep = await rem.run_all(db, dry_run=False, kind="reminder", now=MON + offset)
         per_day.append(next(o for o in rep["orgs"] if o["org_id"] == org.id)["reminder"]["sent"])
-    assert per_day == [4, 0, 0, 4]  # the 4 manual recipients wait out their cooldown, then get theirs on the LAST day
+    assert per_day == [4, 0, 0, 0]
     rows = [r for r in (await db.execute(select(MkaAutomationSendLog))).scalars().all() if r.org_id == org.id]
-    scheduled = [r.intended_email for r in rows if r.dedupe_key.startswith("reminder:")]
-    assert len(scheduled) == len(set(scheduled)) == 8  # everybody outstanding: exactly one scheduled reminder
-    manual = {r.intended_email for r in rows if r.dedupe_key.startswith("manual:")}
-    twice = {e for e in scheduled if scheduled.count(e) + sum(1 for r in rows if r.intended_email == e and r.dedupe_key.startswith("manual:")) > 1}
-    assert twice == manual  # the only people mailed twice are the manual recipients, the second mail being the last-day one
+    per_person = {}
+    for r in rows:
+        per_person[r.intended_email] = per_person.get(r.intended_email, 0) + 1
+    assert sum(per_person.values()) == 8 and set(per_person.values()) == {1}  # one email per person for the week
 
 
 async def test_a_manual_remind_on_the_last_day_itself_still_blocks_the_scheduled_run(db, org, world, transport, on, real_mode, monkeypatch):  # noqa: F811
@@ -140,6 +138,73 @@ async def test_the_last_day_rule_does_not_lift_the_scheduled_cooldown_or_the_wee
     assert next(o for o in last["orgs"] if o["org_id"] == org.id)["reminder"]["sent"] == 0  # already reminded this window
 
 
+async def test_the_last_day_rule_reaches_but_does_not_lift_the_weekly_cap(db, org, world, transport, on, real_mode, monkeypatch):  # noqa: F811
+    """A manual remind on day 0 is old enough for the last-day lift, so selection DOES pick those people again on the
+    last day. It is the weekly cap (one reminder per person per ISO week, manual included) that stops the second
+    email: the send is refused as ``capped`` and nothing goes out."""
+    monkeypatch.setenv("MKA_REMINDER_WINDOW_DAYS", "4")
+    monkeypatch.setattr(rem, "current_instant", lambda: MON + timedelta(hours=1))
+    async with client_for(db, 1) as c:
+        assert (await real(c, TABLIGH, org)).json()["sent"] == 4
+    manual = {r.intended_email for r in (await db.execute(select(MkaAutomationSendLog))).scalars().all()
+              if r.org_id == org.id and r.dedupe_key.startswith("manual:") and r.status == "sent"}
+    assert len(manual) == 4
+    last_day = MON + timedelta(days=3)
+    sel = await rem.select_pending(
+        db, org_id=org.id, people={e: None for e in manual}, today=rem.cycle_today(last_day), now=last_day,
+        window_start=date(2026, 11, 16),
+    )
+    assert set(sel.pending) == manual and sel.cooled == 0  # the cooldown lift let them through to the cap check
+    before = len(transport.calls)
+    rep = await rem.run_all(db, dry_run=False, kind="reminder", now=last_day)
+    block = next(o for o in rep["orgs"] if o["org_id"] == org.id)["reminder"]
+    assert block["sent"] == 4 and block["skipped_recent"] == 4  # the other 4 people are mailed; the manual ones are capped
+    scheduled = {r.intended_email for r in (await db.execute(select(MkaAutomationSendLog))).scalars().all()
+                 if r.org_id == org.id and r.dedupe_key.startswith("reminder:")}
+    assert len(scheduled) == 4 and not (scheduled & manual)
+
+
+async def test_a_manual_remind_late_on_the_day_before_still_blocks_the_next_days_cron(db, org, world, transport, on, real_mode, monkeypatch):  # noqa: F811
+    """Round 5 blocking fix: manual at 04:30 UTC (23:30 EST) the evening before the last window day, then the
+    last-day cron at 15:00 UTC. The old rule lifted it (sent before local midnight) and mailed the same people twice
+    in hours; now the recent manual mail keeps blocking through the cooldown, not the weekly cap alone."""
+    monkeypatch.setenv("MKA_REMINDER_WINDOW_DAYS", "4")
+    manual_at = MON + timedelta(days=2, hours=13, minutes=30)  # Thu 04:30 UTC = Wed 23:30 EST
+    monkeypatch.setattr(rem, "current_instant", lambda: manual_at)
+    async with client_for(db, 1) as c:
+        assert (await real(c, TABLIGH, org)).json()["sent"] == 4
+    cron = MON + timedelta(days=3)  # Thu 15:00 UTC: the last window day
+    rep = await rem.run_all(db, dry_run=False, kind="reminder", now=cron)
+    block = next(o for o in rep["orgs"] if o["org_id"] == org.id)["reminder"]
+    assert block["last_window_day"] is True
+    assert block["skipped_cooldown"] == 4  # held by the cooldown itself, so the lift did not apply
+    rows = [r for r in (await db.execute(select(MkaAutomationSendLog))).scalars().all() if r.org_id == org.id]
+    per_person = {}
+    for r in rows:
+        per_person[r.intended_email] = per_person.get(r.intended_email, 0) + 1
+    assert set(per_person.values()) == {1}
+
+
+@pytest.mark.parametrize("manual_at, lifted", [
+    (datetime(2026, 11, 19, 4, 59, tzinfo=timezone.utc), True),   # 23:59 EST the night before: before local midnight
+    (datetime(2026, 11, 19, 5, 1, tzinfo=timezone.utc), False),   # 00:01 EST on the last day itself: still blocks
+])
+async def test_the_last_day_lift_boundary_is_local_midnight_in_utc(db, org, world, transport, on, real_mode, monkeypatch, manual_at, lifted):  # noqa: F811
+    """With a 1-day cooldown the lift boundary is local midnight (05:00 UTC in November EST) of the last day."""
+    monkeypatch.setenv("MKA_REMINDER_WINDOW_DAYS", "4")
+    monkeypatch.setenv("MKA_REMINDER_COOLDOWN_DAYS", "1")
+    monkeypatch.setattr(rem, "current_instant", lambda: manual_at)
+    async with client_for(db, 1) as c:
+        assert (await real(c, TABLIGH, org)).json()["sent"] == 4
+    manual = {r.intended_email for r in (await db.execute(select(MkaAutomationSendLog))).scalars().all() if r.org_id == org.id}
+    now = datetime(2026, 11, 19, 15, 0, tzinfo=timezone.utc)
+    sel = await rem.select_pending(
+        db, org_id=org.id, people={e: None for e in manual}, today=rem.cycle_today(now), now=now,
+        window_start=date(2026, 11, 16),
+    )
+    assert (set(sel.pending) == manual) is lifted and (sel.cooled == 0) is lifted
+
+
 async def test_the_cooldown_is_configurable(db, org, world, transport, on, real_mode, monkeypatch):  # noqa: F811
     monkeypatch.setenv("MKA_REMINDER_COOLDOWN_DAYS", "1")
     async with client_for(db, 1) as c:
@@ -151,12 +216,16 @@ async def test_the_cooldown_is_configurable(db, org, world, transport, on, real_
 async def test_manual_keys_are_per_course_and_per_week(db, org, world, transport, on, real_mode, monkeypatch):  # noqa: F811
     async with client_for(db, 1) as c:
         t1 = await real(c, TABLIGH, org)
-        monkeypatch.setattr(rem, "current_instant", lambda: MON + timedelta(days=4))  # past the cooldown, same week
+        # same week, past the cooldown: the weekly cap (round 5) stops the 4 already mailed, the other 4 still go out
+        monkeypatch.setattr(rem, "current_instant", lambda: MON + timedelta(days=4))
         g1 = await real(c, GENERAL, org)
-    assert t1.json()["sent"] == 4 and g1.json()["sent"] == 8
+        monkeypatch.setattr(rem, "current_instant", lambda: MON + timedelta(days=8))  # next ISO week: a fresh allowance
+        g2 = await real(c, GENERAL, org)
+    assert t1.json()["sent"] == 4 and g1.json()["sent"] == 4 and g2.json()["sent"] == 8
     keys = sorted(r.dedupe_key for r in (await db.execute(select(MkaAutomationSendLog))).scalars().all())
-    assert all(k.startswith("manual:") for k in keys) and len(keys) == 12
-    assert any(k.startswith("manual:101:2026-W47:") for k in keys) and any(k.startswith("manual:102:2026-W47:") for k in keys)
+    assert all(k.startswith("manual:") for k in keys) and len(keys) == 16
+    assert sum(":2026-W47:" in k for k in keys) == 8 and sum(":2026-W48:" in k for k in keys) == 8  # 4+4, then 8 afresh
+    assert len({k.split(":")[1] for k in keys}) == 2  # both courses have their own key space
 
 
 async def test_a_second_manual_remind_of_the_same_course_in_the_same_week_reaches_nobody_twice(
@@ -170,14 +239,14 @@ async def test_a_second_manual_remind_of_the_same_course_in_the_same_week_reache
     assert len(transport.calls) == 4
 
 
-async def test_the_scheduled_run_does_not_count_manual_rows_against_the_weekly_cap(db, org, world, transport, on, real_mode):  # noqa: F811
+async def test_manual_rows_count_against_the_weekly_cap(db, org, world, transport, on, real_mode):  # noqa: F811
     from src.services.mka import automation_send as send
 
     async with client_for(db, 1) as c:
         await real(c, GENERAL, org)
     week = send.current_iso_week(MON)
-    assert await send.reminders_this_week(db, org.id, "l2@example.invalid", week) == 0
-    assert not await send.reminded_this_week(db, org.id, "l2@example.invalid", week)
+    assert await send.reminders_this_week(db, org.id, "l2@example.invalid", week) == 1
+    assert await send.reminded_this_week(db, org.id, "l2@example.invalid", week)
 
 
 # ---------------------------------------------------------------------------------------------------------

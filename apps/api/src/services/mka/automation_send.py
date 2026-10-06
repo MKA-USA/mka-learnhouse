@@ -171,7 +171,7 @@ def reminder_dedupe_key(email: str, iso_week: str) -> str:
 
 def manual_dedupe_key(course_id: int, iso_week: str, email: str) -> str:
     """Manual "Remind" button key: its own key space (review M3), one per person per course per ISO week. It never
-    touches the scheduled ``reminder:`` allowance, and it is not counted by the scheduled weekly cap."""
+    takes the scheduled ``reminder:`` dedupe key, but it DOES count toward the weekly per-person cap (round 5)."""
     return f"manual:{int(course_id)}:{iso_week}:{email.strip().lower()}"
 
 
@@ -193,13 +193,12 @@ def week_window_utc(iso_week: str) -> tuple[datetime, datetime]:
 
 
 async def reminders_this_week(db: AsyncSession, org_id: int, email: str, iso_week: str) -> int:
-    """Real (non-test) SCHEDULED reminders queued/sent to ``email`` in the ISO week. Org-scoped. Manual-button rows
-    (``manual:`` keys) are a separate allowance and are not counted."""
+    """Real (non-test) reminders of ANY kind (scheduled ``reminder:`` and manual-button ``manual:`` keys) queued/sent to
+    ``email`` in the ISO week. Org-scoped. Spec 1.5/2C: the weekly cap is one reminder per person, manual included."""
     start, end = week_window_utc(iso_week)
     stmt = select(func.count()).select_from(MkaAutomationSendLog).where(
         MkaAutomationSendLog.org_id == org_id,
         MkaAutomationSendLog.kind == "reminder",
-        MkaAutomationSendLog.dedupe_key.like(f"{SCHEDULED_KEY_PREFIX}%"),  # type: ignore[attr-defined]
         MkaAutomationSendLog.intended_email == email.strip().lower(),
         MkaAutomationSendLog.test_mode == False,  # noqa: E712
         MkaAutomationSendLog.status.in_(("queued", "sent")),  # type: ignore[attr-defined]
@@ -466,7 +465,7 @@ async def send_automation_email(
         return result("budget_exhausted", reason=budget.stop_reason)
 
     suppressed = _is_suppressed(intended)
-    if kind == "reminder" and key.startswith(SCHEDULED_KEY_PREFIX) and not suppressed and not test_mode:
+    if kind == "reminder" and key.startswith((SCHEDULED_KEY_PREFIX, "manual:")) and not suppressed and not test_mode:
         week = current_iso_week(now)
         if await reminded_this_week(db, org_id, intended, week):
             return result("capped", reason="weekly_reminder_cap")

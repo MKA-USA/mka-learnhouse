@@ -217,7 +217,8 @@ async def test_test_mode_never_emails_an_intended_recipient(db, org, world, tran
 async def test_kill_switches(db, org, world, transport, monkeypatch):
     monkeypatch.setenv("MKA_AUTOMATION_TEST_RECIPIENT", TESTER)
     rep = await go(db, utc(2026, 11, 15), org, dry_run=False)  # nothing on
-    assert rep["reminder"] == {"ran": False, "reason": "feature_off"}
+    assert rep["reminder"] == {"ran": False, "reason": "feature_off", "disabled_reason": "feature_off"}
+    assert rep["_all"]["disabled_reason"] == "feature_off"  # what the cron workflow reads for its "switched off" notice
     monkeypatch.setenv("MKA_REMINDERS_ENABLED", "true")  # feature on, master off
     rep = await go(db, utc(2026, 11, 15), org, dry_run=False)
     assert rep["reminder"]["reason"] == "feature_off"
