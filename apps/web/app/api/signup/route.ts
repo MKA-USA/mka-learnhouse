@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerAPIUrl } from '@services/config/config'
 import { isSaaSMode, isCustomDomainRequest } from '@lib/saas'
 import { verifyTurnstile, clientIpFromHeaders } from '@lib/turnstile'
-import { isMkaTurnstileEnforced } from '@lib/mka-turnstile' // MKA fork
+import { mkaSignupFetch, mkaSignupForwardHeaders } from '@lib/mka-signup-proxy' // MKA fork
 import { validateSignupEmail } from '@services/emails/disposableEmail'
 import { addContactWithLoops, sendLoopsEvent, LOOPS_SIGNED_USERS_GROUP } from '@services/emails/loops'
 
@@ -67,17 +67,7 @@ export async function POST(request: NextRequest) {
   // this route is a thin proxy to the backend user-create endpoint.
   const saas = await isSaaSMode()
 
-  // MKA fork: outside SaaS, Turnstile runs when both keys are set (SaaS = upstream block below).
-  if (!saas && isMkaTurnstileEnforced('oss')) { // MKA fork
-    const mkaTurnstile = await verifyTurnstile(turnstileToken, clientIpFromHeaders(request.headers)) // MKA fork
-    if (!mkaTurnstile.ok) { // MKA fork
-      const detail = // MKA fork
-        mkaTurnstile.reason === 'missing_token' // MKA fork
-          ? 'Please complete the verification challenge.' // MKA fork
-          : 'Verification failed. Please try again.' // MKA fork
-      return NextResponse.json({ detail }, { status: 403 }) // MKA fork
-    } // MKA fork
-  } // MKA fork
+  // MKA fork: outside SaaS the API verifies the single-use Turnstile token (forwarded by mkaSignupForwardHeaders below).
 
   if (saas) {
     // 1. Turnstile — allowed through automatically when no secret is set. Skipped
@@ -153,9 +143,9 @@ export async function POST(request: NextRequest) {
 
   let backendRes: Response
   try {
-    backendRes = await fetch(url, {
+    backendRes = await mkaSignupFetch(saas, base, url, { // MKA fork: non-SaaS calls the API on loopback
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...mkaSignupForwardHeaders(saas, request.headers, turnstileToken) }, // MKA fork
       body: JSON.stringify(backendBody),
       signal: AbortSignal.timeout(8000),
     })

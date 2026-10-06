@@ -240,7 +240,7 @@ Still open:
 
 ## 11. Known limitations & residual risks
 - **AMC ID squatting**: IDs are unverified and first-come unique; at signup or the gate a member can claim another member's unregistered ID. Exposure is now limited to that first-time entry (after it is stored members cannot change it), and admins can fix it from the Users table dialog. AMC ID is treated as admin-managed once set; Salesforce is expected to become the source of official details later.
-- **AMC enumeration**: the 409 at public signup reveals whether an AMC ID is registered. Inherent to unique IDs; consider signup rate limiting.
+- **AMC enumeration**: the 409 at public signup reveals whether an AMC ID is registered. Inherent to unique IDs; bounded since 2026-10-05 by the signup rate limit (`MKA_SIGNUP_RATE_LIMIT_PER_HOUR`, §12).
 - **Cross-org edit (mitigated)**: the profile is one global row per user, so editing requires ADMIN of every org the target belongs to (superadmins unrestricted); for single-org MKA this is a no-op. Org MFA/auth-method policy is enforced on both admin endpoints via `enforce_org_mfa`.
 - **Maintainers cannot edit profiles** (ADMIN role only).
 - **Admin edit UI shipped** (Users table dialog, §6). Still sub-project 2: profile columns in the Users table and in the CSV export, and reporting.
@@ -269,8 +269,30 @@ Still open:
 - Upstream `verifyTurnstile()` FAILS OPEN on Cloudflare or network errors (and when no secret is set); unchanged.
 - Upstream comments in `TurnstileWidget.tsx` and the verify route still say "SaaS-only"; they are stale for this fork and were left unedited.
 
+**Backend enforcement (2026-10-05)** — evaluation: `docs/superpowers/specs/2026-10-05-mka-signup-hardening-eval.md`.
+
+| Gap | Verdict | Status |
+|---|---|---|
+| G1 direct POST to `/api/v1/users/...` bypassed Turnstile | Real | Fixed: API dependency `mka_signup_guard` on the 3 create-user routes |
+| G2 Google SSO account creation | Low risk (costly Google accounts, `MKA_GOOGLE_ONLY_DOMAINS`) | Not rate limited; documented |
+| G3 `check_signup_rate_limit` unused | Real | Fixed: configurable fork limiter |
+| G7 AMC-ID 409 oracle | Mitigated by G3 | No other change |
+
+- Outside SaaS the Next signup route NO LONGER verifies the token: a Turnstile token is single-use, so it forwards it in `X-Turnstile-Token` and the API verifies it once (`apps/api/src/services/security/mka_turnstile.py`).
+- The route calls the API on LOOPBACK outside SaaS (`LEARNHOUSE_INTERNAL_API_URL`, else `http://127.0.0.1:${LEARNHOUSE_PORT:-9000}/api/v1/`). `getServerAPIUrl()` is the public URL on MKA, so the call used to leave the container and come back through the edge, and the API saw the edge hop as the client. It forwards `X-Forwarded-For` / `X-Real-IP` verbatim. There is NO public-URL fallback (it would reintroduce the shared bucket); a failed loopback call gets the existing 502 and is never retried.
+- API rule = web rule: enforce only when BOTH `TURNSTILE_SECRET_KEY` and `NEXT_PUBLIC_TURNSTILE_SITE_KEY` are set (web and API share the container env). Missing/invalid token -> 403 with the same messages. Cloudflare network errors, HTTP >= 500, unreadable replies and `internal-error` fail OPEN.
+- Exempt (validated identities only): superadmin API tokens and superadmin sessions everywhere; on `/users/{org_id}...` (org from the path) also an org-scoped API token of THAT org and a session of an ADMIN of that org. `POST /users/` exempts superadmins only. Everyone else (anonymous, members, maintainers, admins or tokens of another org) is guarded. The e2e client posts as the bootstrap org admin, so it stays exempt.
+- Order: Turnstile first, then the limiter; only Turnstile-passing requests consume the bucket. The limiter is skipped when the client IP is not globally routable (never one shared bucket) and fails open without Redis.
+- SaaS mode: the API guard is inert; the proxy adds no headers and calls the original URL (upstream behavior).
+
+| Env var | Default | Effect |
+|---|---|---|
+| `MKA_SIGNUP_RATE_LIMIT_PER_HOUR` (API) | `60` | Turnstile-passing create-user attempts per globally routable client IP per hour. `0` disables. Invalid/negative -> 60. 429 "Too many sign-up attempts from your network. Please try again in about N minutes." |
+| `LEARNHOUSE_INTERNAL_API_URL` (web, optional) | loopback on `LEARNHOUSE_PORT` | Override the loopback API base used by the signup route outside SaaS |
+
 **Residual gaps**
-- Next-proxy only: a direct POST to the FastAPI `/api/v1/users/...` endpoints bypasses Turnstile.
-- Google SSO account creation is not covered.
-- The backend signup rate limiter `check_signup_rate_limit` exists but is unused; enabling it is a one-line hook if wanted.
-- Unverified at runtime: widget rendering, the 403 path with a bad token, SaaS-mode regression (no app or Cloudflare keys in this environment).
+- Google SSO account creation is not rate limited (G2 verdict).
+- Login / forgot / reset: Turnstile is still enforced only client-side via `/api/turnstile/verify` (needs the token threaded through upstream login/reset endpoints); backend limiters cover them (login 30/5 min/IP, reset 5/5 min/email).
+- On loopback the API sees `Host: 127.0.0.1:9000` (Node fetch cannot override Host). Host is only a last-resort fallback for email link/logo URLs (after Origin/Referer, `frontend_domain`, `LEARNHOUSE_MEDIA_URL`/`LEARNHOUSE_BACKEND_URL`, `LEARNHOUSE_DOMAIN`); check email links after deploy.
+- IP trust: the container nginx APPENDS to incoming `X-Forwarded-For` and upstream `get_client_ip` takes the first (client-controllable) entry, so the guard uses fork `mka_client_ip` (upstream helper and login limiter unchanged): all XFF lines joined, walked from the right skipping only proxy hops (loopback/private/link-local); the first non-hop entry is the client, and if it is not a global unicast address the result is `unknown` (limiter skipped, never walks further left). Keys: IPv4 address or IPv6 /64, zone ids stripped, IPv4-mapped unwrapped. The domains are not behind the Cloudflare proxy; if they ever are, the guard would need `CF-Connecting-IP` handling.
+- Unverified at runtime: widget rendering, real siteverify with a real token, the 403/429 paths in the browser, per-IP Redis keys behind the real proxy, Redis down, SaaS-mode regression.

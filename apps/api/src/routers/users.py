@@ -16,6 +16,7 @@ from src.services.security.rate_limiting import (
     check_invite_acceptance_rate_limit,
 )
 from src.services.orgs.orgs import get_org_join_mechanism
+from src.services.security.mka_signup_guard import mka_signup_guard  # MKA fork
 from src.security.auth import get_current_user, get_authenticated_user
 from src.core.events.database import get_db_session
 from src.db.courses.courses import CourseRead
@@ -190,6 +191,7 @@ async def api_create_user_with_orgid(
     request: Request,
     db_session: AsyncSession = Depends(get_db_session),
     current_user: PublicUser = Depends(get_current_user),
+    _mka_signup_guard: None = Depends(mka_signup_guard),  # MKA fork
     user_object: UserCreate,
     org_id: int,
 ) -> UserRead:
@@ -229,6 +231,7 @@ async def api_create_user_with_orgid_and_invite(
     request: Request,
     db_session: AsyncSession = Depends(get_db_session),
     current_user: PublicUser = Depends(get_current_user),
+    _mka_signup_guard: None = Depends(mka_signup_guard),  # MKA fork
     user_object: UserCreate,
     invite_code: str,
     org_id: int,
@@ -284,6 +287,7 @@ async def api_create_user_without_org(
     request: Request,
     db_session: AsyncSession = Depends(get_db_session),
     current_user: PublicUser = Depends(get_current_user),
+    _mka_signup_guard: None = Depends(mka_signup_guard),  # MKA fork
     user_object: UserCreate,
 ) -> UserRead:
     """
