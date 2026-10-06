@@ -20,16 +20,12 @@ import { mkaAudienceMock } from '@services/mka/flags'
 import { useMkaAudienceEnabled } from '@services/mka/useMkaAudienceEnabled'
 import type { AudienceView } from '../audience/types'
 import type { PreviewPerson } from './PreviewMenu'
-import { applyLearnerFilter } from './learnerFilter'
 import { MkaErrorBoundary } from './MkaErrorBoundary'
 import { getAudienceStore, useAudienceStore } from './store'
-import { computeLearnerNotes, DEFAULT_COPY } from './logic'
 import type { AudienceNodeOptions } from './AudienceNodeView'
 
 // Lazy: the preview bar is author chrome and must not weigh down learner bundles.
 const AudienceBar = lazy(() => import('./AudienceBar'))
-
-const NOTE_CLASS = 'my-2 rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700 dark:bg-slate-800 dark:text-slate-200'
 
 type Props = { editor: Editor; options: AudienceNodeOptions }
 
@@ -63,44 +59,11 @@ function Inner({ editor, options }: Props) {
   const previewing = st.view.kind !== 'author'
   const audienceEnabled = useMkaAudienceEnabled()
 
-  // Under a preview the document is read-only: the author is looking at what a viewer sees, with
-  // hidden content detached from the page. Only transitions touch editability (never on mount), and
-  // without emitting an update so the upstream unsaved-changes tracking is not triggered.
-  const wasPreviewing = useRef(false)
+  // The learner filter, copy policy, preview editability and learner notes are plain TS (driver.ts): nothing
+  // correctness-critical lives here, because this component renders through a portal that can fail to mount.
   useEffect(() => {
-    if (!editable || wasPreviewing.current === previewing) return
-    wasPreviewing.current = previewing
-    if (!editor.isDestroyed) editor.setEditable(!previewing, false)
-  }, [editable, previewing, editor])
-  useEffect(
-    () => () => {
-      if (wasPreviewing.current && !editor.isDestroyed) editor.setEditable(true, false)
-    },
-    [editor],
-  )
-
-  // Learner view: keep hidden content out of the editor STATE (TOC, copy, AI read editor.state.doc), not just the DOM.
-  const learnerDoc = !editable && !options.editable
-  useEffect(() => {
-    if (!learnerDoc || me.state === 'loading') return
-    const store = getAudienceStore(editor)
-    // Deferred out of the effect: node view updates flushSync React renders, which React rejects mid-lifecycle.
-    // Until it runs, hidden sections stay DOM-detached (no flash).
-    let cancelled = false
-    queueMicrotask(() => {
-      if (cancelled || editor.isDestroyed) return
-      if (me.canViewAll) {
-        applyLearnerFilter(editor, 'all')
-        store.set({ copyPolicy: { kind: 'all' } })
-      } else {
-        applyLearnerFilter(editor, me.viewer)
-        store.set({ copyPolicy: { kind: 'viewer', viewer: me.viewer } })
-      }
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [learnerDoc, me.state, me.viewer, me.canViewAll, st.originalVersion, editor])
+    getAudienceStore(editor).set({ copy: orgOptions?.copy ?? null })
+  }, [orgOptions?.copy, editor])
 
   // The bar is the only way out of a preview, so it shows whenever a preview is active, flag or not.
   const showBar = previewing || (audienceEnabled && st.sectionCount > 0 && (editable || me.canViewAll))
@@ -131,17 +94,6 @@ function Inner({ editor, options }: Props) {
     [auth.token, scope.orgId, editor],
   )
 
-  // Learner notes: only for what a viewer effectively sees (not the author's "everything" view).
-  const effectiveViewer = st.view.kind === 'persona' ? st.view.attributes : me.viewer
-  const showNotes = st.sectionCount > 0 && me.state === 'ready' && (editable || me.canViewAll ? previewing : true)
-  const notes = useMemo(
-    () => (showNotes ? computeLearnerNotes(editor.state.doc.toJSON(), effectiveViewer) : null),
-    // docVersion: recompute when the document changes
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [showNotes, effectiveViewer, st.docVersion, editor],
-  )
-  const copy = orgOptions?.copy ?? DEFAULT_COPY
-
   return (
     <>
       {showBar && (
@@ -157,16 +109,6 @@ function Inner({ editor, options }: Props) {
           options={orgOptions}
         />
         </Suspense>
-      )}
-      {notes?.unrecognized && (
-        <p role="note" data-testid="mka-note-unrecognized" className={NOTE_CLASS}>
-          {copy.unrecognized_note}
-        </p>
-      )}
-      {notes?.emptyLesson && (
-        <p role="note" data-testid="mka-note-empty" className={NOTE_CLASS}>
-          {copy.empty_lesson}
-        </p>
       )}
     </>
   )

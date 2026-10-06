@@ -63,14 +63,38 @@ def test_local_executives_get_only_their_regional_qaid():
         assert res["counterparts"][0]["level"] == "regional"
 
 
-def test_regional_qaid_has_no_department():
+def test_regional_qaid_has_no_department_contacts_and_is_not_applicable():
     res = result("qaid.northeast@mkausa.org")
-    assert res == {"counterparts": [], "reason": "no_department"}
+    assert res == {"counterparts": [], "reason": "not_applicable"}
 
 
-def test_sadr_and_national_staff_have_no_department():
+def test_sadr_and_national_staff_are_not_applicable():
     for email in ("sadr@mkausa.org", "legal@mkausa.org"):
-        assert result(email) == {"counterparts": [], "reason": "no_department"}
+        assert result(email) == {"counterparts": [], "reason": "not_applicable"}
+
+
+def test_no_department_reason_is_only_for_partial_viewers():
+    partial = {"status": "partial", "role": "nazim_dept", "department": None, "level": None}
+    assert counterparts_for(partial, RULES) == {"counterparts": [], "reason": "no_department"}
+    assert counterparts_for({**partial, "status": "matched", "level": "regional", "role": "regional_qaid"}, RULES)["reason"] == "not_applicable"
+
+
+def test_viewer_never_gets_a_row_for_their_own_office_even_with_a_different_account_address():
+    # e2e finding: a Mohtamim Tabligh whose ACCOUNT address is not tabligh@ was told to contact tabligh@
+    holder = {"status": "matched", "department": "tabligh", "role": "mohtamim", "level": "national", "majlis": None, "region": None}
+    res = counterparts_for(holder, RULES, own_email="some.person@example.invalid")
+    assert res == {"counterparts": [], "reason": None}
+    # a different office in the same department still gets the department head
+    nazim = {**holder, "role": "nazim_dept", "level": "regional", "region": "Northeast"}
+    assert "tabligh@mkausa.org" in emails(counterparts_for(nazim, RULES, own_email="some.person@example.invalid"))
+    # another department's head is a legitimate contact
+    other = {**holder, "department": "maal"}
+    assert emails(counterparts_for(other, RULES, own_email="x@example.invalid")) == []  # their own office
+    local_maal = {"status": "matched", "department": "maal", "role": "nazim_dept", "level": "local", "majlis": "Albany", "region": "Northeast"}
+    assert "maal@mkausa.org" in emails(counterparts_for(local_maal, RULES, own_email="x@example.invalid"))
+    # the Muqami office holder: neither the national nor the chapter-Qaid row is their own counterpart
+    muqami = {"status": "matched", "department": "muqami", "role": "mohtamim", "level": "national", "majlis": "Muqami", "region": "Muqami"}
+    assert counterparts_for(muqami, RULES, own_email="some.person@example.invalid") == {"counterparts": [], "reason": None}
 
 
 def test_national_head_sees_nothing_when_all_rows_are_themselves():
@@ -78,9 +102,9 @@ def test_national_head_sees_nothing_when_all_rows_are_themselves():
     assert res == {"counterparts": [], "reason": None}
 
 
-def test_national_head_viewing_with_a_different_address_still_gets_the_mailbox():
+def test_national_head_with_a_different_account_address_still_gets_no_row_for_their_own_office():
     res = counterparts_for(attrs_of("tabligh@mkausa.org"), RULES, own_email="someone.else@example.invalid")
-    assert emails(res) == ["tabligh@mkausa.org"]
+    assert res == {"counterparts": [], "reason": None}
 
 
 def test_regional_department_nazim_gets_national_and_regional_qaid_not_themselves():
@@ -91,7 +115,7 @@ def test_regional_department_nazim_gets_national_and_regional_qaid_not_themselve
 
 def test_regional_nazim_row_for_a_viewer_without_a_matching_own_role():
     # a national head in a region: both regional rows, department one first
-    attrs = {"status": "matched", "department": "maal", "role": "mohtamim", "level": "national", "region": "Gulf"}
+    attrs = {"status": "matched", "department": "maal", "role": "national_staff", "level": "national", "region": "Gulf"}
     res = counterparts_for(attrs, RULES, own_email="x@example.invalid")
     assert [(r["role_title"], r["email"]) for r in res["counterparts"]] == [
         ("Mohtamim Maal", "maal@mkausa.org"), ("Regional Nazim Maal", "maal.gulf@mkausa.org"), ("Regional Qaid", "qaid.gulf@mkausa.org"),
@@ -121,7 +145,7 @@ def test_muqami_chapter_qaid_is_the_national_muqami_mailbox_from_the_rules():
 
 
 def test_muqami_department_viewers_get_national_mohtamim_muqami_once():
-    attrs = {"status": "matched", "department": "muqami", "role": "mohtamim", "level": "national", "majlis": "Muqami", "region": "Muqami"}
+    attrs = {"status": "matched", "department": "muqami", "role": "national_staff", "level": "national", "majlis": "Muqami", "region": "Muqami"}
     assert counterparts_for(attrs, RULES, own_email="x@example.invalid")["counterparts"] == [
         {"level": "national", "role_title": "Mohtamim Muqami", "email": "muqami@mkausa.org", "name": None, "department": "muqami"}]  # not twice
     assert counterparts_for(attrs, RULES, own_email="muqami@mkausa.org") == {"counterparts": [], "reason": None}  # the office holder: nobody else to contact
@@ -164,7 +188,7 @@ def test_unrecognized_statuses_get_reason_unrecognized():
 
 def test_missing_attribute_keys_do_not_raise():
     assert counterparts_for({}, RULES) == {"counterparts": [], "reason": "unrecognized"}
-    assert counterparts_for({"status": "matched"}, RULES) == {"counterparts": [], "reason": "no_department"}
+    assert counterparts_for({"status": "matched"}, RULES) == {"counterparts": [], "reason": "not_applicable"}
 
 
 def test_own_address_omission_ignores_case_and_plus_tag():

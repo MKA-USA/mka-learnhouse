@@ -8,8 +8,8 @@ import { Popover, PopoverContent, PopoverTrigger } from '@components/ui/popover'
 import { ToggleGroup, ToggleGroupItem } from '@components/ui/toggle-group'
 import { describeRule, isDescribable } from '../audience/describe'
 import {
-  applyPreset, emptyRule, hasRoleKey, listOf, normalizeRule, replaceValue, resolvePresets, sameGroups,
-  selectWholeRegion, setMode, toggleValue,
+  applyPreset, emptyRule, hasRoleKey, hidesAllOfficeholders, listOf, normalizeRule, replaceValue, resolvePresets, sameGroups,
+  ONLY_NON_OFFICEHOLDERS_NOTE, selectWholeRegion, setMode, toggleValue,
 } from '../audience/rule-edit'
 import type { AudienceOptions, CountState, Rule, RuleListKey } from '../audience/types'
 import { FOCUS_RING, MultiPick, PRESS, Sheet, TARGET, TONE_STYLE, useIsNarrow, type PickGroup } from './audience-ui'
@@ -386,6 +386,12 @@ export function PickerBody({
             <div className="mt-1">
               <CountLine count={count} options={dopts} rule={rule} />
             </div>
+            {!zero && hidesAllOfficeholders(rule) ? (
+              <p role="status" className="mt-1 flex gap-2 text-sm text-amber-900" data-testid="audience-only-non-officeholders">
+                <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
+                {ONLY_NON_OFFICEHOLDERS_NOTE}
+              </p>
+            ) : null}
             {zero ? (
               <p role="status" className="mt-1 flex gap-2 text-sm text-amber-900">
                 <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
@@ -401,7 +407,14 @@ export function PickerBody({
         </div>
       )}
 
-      <div className="flex flex-col-reverse gap-2 border-t border-gray-200 p-3 sm:flex-row sm:items-center sm:justify-between">
+      <div
+        data-testid="audience-picker-footer"
+        className={cn(
+          'flex flex-col-reverse gap-2 border-t border-gray-200 p-3 sm:flex-row sm:items-center sm:justify-between',
+          // On phones the sheet body scrolls; Cancel/Done must always stay on screen (and clear the home indicator).
+          inSheet && 'sticky bottom-0 z-10 rounded-b-none bg-white pb-[max(0.75rem,env(safe-area-inset-bottom))]',
+        )}
+      >
         <div>
           {onRemove ? (
             <Button type="button" variant="ghost" onClick={onRemove} className="h-11 w-full text-red-700 hover:text-red-800 sm:h-9 sm:w-auto">

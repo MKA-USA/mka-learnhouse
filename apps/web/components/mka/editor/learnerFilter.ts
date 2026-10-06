@@ -24,6 +24,13 @@ export function filterDocJSON<T extends JSONNode>(node: T, viewer: MkaViewerAttr
   return { ...node, content: node.content.map((c) => filterDocJSON(c, viewer)) }
 }
 
+/** Pure: replaces the content of EVERY section with one empty paragraph (nodes and attrs are kept). */
+export function emptyAllSectionsJSON<T extends JSONNode>(node: T): T {
+  if (node.type === AUDIENCE_NODE) return { ...node, content: [{ type: 'paragraph' }] }
+  if (!node.content) return node
+  return { ...node, content: node.content.map((c) => emptyAllSectionsJSON(c)) }
+}
+
 /** Fragment-level filter used for copy/cut. `viewer === undefined` drops every section; a viewer keeps matches only. */
 export function filterFragment(fragment: Fragment, keep: (node: PMNode) => boolean): Fragment {
   const out: PMNode[] = []
@@ -48,11 +55,11 @@ export function transformCopiedSlice(slice: Slice, policy: CopyPolicy): Slice {
 type EditorLike = { state: any; view: any; storage: Record<string, any>; emit: (event: any, ...args: any[]) => unknown }
 
 /** Re-applies the filter from the original document. `viewer: 'all'` restores the full document. */
-export function applyLearnerFilter(editor: EditorLike, viewer: MkaViewerAttributes | null | 'all'): boolean {
+export function applyLearnerFilter(editor: EditorLike, viewer: MkaViewerAttributes | null | 'all' | 'none'): boolean {
   const storage = editor.storage.mkaAudience
   const original = storage?.original
   if (!original) return false
-  const target = viewer === 'all' ? original : filterDocJSON(original, viewer)
+  const target = viewer === 'all' ? original : viewer === 'none' ? emptyAllSectionsJSON(original) : filterDocJSON(original, viewer)
   const doc: PMNode = editor.state.schema.nodeFromJSON(target)
   if (doc.eq(editor.state.doc)) return false
   // Not a transaction on purpose. DynamicCanva (the learner viewer) installs upstream's NoTextInput plugin, whose

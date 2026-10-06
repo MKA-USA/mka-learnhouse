@@ -26,7 +26,11 @@ const React = (await import("react")).default;
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
-const { EditorContent, useEditor } = await import("@tiptap/react");
+const { EditorContent, useEditor, ReactRenderer } = await import("@tiptap/react");
+const { AudienceChrome } = await import("../components/mka/editor/AudienceChrome.tsx");
+const { publishViewing } = await import("../components/mka/editor/store.ts");
+const { renderNotes, notesFor } = await import("../components/mka/editor/driver.ts");
+const { Plugin } = await import("@tiptap/pm/state");
 const { default: StarterKit } = await import("@tiptap/starter-kit");
 const { NoTextInput } = await import("../components/Objects/Editor/Extensions/NoTextInput/NoTextInput");
 const { SessionContext } = await import("../components/Contexts/LHSessionContext.tsx");
@@ -159,7 +163,7 @@ describe("learner (default mock viewer: local Nazim Tabligh)", () => {
 
 describe("learner notes", () => {
   test("unrecognized viewer: tailored-by-role note appears once", async () => {
-    const { container } = await mount(content, { search: "?mka_viewer=unrecognized-account" });
+    const { container } = await mount(content, { search: "?mka_viewer=unrecognized" });
     await settle();
     expect(container.querySelectorAll('[data-testid="mka-note-unrecognized"]').length).toBe(1);
     expect(container.textContent).toContain("We couldn't recognise your role");
@@ -263,7 +267,7 @@ describe("inline fields", () => {
     expect(m.container.textContent).toContain("In Albany go.");
     await act(async () => m.root.unmount()); m.container.remove(); current = null;
 
-    m = await mount(fieldDoc, { search: "?mka_viewer=unrecognized-account" });
+    m = await mount(fieldDoc, { search: "?mka_viewer=unrecognized" });
     await settle();
     expect(m.container.textContent).toContain("In your Majlis go.");
     await act(async () => m.root.unmount()); m.container.remove(); current = null;
@@ -750,5 +754,242 @@ describe("runtime flag (C): authoring entry points appear when runtime-config.js
     } finally {
       delete window.__RUNTIME_CONFIG__;
     }
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------
+// Explorer findings F1 (slash click), F2 (focus return), F4 (hide-all warning), F5 (mock viewer ids)
+// ---------------------------------------------------------------------------------------------------------
+describe("explorer findings", () => {
+  const sections = (e) => e.getJSON().content.filter((n) => n.type === "mkaAudience");
+  const escape = async () => {
+    await act(async () => { document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true })); });
+    await settle();
+  };
+
+  // Waits for the lazy picker to mount, then returns immediately (inside the one-shot window).
+  const pickerJustOpened = async () => {
+    for (let i = 0; i < 100 && !document.body.querySelector('[aria-label="Who should see this section?"]'); i++) await act(async () => { await new Promise((r) => setTimeout(r, 5)); });
+    expect(document.body.querySelector('[aria-label="Who should see this section?"]')).not.toBeNull();
+  };
+
+  test("F1: the editor regaining focus right after a NEW section opens its picker does not cancel the section", async () => {
+    // Mouse path of the slash menu: the click blurs the editor, the command inserts the section and focuses the editor
+    // again right after the picker opens. Radix saw that as "focus outside the popover" and cancelled the section.
+    const m = await mount(doc(para("Hello"), para("")), { editable: true, flag: "1" });
+    await settle();
+    await act(async () => { m.editor().commands.setTextSelection(8); m.editor().commands.setMkaAudience(); });
+    await pickerJustOpened();
+    await act(async () => { m.editor().view.dom.blur(); m.editor().view.dom.focus(); }); // the one programmatic refocus
+    await settle();
+    expect(sections(m.editor()).length).toBe(1);
+    expect(document.body.querySelector('[aria-label="Who should see this section?"]')).not.toBeNull();
+  });
+
+  test("F1 (scoped): a LATER focus into the editor still cancels a NEW section (one-shot exemption only)", async () => {
+    const m = await mount(doc(para("Hello"), para("")), { editable: true, flag: "1" });
+    await settle();
+    await act(async () => { m.editor().commands.setTextSelection(8); m.editor().commands.setMkaAudience(); });
+    await pickerJustOpened();
+    await act(async () => { m.editor().view.dom.blur(); m.editor().view.dom.focus(); }); // the exempt one
+    await act(async () => { await new Promise((r) => setTimeout(r, 500)); }); // the author moves on
+    await act(async () => { m.editor().view.dom.blur(); m.editor().view.dom.focus(); });
+    await settle();
+    expect(sections(m.editor()).length).toBe(0);
+  });
+
+  test("F1 (scoped): the exemption is single-use even within the window", async () => {
+    const m = await mount(doc(para("Hello"), para("")), { editable: true, flag: "1" });
+    await settle();
+    await act(async () => { m.editor().commands.setTextSelection(8); m.editor().commands.setMkaAudience(); });
+    await pickerJustOpened();
+    await act(async () => { m.editor().view.dom.blur(); m.editor().view.dom.focus(); });
+    await act(async () => { m.editor().view.dom.blur(); m.editor().view.dom.focus(); });
+    await settle();
+    expect(sections(m.editor()).length).toBe(0);
+  });
+
+  test("F2: after Escape on an EXISTING section focus returns to its Edit button", async () => {
+    const m = await mount(doc(section("a", "x", rule("local"))), { editable: true, flag: "1" });
+    await settle();
+    const edit = () => [...m.container.querySelectorAll("button")].find((b) => b.textContent.trim() === "Edit");
+    await act(async () => { edit().click(); });
+    await settle();
+    await escape();
+    await settle();
+    // booleans only: a failing expect on DOM nodes makes bun diff the whole happy-dom tree (minutes)
+    expect(document.activeElement === edit()).toBe(true);
+  });
+
+  test("F2: after Escape on a NEW section focus goes to the editor, not <body>", async () => {
+    const m = await mount(doc(para("Hello"), para("World")), { editable: true, flag: "1" });
+    await settle();
+    await act(async () => { m.editor().commands.setTextSelection(2); m.editor().commands.setMkaAudience(); });
+    await settle();
+    await escape();
+    await settle();
+    expect(document.activeElement === document.body).toBe(false);
+    expect(m.editor().view.dom.contains(document.activeElement) || m.editor().view.dom === document.activeElement).toBe(true);
+  });
+
+  test("F4: a Hide-from rule that excludes every officeholder warns in the header", async () => {
+    const hideAll = { v: 1, mode: "hide", groups: [{}] };
+    const m = await mount(doc(section("a", "x", hideAll)), { editable: true, flag: "1" });
+    await settle();
+    expect(m.container.textContent).toContain("Only people who aren't officeholders will see this.");
+  });
+
+  test("F5: an unknown ?mka_viewer= is the UNRECOGNIZED viewer (with a console warning), not silently Local Nazim", async () => {
+    const warn = console.warn;
+    const warned = [];
+    console.warn = (...a) => warned.push(a.join(" "));
+    try {
+      const m = await mount(content, { search: "?mka_viewer=typo-persona" });
+      await settle();
+      expect(m.container.innerHTML).not.toContain("LOCAL-ONLY-TEXT");
+      expect(m.container.textContent).toContain("We couldn't recognise your role");
+      expect(warned.some((w) => w.includes("typo-persona") && w.includes("unrecognized"))).toBe(true);
+    } finally {
+      console.warn = warn;
+    }
+  });
+});
+
+describe("FINDING-0: nothing correctness-critical depends on the React chrome mounting", () => {
+  // The bar renders through ReactRenderer -> contentComponent, which can silently fail to mount (it did on the learner
+  // page). Simulate that: AudienceChrome never renders.
+  const realRender = ReactRenderer.prototype.render;
+  const stubChrome = () => {
+    ReactRenderer.prototype.render = function () {
+      if (this.component === AudienceChrome) return;
+      return realRender.call(this);
+    };
+  };
+  afterEach(() => { ReactRenderer.prototype.render = realRender; });
+
+  test("learner state filter, copy policy and TOC-visible content work with the chrome never mounted", async () => {
+    stubChrome();
+    const m = await mount(stateDoc);
+    await settle();
+    expect(m.container.querySelector(".mka-audience-chrome")?.children.length ?? 0).toBe(0); // chrome really absent
+    expect(tocHeadings(m.editor())).toEqual(["PUBLIC-HEADING", "LOCAL-HEADING"]);
+    expect(m.editor().state.doc.textContent).not.toContain("REGIONAL");
+    expect(getAudienceStore(m.editor()).get().copyPolicy.kind).toBe("viewer");
+    const { dom, text } = copied(m.editor());
+    expect(dom.innerHTML + text).not.toContain("REGIONAL");
+  });
+
+  test("learner notes are plain DOM and show with the chrome never mounted", async () => {
+    stubChrome();
+    const { container } = await mount(content, { search: "?mka_viewer=unrecognized" });
+    await settle();
+    expect(container.querySelectorAll('[data-testid="mka-note-unrecognized"]').length).toBe(1);
+    expect(container.querySelector(".mka-audience-notes").textContent).toContain("We couldn't recognise your role");
+  });
+
+  test("empty-lesson note is plain DOM too", async () => {
+    stubChrome();
+    const onlyRegional = doc(para(""), hsec("b", rule("regional"), heading("REGIONAL-HEADING"), para("REGIONAL-BODY")));
+    const { container } = await mount(onlyRegional);
+    await settle();
+    expect(container.querySelector('[data-testid="mka-note-empty"]')).not.toBeNull();
+  });
+
+  test("the chrome (admin bar) mounts when it is created late, via the section node views", async () => {
+    // not stubbed: the real path; the bar must be present for a can_view_all viewer on the learner page
+    const m = await mount(content, { search: "?mka_admin=1", flag: "1" });
+    await settle();
+    expect(m.container.querySelector('[aria-label="Audience preview"]')).not.toBeNull();
+  });
+});
+
+describe("driver review fixes", () => {
+  const realRender = ReactRenderer.prototype.render;
+  afterEach(() => { ReactRenderer.prototype.render = realRender; });
+  const stateText = (e) => e.state.doc.textContent;
+  const hideDoc = doc(
+    heading("PUBLIC-HEADING"),
+    hsec("a", rule("local"), heading("LOCAL-HEADING"), para("LOCAL-BODY")),
+    hsec("b", rule("regional"), heading("REGIONAL-HEADING"), para("REGIONAL-BODY")),
+    hsec("c", rule("local", "hide"), heading("NOTLOCAL-HEADING"), para("NOTLOCAL-BODY")),
+  );
+
+  test("1: no section controller ever publishes a viewer => the editor STATE holds no section text (fail closed)", async () => {
+    ReactRenderer.prototype.render = function () {
+      if (this.component === AudienceView) return;
+      return realRender.call(this);
+    };
+    const m = await mount(hideDoc);
+    await settle();
+    expect(stateText(m.editor())).toContain("PUBLIC-HEADING");
+    for (const t of ["LOCAL-HEADING", "LOCAL-BODY", "REGIONAL-BODY", "NOTLOCAL-BODY"]) expect(stateText(m.editor())).not.toContain(t);
+    expect(tocHeadings(m.editor())).toEqual(["PUBLIC-HEADING"]);
+    expect(copied(m.editor()).text).not.toContain("BODY");
+    expect(m.editor().getJSON().content.filter((n) => n.type === "mkaAudience").length).toBe(3); // nodes and attrs kept
+  });
+
+  test("1 / M15: while /me is pending ALL sections are emptied in the state (not filtered for an anonymous viewer); then filtered", async () => {
+    let resolveMe;
+    const pendingMe = { promise: new Promise((r) => (resolveMe = r)) };
+    const m = await mount(hideDoc, { pendingMe });
+    await settle();
+    for (const t of ["LOCAL-BODY", "REGIONAL-BODY", "NOTLOCAL-BODY"]) expect(stateText(m.editor())).not.toContain(t); // incl. the Hide-from section
+    expect(tocHeadings(m.editor())).toEqual(["PUBLIC-HEADING"]);
+    await act(async () => {
+      resolveMe({ ok: true, status: 200, json: async () => ({ attributes: { status: "matched", is_officeholder: true, level: "local", department: null, role: "qaid", role_title: "Qaid", majlis: "Houston", region: "Gulf" }, stale: false, can_view_all: false, rules_version: "x" }) });
+    });
+    await settle();
+    expect(tocHeadings(m.editor())).toEqual(["PUBLIC-HEADING", "LOCAL-HEADING"]);
+    expect(stateText(m.editor())).not.toContain("NOTLOCAL-BODY");
+  });
+
+  test("8: an EDITABLE editor given a hostile learner viewer keeps its full document", async () => {
+    const m = await mount(hideDoc, { editable: true, flag: "1" });
+    await settle();
+    await act(async () => {
+      publishViewing(getAudienceStore(m.editor()), { state: "ready", viewer: { status: "matched", is_officeholder: true, level: "regional", department: null, role: null, role_title: null, majlis: null, region: "Gulf" }, canViewAll: false, providerEditable: false });
+    });
+    await settle();
+    for (const t of ["LOCAL-BODY", "REGIONAL-BODY", "NOTLOCAL-BODY"]) expect(stateText(m.editor())).toContain(t);
+  });
+
+  test("3: reconfiguring plugins (registerPlugin) never turns the FILTERED doc into the original", async () => {
+    const m = await mount(hideDoc, { allowDocEdits: true });
+    await settle();
+    expect(stateText(m.editor())).not.toContain("REGIONAL-BODY");
+    await act(async () => { m.editor().registerPlugin(new Plugin({})); });
+    await settle();
+    domWindow.happyDOM.setURL("http://localhost/?mka_admin=1");
+    await act(async () => { await m.qc.invalidateQueries({ queryKey: mkaAttributeKeys.all }); });
+    await settle();
+    for (const t of ["LOCAL-BODY", "REGIONAL-BODY", "NOTLOCAL-BODY"]) expect(stateText(m.editor())).toContain(t);
+  });
+
+  test("4: notes compute the doc lazily: never for authors, only when notes can render", () => {
+    let calls = 0;
+    const thunk = () => { calls++; return doc(para("x")); };
+    const base = { sectionCount: 1, view: { kind: "author" } };
+    expect(notesFor({ ...base, viewing: { state: "ready", viewer: null, canViewAll: false, providerEditable: true } }, thunk)).toBeNull();
+    expect(notesFor({ ...base, viewing: { state: "ready", viewer: null, canViewAll: true, providerEditable: false } }, thunk)).toBeNull();
+    expect(notesFor({ ...base, viewing: { state: "loading", viewer: null, canViewAll: false, providerEditable: false } }, thunk)).toBeNull();
+    expect(calls).toBe(0);
+    notesFor({ ...base, viewing: { state: "ready", viewer: null, canViewAll: false, providerEditable: false } }, thunk);
+    expect(calls).toBe(1);
+  });
+
+  test("6 / M12: notes host is a polite live region, roles are right, and re-rendering identical notes keeps the same nodes", () => {
+    const host = document.createElement("div");
+    const copy = { unrecognized_note: "UNREC", empty_lesson: "EMPTY" };
+    renderNotes(host, { unrecognized: true, emptyLesson: true }, copy);
+    expect(host.getAttribute("aria-live")).toBe("polite");
+    expect(host.querySelector('[data-testid="mka-note-unrecognized"]').getAttribute("role")).toBe("status");
+    expect(host.querySelector('[data-testid="mka-note-empty"]').getAttribute("role")).toBe("note");
+    const first = host.firstElementChild;
+    renderNotes(host, { unrecognized: true, emptyLesson: true }, copy);
+    expect(host.firstElementChild === first).toBe(true); // not rebuilt: no repeated screen-reader announcement
+    renderNotes(host, { unrecognized: true, emptyLesson: false }, copy);
+    expect(host.children.length).toBe(1);
+    renderNotes(host, null, copy);
+    expect(host.children.length).toBe(0);
   });
 });

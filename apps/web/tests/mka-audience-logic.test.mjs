@@ -160,3 +160,18 @@ describe("audience store", () => {
     expect(s.get().openPickerFor).toBe("a");
   });
 });
+
+describe("F4: hidesAllOfficeholders / warning", () => {
+  test("only a Hide rule with a match-everyone group", async () => {
+    const { hidesAllOfficeholders } = await import("../components/mka/audience/rule-edit.ts");
+    expect(hidesAllOfficeholders({ v: 1, mode: "hide", groups: [{}] })).toBe(true);
+    expect(hidesAllOfficeholders({ v: 1, mode: "hide", groups: [{ level: [] }] })).toBe(true);
+    expect(hidesAllOfficeholders({ v: 1, mode: "hide", groups: [{ level: ["local"] }] })).toBe(false);
+    expect(hidesAllOfficeholders({ v: 1, mode: "show", groups: [{}] })).toBe(false);
+    expect(hidesAllOfficeholders({ v: 1, mode: "hide", groups: [{ officeholder: false }] })).toBe(false);
+    expect(hidesAllOfficeholders({ v: 1, mode: "hide", groups: [{ gender: ["x"] }] })).toBe(false);
+  });
+  test("ruleWarnings reports it", () => {
+    expect(ruleWarnings({ v: 1, mode: "hide", groups: [{}] }, undefined, false)).toEqual([{ kind: "only_non_officeholders" }]);
+  });
+});

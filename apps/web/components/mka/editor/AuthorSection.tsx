@@ -39,6 +39,34 @@ export default function AuthorSection(p: AuthorSectionProps) {
   const [open, setOpen] = useState(false)
   const [isNew, setIsNew] = useState(false)
   const startRule = useRef<Rule>(norm ?? DEFAULT_RULE)
+  const headerRef = useRef<HTMLDivElement>(null)
+  // One-shot allowance for the programmatic refocus of the editor that the slash command performs right after the new
+  // section's picker opens. Anything later (the author really moving focus or clicking into the editor) dismisses as usual.
+  const refocusGraceUntil = useRef(0)
+  // Where focus goes when the picker closes (never <body>): an existing section's Edit button, else the editor.
+  const returnTo = useRef<'edit' | 'editor'>('editor')
+  const restoreFocus = () => {
+    if (returnTo.current === 'edit') {
+      const edit = [...(headerRef.current?.querySelectorAll('button') ?? [])].find((b) => b.textContent?.trim() === 'Edit')
+      if (edit) {
+        edit.focus()
+        return
+      }
+    }
+    editor.commands.focus()
+  }
+
+  // Phones: the sheet is a Dialog without a trigger, so hand focus back ourselves when it closes.
+  const wasOpen = useRef(false)
+  useEffect(() => {
+    if (narrow && wasOpen.current && !open) {
+      wasOpen.current = false
+      const t = setTimeout(restoreFocus, 0)
+      return () => clearTimeout(t)
+    }
+    wasOpen.current = open
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, narrow])
 
   // A freshly inserted section opens its picker immediately.
   useEffect(() => {
@@ -46,6 +74,7 @@ export default function AuthorSection(p: AuthorSectionProps) {
       startRule.current = norm ?? DEFAULT_RULE
       setIsNew(true)
       setOpen(true)
+      refocusGraceUntil.current = Date.now() + 400
       store.set({ openPickerFor: null })
     }
   }, [st.openPickerFor, id, norm, store])
@@ -73,9 +102,8 @@ export default function AuthorSection(p: AuthorSectionProps) {
     // history steps, so one Ctrl+Z removes it and redo restores it with the final rule. Only an EDIT needs folding
     // into one step.
     if (id && !isNew) editor.commands.commitEditMkaAudience(id, startRule.current)
+    returnTo.current = isNew ? 'editor' : 'edit' // new: keep typing inside the section
     close()
-    // Keep typing where the author was (inside the section), not in the popover.
-    editor.commands.focus()
   }
 
   const cancel = () => {
@@ -85,6 +113,7 @@ export default function AuthorSection(p: AuthorSectionProps) {
       if (isNew) editor.commands.cancelNewMkaAudience(id)
       else editor.commands.updateMkaAudienceRule(id, startRule.current, { addToHistory: false })
     }
+    returnTo.current = isNew ? 'editor' : 'edit'
     close()
   }
 
@@ -111,6 +140,7 @@ export default function AuthorSection(p: AuthorSectionProps) {
         id
           ? () => {
               editor.commands.unsetMkaAudience(id)
+              returnTo.current = 'editor'
               close()
             }
           : undefined
@@ -149,7 +179,7 @@ export default function AuthorSection(p: AuthorSectionProps) {
   if (narrow) {
     return (
       <>
-        {header}
+        <div ref={headerRef}>{header}</div>
         {open ? picker : null}
       </>
     )
@@ -157,11 +187,24 @@ export default function AuthorSection(p: AuthorSectionProps) {
   return (
     <Popover open={open} onOpenChange={(o) => (o ? setOpen(true) : cancel())}>
       <PopoverAnchor asChild>
-        <div>{header}</div>
+        <div ref={headerRef}>{header}</div>
       </PopoverAnchor>
       <PopoverContent
         align="start"
         collisionPadding={8}
+        // The slash command re-focuses the editor right after opening a NEW section's picker (the click blurred it). That
+        // single programmatic focus must not dismiss (= cancel) the picker; any later focus or click does.
+        onFocusOutside={(e) => {
+          const target = e.target as Node | null
+          if (target && editor.view.dom.contains(target) && refocusGraceUntil.current > Date.now()) {
+            refocusGraceUntil.current = 0
+            e.preventDefault()
+          }
+        }}
+        onCloseAutoFocus={(e) => {
+          e.preventDefault()
+          restoreFocus()
+        }}
         className="max-h-(--radix-popover-content-available-height) w-[min(34rem,calc(100vw-2rem))] overflow-y-auto border-0 bg-transparent p-0 shadow-none"
       >
         {picker}

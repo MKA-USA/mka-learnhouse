@@ -534,8 +534,20 @@ async def test_counterparts_local_qaid_gets_regional_qaid_only(db, world):
 
 
 @pytest.mark.asyncio
-async def test_counterparts_regional_qaid_has_no_department(db, world):
-    assert (await counterparts(db, 53)).json() == {"counterparts": [], "reason": "no_department"}
+async def test_counterparts_regional_qaid_is_not_applicable(db, world):
+    assert (await counterparts(db, 53)).json() == {"counterparts": [], "reason": "not_applicable"}
+
+
+@pytest.mark.asyncio
+async def test_counterparts_partial_viewer_without_department_gets_no_department(db, world):
+    await add_viewer(db, 72, "partial.nodept@example.invalid", status="partial", role="nazim_dept", role_title="Nazim")
+    assert (await counterparts(db, 72)).json() == {"counterparts": [], "reason": "no_department"}
+
+
+@pytest.mark.asyncio
+async def test_counterparts_never_list_the_viewers_own_office_even_when_the_account_address_differs(db, world):
+    # 54: national Mohtamim Tabligh whose account address is head.tabligh@example.invalid, not tabligh@
+    assert (await counterparts(db, 54)).json() == {"counterparts": [], "reason": None}
 
 
 @pytest.mark.asyncio

@@ -88,3 +88,11 @@ export const sameGroups = (a: Rule, b: Rule) => JSON.stringify(normalizeRule(a).
 export const hasRoleKey = (rule: Rule) => rule.groups.some((g) => Array.isArray(g.role) && g.role.length > 0)
 
 export const emptyRule = (): Rule => ({ ...DEFAULT_RULE, groups: [{}] })
+
+/** A "Hide from" rule with a group that matches every officeholder: only people who are not officeholders keep the section. */
+export function hidesAllOfficeholders(rule: Rule): boolean {
+  if (rule.mode !== 'hide' || rule.v > 1) return false
+  return rule.groups.some((g) => g.officeholder !== false && Object.keys(g).every((k) => k === 'officeholder' || (Array.isArray(g[k]) && (g[k] as unknown[]).length === 0)))
+}
+
+export const ONLY_NON_OFFICEHOLDERS_NOTE = "Only people who aren't officeholders will see this."

@@ -9,7 +9,7 @@
  *    showing another audience's content).
  *  - If only the chrome throws, the mode already set by the controller stands and the chrome renders nothing.
  */
-import React, { lazy, Suspense, useLayoutEffect, useMemo } from 'react'
+import React, { lazy, Suspense, useEffect, useLayoutEffect, useMemo } from 'react'
 import type { Editor } from '@tiptap/react'
 import type { Node as PMNode } from '@tiptap/pm/model'
 import { useEditorProvider } from '@components/Contexts/Editor/EditorContext'
@@ -17,7 +17,7 @@ import { useAudienceCount, useAudienceOptions, useAudienceScope, useMkaViewer } 
 import type { Rule } from '../audience/types'
 import { validateRule } from '../audience/evaluate'
 import { sectionLabel } from './describeWith'
-import { useAudienceStore } from './store'
+import { getAudienceStore, publishViewing, useAudienceStore } from './store'
 import { resolveSectionMode, showsPreviewLabel } from './logic'
 import type { SectionMode } from './logic'
 import type { AudienceNodeOptions, AudienceNodeViewApi } from './AudienceNodeView'
@@ -77,6 +77,16 @@ function ModeController(props: Props) {
     rule,
   })
   const collapsed = mode === 'chrome' && !!id && !!st.collapsed[id]
+
+  // Feed the plain-TS driver (learner filter, copy policy, notes). Section controllers are node views and mount reliably.
+  useEffect(() => {
+    publishViewing(getAudienceStore(editor), {
+      state: me.state,
+      viewer: me.viewer,
+      canViewAll: me.canViewAll,
+      providerEditable: editable,
+    })
+  }, [editor, me.state, me.viewer, me.canViewAll, editable])
 
   // Layout effect: the content is attached/detached before the browser paints (no flash).
   useLayoutEffect(() => {

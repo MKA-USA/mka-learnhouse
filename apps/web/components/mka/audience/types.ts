@@ -78,7 +78,7 @@ export type Counterpart = {
   name: string | null
   department: string | null
 }
-export type Counterparts = { counterparts: Counterpart[]; reason: null | 'unrecognized' | 'no_department' }
+export type Counterparts = { counterparts: Counterpart[]; reason: null | 'unrecognized' | 'no_department' | 'not_applicable' }
 
 /** Per-editor viewing mode (contracts §3.3). */
 export type AudienceView =
@@ -92,3 +92,5 @@ export type AudienceWarning =
   | { kind: 'unknown_values'; values: string[] }
   | { kind: 'invalid' }
   | { kind: 'newer_version' }
+  /** A "Hide from" rule that excludes every officeholder: only non-officeholders will see the section. */
+  | { kind: 'only_non_officeholders' }

@@ -10,6 +10,7 @@ import { ReactRenderer } from '@tiptap/react'
 import type { Node as PMNode } from '@tiptap/pm/model'
 import type { NodeView, ViewMutationRecord } from '@tiptap/pm/view'
 import type { SectionMode } from './logic'
+import { ensureChrome } from './chromeMount'
 
 export type AudienceNodeOptions = {
   editable: boolean
@@ -66,6 +67,8 @@ export class AudienceNodeView implements NodeView, AudienceNodeViewApi {
     // Authoring editors start with the content visible so a failure to mount React can never hide an
     // author's own work; every other editor starts hidden until the controller has evaluated the rule.
     this.setMode(options.editable ? 'chrome' : 'hidden')
+    // EditorContent rebuilds node views once its content component exists: the right moment to mount the bar.
+    ensureChrome(editor, options)
 
     try {
       this.renderer = new ReactRenderer(component, {
