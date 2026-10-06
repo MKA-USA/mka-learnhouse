@@ -150,3 +150,17 @@ Key APIs available:
 - `POST /ai/quiz/generate` — Generate inline quiz questions
 - `POST /ai/assignments/generate` — Generate graded assignments (QUIZ, FORM, SHORT_ANSWER, NUMBER_ANSWER, FILE_SUBMISSION)
 - `POST /ai/scenario/generate` — Generate branching decision scenarios
+
+## Agent skills
+
+### Issue tracker
+
+GitHub Issues on `MKA-USA/mka-learnhouse` (the fork, never `learnhouse/learnhouse`), via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default five-label vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `GLOSSARY.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
