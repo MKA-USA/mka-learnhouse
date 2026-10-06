@@ -187,7 +187,7 @@ jobs:
             if [ "$DRY_RUN" = "true" ]; then
               exit 0
             fi
-            if [ "$sent" -eq 0 ] && [ "$failed" -gt 0 ]; then
+            if [ "$sent" -eq 0 ] && [ "$failed" -ge 3 ]; then
               echo "::error::Nothing could be sent: $failed attempts failed (stopped=$stopped). Look at the provider and at GET /mka/automation/status (send_log.failing_addresses)."
               exit 1
             fi

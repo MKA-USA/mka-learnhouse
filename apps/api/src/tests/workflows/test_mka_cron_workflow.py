@@ -110,6 +110,14 @@ def test_red_when_nothing_could_be_sent(tmp_path):
     assert rc == 1 and "Nothing could be sent" in out
 
 
+def test_a_single_failed_mailbox_with_nothing_sent_is_a_warning_not_red(tmp_path):
+    """Days 2-4 of a window: most people were already reminded, so a run can be sent=0 failed=1 (one bad mailbox)."""
+    rc, out, _ = run(REMINDERS, [resp(sent=0, failed=1)], tmp_path)
+    assert rc == 0 and "::error::" not in out and "::warning::1 of 1 sends failed" in out
+    rc, out, _ = run(REMINDERS, [resp(sent=0, failed=2)], tmp_path)  # still below 3
+    assert rc == 0 and "::error::" not in out
+
+
 def test_a_failure_stop_after_progress_is_a_warning_not_a_cap_message(tmp_path):
     rc, out, _ = run(REMINDERS, [resp(sent=60, failed=1, remaining=9, stopped="too_many_consecutive_failures")], tmp_path)
     assert rc == 0 and "stopped after repeated send failures" in out and "send cap" not in out

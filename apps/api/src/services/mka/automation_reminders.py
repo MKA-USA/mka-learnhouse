@@ -229,16 +229,17 @@ async def select_pending(
     # Addresses whose sends keep failing (review N1) are quarantined; the ones with some recent failure go LAST so a few
     # bad mailboxes can never sit at the head of the queue and trip the consecutive-failure stop for everybody else.
     # Cross-kind cooldown (review N3): one reminder email of ANY kind per person per MKA_REMINDER_COOLDOWN_DAYS. A manual
-    # remind never spends the scheduled weekly slot (those are the separate checks above) but it does start a cooldown,
-    # so the person is not mailed again within days, and the scheduled reminder follows later in the window / week.
+    # remind counts toward the weekly per-person cap (round 5, spec §1.5/§2C) and also starts a cooldown, so the person
+    # is not mailed again within days; a scheduled reminder for them can follow only in a later ISO week.
     cool_cut = _naive_utc(now) - timedelta(days=cfg.reminder_cooldown_days())
     # Round 3 M1 / round 4 H1: on the LAST day of a reminder window a scheduled run lifts the cooldown that comes from a
     # MANUAL reminder, but only for manual reminders sent BEFORE local midnight (cycle TZ) of that last day. The manual
     # mail covers one course; the scheduled mail lists everything outstanding, and there is no later run in this window,
     # so nobody still outstanding may fall through. A manual reminder sent on the last day itself still blocks, so a
-    # manual Remind at 09:30 plus the 10:00 cron never mails the same person twice within minutes. (Cost: a person
-    # reminded manually on an earlier day can get two emails about 3 days apart. The weekly cap, the scheduled-vs-
-    # scheduled cooldown and the quarantine still apply.)
+    # manual Remind at 09:30 plus the 10:00 cron never mails the same person twice within minutes. (Round 5: the lift only
+    # covers manual mail older than the cooldown less one day, so a late-evening manual remind on the previous day
+    # still blocks the next day's run. The weekly cap, which counts manual sends too, the scheduled-vs-scheduled
+    # cooldown and the quarantine still apply.)
     last_window_day = (
         manual_course_id is None and window_start is not None
         and today >= window_start + timedelta(days=cfg.reminder_window_days() - 1)
@@ -247,8 +248,10 @@ async def select_pending(
         any_last = await reminder_rows_by_person(db, org_id, key_like=f"{SCHEDULED_KEY_PREFIX}%", test_mode=test_mode)
         manual_last = await reminder_rows_by_person(db, org_id, key_like="manual:%", test_mode=test_mode)
         day_start = _local_midnight_utc(today)
+        # ISO-week rule (spec 1.5) wins over the last-day convenience: a recent manual mail keeps blocking
+        lift_before = min(day_start, _naive_utc(now) - timedelta(days=cfg.reminder_cooldown_days() - 1))
         for e, last in manual_last.items():
-            if last is not None and last >= day_start:  # sent on the last day itself: still blocks
+            if last is not None and last >= lift_before:  # sent on the last day or inside the cooldown: still blocks
                 if any_last.get(e) is None or last > any_last[e]:
                     any_last[e] = last
     else:
@@ -489,7 +492,7 @@ async def run_org(
     if not dry_run and not cfg.reminders_enabled():  # a real send needs the master switch AND the feature flag
         for k, wanted in (("reminder", want_reminder), ("digest", want_digest)):
             if wanted:
-                out[k] = {"ran": False, "reason": "feature_off"}
+                out[k] = {"ran": False, "reason": "feature_off", "disabled_reason": "feature_off"}
         return out
     url = _links_url(org.slug)
     if not url:
