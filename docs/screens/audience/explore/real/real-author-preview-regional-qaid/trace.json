@@ -1,0 +1,53 @@
+{
+ "mission": "real-author-preview-regional-qaid",
+ "ok": true,
+ "detail": "viewing bar",
+ "steps": 2,
+ "modelCalls": 3,
+ "wallMs": 62560,
+ "modelMs": 31007.258542000003,
+ "trace": [
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(2) > div:nth-child(2) > div:nth-child(2) > div:nth-child(1) > div:nth-child(2) > div:nth-child(1) > div:nth-child(1) > button:nth-child(2)",
+   "label": "button \"Viewing: Everything (author view)\" [collapsed, closed]"
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(10) > div:nth-child(1) > div:nth-child(1) > button:nth-child(6)",
+   "label": "button \"Regional Qaid · Northeast\""
+  }
+ ],
+ "log": [
+  {
+   "n": 1,
+   "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+   "action": "button \"Viewing: Everything (author view)\" [collapsed, closed]",
+   "backend": "jev",
+   "confidence": 0.36,
+   "p": 0.4,
+   "margin": 0.22000000000000003,
+   "ms": 27671.787292,
+   "escalated": true,
+   "cached": false,
+   "changed": true,
+   "shot": "step-01.jpg"
+  },
+  {
+   "n": 2,
+   "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+   "action": "button \"Regional Qaid · Northeast\"",
+   "backend": "clef",
+   "confidence": 0.5735513815829312,
+   "p": 0.7287956811084361,
+   "margin": 0.6953780321004661,
+   "ms": 3335.4712500000023,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-02.jpg"
+  }
+ ],
+ "issues": [],
+ "stoppedBy": "success"
+}

@@ -1,0 +1,843 @@
+{
+ "mission": "author-create-hinted",
+ "ok": false,
+ "detail": "budget exhausted",
+ "steps": 40,
+ "modelCalls": 40,
+ "wallMs": 31778,
+ "modelMs": 7793.647081999985,
+ "trace": [
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2)",
+   "label": "editor \"rich-text editor (document body)\""
+  },
+  {
+   "t": "type",
+   "text": "/",
+   "label": "type \"/\""
+  },
+  {
+   "t": "type",
+   "text": "audience",
+   "label": "type \"audience\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > div:nth-child(10) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > button:nth-child(2)",
+   "label": "button \"Audience section Show this only to certain officeholders\""
+  },
+  {
+   "t": "press",
+   "key": "Enter"
+  },
+  {
+   "t": "type",
+   "text": "role",
+   "label": "type \"role\""
+  },
+  {
+   "t": "type",
+   "text": "/",
+   "label": "type \"/\""
+  },
+  {
+   "t": "press",
+   "key": "ArrowDown"
+  },
+  {
+   "t": "press",
+   "key": "Enter"
+  },
+  {
+   "t": "type",
+   "text": "audience",
+   "label": "type \"audience\""
+  },
+  {
+   "t": "press",
+   "key": "Enter"
+  },
+  {
+   "t": "type",
+   "text": "role",
+   "label": "type \"role\""
+  },
+  {
+   "t": "type",
+   "text": "/",
+   "label": "type \"/\""
+  },
+  {
+   "t": "press",
+   "key": "ArrowDown"
+  },
+  {
+   "t": "press",
+   "key": "Enter"
+  },
+  {
+   "t": "type",
+   "text": "audience",
+   "label": "type \"audience\""
+  },
+  {
+   "t": "press",
+   "key": "Enter"
+  },
+  {
+   "t": "type",
+   "text": "role",
+   "label": "type \"role\""
+  },
+  {
+   "t": "type",
+   "text": "/",
+   "label": "type \"/\""
+  },
+  {
+   "t": "press",
+   "key": "ArrowDown"
+  },
+  {
+   "t": "press",
+   "key": "Enter"
+  },
+  {
+   "t": "type",
+   "text": "audience",
+   "label": "type \"audience\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2)",
+   "label": "editor \"rich-text editor (document body)\""
+  },
+  {
+   "t": "type",
+   "text": "role",
+   "label": "type \"role\""
+  },
+  {
+   "t": "type",
+   "text": "/",
+   "label": "type \"/\""
+  },
+  {
+   "t": "press",
+   "key": "ArrowDown"
+  },
+  {
+   "t": "press",
+   "key": "Enter"
+  },
+  {
+   "t": "type",
+   "text": "audience",
+   "label": "type \"audience\""
+  },
+  {
+   "t": "press",
+   "key": "Enter"
+  },
+  {
+   "t": "type",
+   "text": "role",
+   "label": "type \"role\""
+  },
+  {
+   "t": "type",
+   "text": "/",
+   "label": "type \"/\""
+  },
+  {
+   "t": "press",
+   "key": "ArrowDown"
+  },
+  {
+   "t": "press",
+   "key": "Enter"
+  },
+  {
+   "t": "type",
+   "text": "audience",
+   "label": "type \"audience\""
+  },
+  {
+   "t": "press",
+   "key": "Enter"
+  },
+  {
+   "t": "type",
+   "text": "role",
+   "label": "type \"role\""
+  },
+  {
+   "t": "type",
+   "text": "/",
+   "label": "type \"/\""
+  },
+  {
+   "t": "press",
+   "key": "ArrowDown"
+  },
+  {
+   "t": "press",
+   "key": "Enter"
+  },
+  {
+   "t": "type",
+   "text": "audience",
+   "label": "type \"audience\""
+  }
+ ],
+ "log": [
+  {
+   "n": 1,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "editor \"rich-text editor (document body)\"",
+   "backend": "jev",
+   "confidence": 0.56,
+   "p": 0.62,
+   "margin": 0.43,
+   "ms": 0,
+   "escalated": false,
+   "cached": true,
+   "changed": false,
+   "shot": "step-01.jpg"
+  },
+  {
+   "n": 2,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"/\"",
+   "backend": "jev",
+   "confidence": 0.65,
+   "p": 0.68,
+   "margin": 0.55,
+   "ms": 184.26004099999773,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-02.jpg"
+  },
+  {
+   "n": 3,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"audience\"",
+   "backend": "jev",
+   "confidence": 0.63,
+   "p": 0.65,
+   "margin": 0.56,
+   "ms": 166.4128329999985,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-03.jpg"
+  },
+  {
+   "n": 4,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "button \"Audience section Show this only to certain officeholders\"",
+   "backend": "jev",
+   "confidence": 0.75,
+   "p": 0.78,
+   "margin": 0.6000000000000001,
+   "ms": 193.5454159999972,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-04.jpg"
+  },
+  {
+   "n": 5,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "press Enter",
+   "backend": "jev",
+   "confidence": 0.18,
+   "p": 0.26,
+   "margin": 0.010000000000000009,
+   "ms": 189.96883300000263,
+   "escalated": false,
+   "cached": false,
+   "changed": false,
+   "shot": "step-05.jpg"
+  },
+  {
+   "n": 6,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"role\"",
+   "backend": "jev",
+   "confidence": 0.15,
+   "p": 0.25,
+   "margin": 0,
+   "ms": 173.90000000000146,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-06.jpg"
+  },
+  {
+   "n": 7,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"/\"",
+   "backend": "jev",
+   "confidence": 0.19,
+   "p": 0.28,
+   "margin": 0.08000000000000002,
+   "ms": 212.6728750000002,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-07.jpg"
+  },
+  {
+   "n": 8,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "press ArrowDown",
+   "backend": "jev",
+   "confidence": 0.56,
+   "p": 0.61,
+   "margin": 0.47,
+   "ms": 190.98300000000017,
+   "escalated": false,
+   "cached": false,
+   "changed": false,
+   "shot": "step-08.jpg"
+  },
+  {
+   "n": 9,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "press Enter",
+   "backend": "jev",
+   "confidence": 0.29,
+   "p": 0.36,
+   "margin": 0.16999999999999998,
+   "ms": 181.2845840000009,
+   "escalated": false,
+   "cached": false,
+   "changed": false,
+   "shot": "step-09.jpg"
+  },
+  {
+   "n": 10,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"audience\"",
+   "backend": "jev",
+   "confidence": 0.44,
+   "p": 0.5,
+   "margin": 0.36,
+   "ms": 185.00437500000044,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-10.jpg"
+  },
+  {
+   "n": 11,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "press Enter",
+   "backend": "jev",
+   "confidence": 0.14,
+   "p": 0.21,
+   "margin": 0.009999999999999981,
+   "ms": 178.42070800000147,
+   "escalated": false,
+   "cached": false,
+   "changed": false,
+   "shot": "step-11.jpg"
+  },
+  {
+   "n": 12,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"role\"",
+   "backend": "jev",
+   "confidence": 0.25,
+   "p": 0.32,
+   "margin": 0.14,
+   "ms": 221.36029099999723,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-12.jpg"
+  },
+  {
+   "n": 13,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"/\"",
+   "backend": "jev",
+   "confidence": 0.64,
+   "p": 0.67,
+   "margin": 0.56,
+   "ms": 165.81099999999788,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-13.jpg"
+  },
+  {
+   "n": 14,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "press ArrowDown",
+   "backend": "jev",
+   "confidence": 0.52,
+   "p": 0.56,
+   "margin": 0.42000000000000004,
+   "ms": 245.78658399999767,
+   "escalated": false,
+   "cached": false,
+   "changed": false,
+   "shot": "step-14.jpg"
+  },
+  {
+   "n": 15,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "press Enter",
+   "backend": "jev",
+   "confidence": 0.24,
+   "p": 0.33,
+   "margin": 0.11000000000000001,
+   "ms": 185.71270899999945,
+   "escalated": false,
+   "cached": false,
+   "changed": false,
+   "shot": "step-15.jpg"
+  },
+  {
+   "n": 16,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"audience\"",
+   "backend": "jev",
+   "confidence": 0.24,
+   "p": 0.31,
+   "margin": 0.16,
+   "ms": 164.7737500000003,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-16.jpg"
+  },
+  {
+   "n": 17,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "press Enter",
+   "backend": "jev",
+   "confidence": 0.12,
+   "p": 0.2,
+   "margin": 0.010000000000000009,
+   "ms": 179.69937500000015,
+   "escalated": false,
+   "cached": false,
+   "changed": false,
+   "shot": "step-17.jpg"
+  },
+  {
+   "n": 18,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"role\"",
+   "backend": "jev",
+   "confidence": 0.32,
+   "p": 0.38,
+   "margin": 0.22,
+   "ms": 208.9649169999975,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-18.jpg"
+  },
+  {
+   "n": 19,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"/\"",
+   "backend": "jev",
+   "confidence": 0.68,
+   "p": 0.7,
+   "margin": 0.62,
+   "ms": 189.95029199999772,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-19.jpg"
+  },
+  {
+   "n": 20,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "press ArrowDown",
+   "backend": "jev",
+   "confidence": 0.49,
+   "p": 0.53,
+   "margin": 0.38,
+   "ms": 163.25095899999724,
+   "escalated": false,
+   "cached": false,
+   "changed": false,
+   "shot": "step-20.jpg"
+  },
+  {
+   "n": 21,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "press Enter",
+   "backend": "jev",
+   "confidence": 0.18,
+   "p": 0.26,
+   "margin": 0.03,
+   "ms": 194.77183299999888,
+   "escalated": false,
+   "cached": false,
+   "changed": false,
+   "shot": "step-21.jpg"
+  },
+  {
+   "n": 22,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"audience\"",
+   "backend": "jev",
+   "confidence": 0.31,
+   "p": 0.38,
+   "margin": 0.22,
+   "ms": 259.47629099999904,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-22.jpg"
+  },
+  {
+   "n": 23,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "editor \"rich-text editor (document body)\"",
+   "backend": "jev",
+   "confidence": 0.11,
+   "p": 0.2,
+   "margin": 0.03,
+   "ms": 187.830667000002,
+   "escalated": false,
+   "cached": false,
+   "changed": false,
+   "shot": "step-23.jpg"
+  },
+  {
+   "n": 24,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"role\"",
+   "backend": "jev",
+   "confidence": 0.26,
+   "p": 0.34,
+   "margin": 0.18000000000000002,
+   "ms": 203.20724999999948,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-24.jpg"
+  },
+  {
+   "n": 25,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"/\"",
+   "backend": "jev",
+   "confidence": 0.57,
+   "p": 0.61,
+   "margin": 0.52,
+   "ms": 218.0416669999977,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-25.jpg"
+  },
+  {
+   "n": 26,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "press ArrowDown",
+   "backend": "jev",
+   "confidence": 0.49,
+   "p": 0.53,
+   "margin": 0.35000000000000003,
+   "ms": 210.35749999999825,
+   "escalated": false,
+   "cached": false,
+   "changed": false,
+   "shot": "step-26.jpg"
+  },
+  {
+   "n": 27,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "press Enter",
+   "backend": "jev",
+   "confidence": 0.42,
+   "p": 0.45999999999999996,
+   "margin": 0.31999999999999995,
+   "ms": 188.20379200000025,
+   "escalated": false,
+   "cached": false,
+   "changed": false,
+   "shot": "step-27.jpg"
+  },
+  {
+   "n": 28,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"audience\"",
+   "backend": "jev",
+   "confidence": 0.36,
+   "p": 0.44,
+   "margin": 0.32,
+   "ms": 381.4670000000042,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-28.jpg"
+  },
+  {
+   "n": 29,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "press Enter",
+   "backend": "jev",
+   "confidence": 0.2,
+   "p": 0.28,
+   "margin": 0.14,
+   "ms": 217.86312499999622,
+   "escalated": false,
+   "cached": false,
+   "changed": false,
+   "shot": "step-29.jpg"
+  },
+  {
+   "n": 30,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"role\"",
+   "backend": "jev",
+   "confidence": 0.4,
+   "p": 0.47000000000000003,
+   "margin": 0.27,
+   "ms": 251.81941599999845,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-30.jpg"
+  },
+  {
+   "n": 31,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"/\"",
+   "backend": "jev",
+   "confidence": 0.6,
+   "p": 0.65,
+   "margin": 0.55,
+   "ms": 190.231832999998,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-31.jpg"
+  },
+  {
+   "n": 32,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "press ArrowDown",
+   "backend": "jev",
+   "confidence": 0.47,
+   "p": 0.51,
+   "margin": 0.35,
+   "ms": 194.9619160000002,
+   "escalated": false,
+   "cached": false,
+   "changed": false,
+   "shot": "step-32.jpg"
+  },
+  {
+   "n": 33,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "press Enter",
+   "backend": "jev",
+   "confidence": 0.17,
+   "p": 0.24,
+   "margin": 0.03,
+   "ms": 278.21433299999626,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-33.jpg"
+  },
+  {
+   "n": 34,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"audience\"",
+   "backend": "jev",
+   "confidence": 0.27,
+   "p": 0.33,
+   "margin": 0.1,
+   "ms": 179.46800000000076,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-34.jpg"
+  },
+  {
+   "n": 35,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "press Enter",
+   "backend": "jev",
+   "confidence": 0.27,
+   "p": 0.34,
+   "margin": 0.18000000000000002,
+   "ms": 163.1422920000041,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-35.jpg"
+  },
+  {
+   "n": 36,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"role\"",
+   "backend": "jev",
+   "confidence": 0.19,
+   "p": 0.26,
+   "margin": 0.04000000000000001,
+   "ms": 181.28945799999929,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-36.jpg"
+  },
+  {
+   "n": 37,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"/\"",
+   "backend": "jev",
+   "confidence": 0.61,
+   "p": 0.65,
+   "margin": 0.5700000000000001,
+   "ms": 184.69812500000262,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-37.jpg"
+  },
+  {
+   "n": 38,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "press ArrowDown",
+   "backend": "jev",
+   "confidence": 0.27,
+   "p": 0.33,
+   "margin": 0.1,
+   "ms": 161.30170799999905,
+   "escalated": false,
+   "cached": false,
+   "changed": false,
+   "shot": "step-38.jpg"
+  },
+  {
+   "n": 39,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "press Enter",
+   "backend": "jev",
+   "confidence": 0.2,
+   "p": 0.27,
+   "margin": 0.08000000000000002,
+   "ms": 156.0697500000024,
+   "escalated": false,
+   "cached": false,
+   "changed": false,
+   "shot": "step-39.jpg"
+  },
+  {
+   "n": 40,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"audience\"",
+   "backend": "jev",
+   "confidence": 0.21,
+   "p": 0.3,
+   "margin": 0.13999999999999999,
+   "ms": 209.468584000002,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-40.jpg"
+  }
+ ],
+ "issues": [
+  {
+   "step": 16,
+   "kind": "model-flag",
+   "detail": "jev p=0.91 after \"type \"audience\"\": Monthly reporting Submit your monthly report by the 5th. Regional reviewers check the local reports. role/ audience role/ audience",
+   "shot": "step-16.jpg"
+  },
+  {
+   "step": 18,
+   "kind": "model-flag",
+   "detail": "jev p=0.92 after \"type \"role\"\": Monthly reporting Submit your monthly report by the 5th. Regional reviewers check the local reports. role/ audience role/ audience role",
+   "shot": "step-18.jpg"
+  },
+  {
+   "step": 22,
+   "kind": "model-flag",
+   "detail": "jev p=0.92 after \"type \"audience\"\": Monthly reporting Submit your monthly report by the 5th. Regional reviewers check the local reports. role/ audience role/ audience role/ aud",
+   "shot": "step-22.jpg"
+  },
+  {
+   "step": 24,
+   "kind": "model-flag",
+   "detail": "jev p=0.93 after \"type \"role\"\": Monthly reporting Submit your monthly report by the 5th. Regional reviewers check the local reports. role/ roleaudience role/ audience role/",
+   "shot": "step-24.jpg"
+  },
+  {
+   "step": 25,
+   "kind": "model-flag",
+   "detail": "jev p=0.90 after \"type \"/\"\": Monthly reporting Submit your monthly report by the 5th. Regional reviewers check the local reports. role/ role/audience role/ audience role",
+   "shot": "step-25.jpg"
+  },
+  {
+   "step": 28,
+   "kind": "model-flag",
+   "detail": "jev p=0.92 after \"type \"audience\"\": Monthly reporting Submit your monthly report by the 5th. Regional reviewers check the local reports. role/ role/audience role/ audience audi",
+   "shot": "step-28.jpg"
+  },
+  {
+   "step": 30,
+   "kind": "model-flag",
+   "detail": "jev p=0.94 after \"type \"role\"\": Monthly reporting Submit your monthly report by the 5th. Regional reviewers check the local reports. role/ role/audience role/ audience role",
+   "shot": "step-30.jpg"
+  },
+  {
+   "step": 31,
+   "kind": "model-flag",
+   "detail": "jev p=0.90 after \"type \"/\"\": Monthly reporting Submit your monthly report by the 5th. Regional reviewers check the local reports. role/ role/audience role/ audience role",
+   "shot": "step-31.jpg"
+  },
+  {
+   "step": 33,
+   "kind": "model-flag",
+   "detail": "jev p=0.94 after \"press Enter\": Monthly reporting Submit your monthly report by the 5th. Regional reviewers check the local reports. role/ role/audience role/ audience role",
+   "shot": "step-33.jpg"
+  },
+  {
+   "step": 34,
+   "kind": "model-flag",
+   "detail": "jev p=0.96 after \"type \"audience\"\": Monthly reporting Submit your monthly report by the 5th. Regional reviewers check the local reports. role/ role/audience role/ audience role",
+   "shot": "step-34.jpg"
+  },
+  {
+   "step": 35,
+   "kind": "model-flag",
+   "detail": "jev p=0.95 after \"press Enter\": Monthly reporting Submit your monthly report by the 5th. Regional reviewers check the local reports. role/ role/audience role/ audience role",
+   "shot": "step-35.jpg"
+  },
+  {
+   "step": 36,
+   "kind": "model-flag",
+   "detail": "jev p=0.96 after \"type \"role\"\": Monthly reporting Submit your monthly report by the 5th. Regional reviewers check the local reports. role/ role/audience role/ audience role",
+   "shot": "step-36.jpg"
+  },
+  {
+   "step": 37,
+   "kind": "model-flag",
+   "detail": "jev p=0.95 after \"type \"/\"\": Monthly reporting Submit your monthly report by the 5th. Regional reviewers check the local reports. role/ role/audience role/ audience role",
+   "shot": "step-37.jpg"
+  },
+  {
+   "step": 40,
+   "kind": "model-flag",
+   "detail": "jev p=0.95 after \"type \"audience\"\": Monthly reporting Submit your monthly report by the 5th. Regional reviewers check the local reports. role/ role/audience role/ audience role",
+   "shot": "step-40.jpg"
+  }
+ ],
+ "stoppedBy": "max-steps"
+}

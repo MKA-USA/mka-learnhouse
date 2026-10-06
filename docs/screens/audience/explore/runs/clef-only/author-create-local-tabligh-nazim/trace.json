@@ -1,0 +1,775 @@
+{
+ "mission": "author-create-local-tabligh-nazim",
+ "ok": false,
+ "detail": "budget exhausted",
+ "steps": 40,
+ "modelCalls": 40,
+ "wallMs": 4629915,
+ "modelMs": 212680.55170599988,
+ "trace": [
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2)",
+   "label": "editor \"rich-text editor (document body)\""
+  },
+  {
+   "t": "type",
+   "text": "/",
+   "label": "type \"/\""
+  },
+  {
+   "t": "type",
+   "text": "/",
+   "label": "type \"/\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2)",
+   "label": "editor \"rich-text editor (document body)\""
+  },
+  {
+   "t": "type",
+   "text": "/",
+   "label": "type \"/\""
+  },
+  {
+   "t": "type",
+   "text": "/",
+   "label": "type \"/\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2)",
+   "label": "editor \"rich-text editor (document body)\""
+  },
+  {
+   "t": "type",
+   "text": "/",
+   "label": "type \"/\""
+  },
+  {
+   "t": "type",
+   "text": "/",
+   "label": "type \"/\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2)",
+   "label": "editor \"rich-text editor (document body)\""
+  },
+  {
+   "t": "type",
+   "text": "/",
+   "label": "type \"/\""
+  },
+  {
+   "t": "type",
+   "text": "/",
+   "label": "type \"/\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2)",
+   "label": "editor \"rich-text editor (document body)\""
+  },
+  {
+   "t": "type",
+   "text": "/",
+   "label": "type \"/\""
+  },
+  {
+   "t": "type",
+   "text": "/",
+   "label": "type \"/\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2)",
+   "label": "editor \"rich-text editor (document body)\""
+  },
+  {
+   "t": "type",
+   "text": "/",
+   "label": "type \"/\""
+  },
+  {
+   "t": "type",
+   "text": "/",
+   "label": "type \"/\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2)",
+   "label": "editor \"rich-text editor (document body)\""
+  },
+  {
+   "t": "type",
+   "text": "/",
+   "label": "type \"/\""
+  },
+  {
+   "t": "type",
+   "text": "/",
+   "label": "type \"/\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2)",
+   "label": "editor \"rich-text editor (document body)\""
+  },
+  {
+   "t": "type",
+   "text": "/",
+   "label": "type \"/\""
+  },
+  {
+   "t": "type",
+   "text": "/",
+   "label": "type \"/\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2)",
+   "label": "editor \"rich-text editor (document body)\""
+  },
+  {
+   "t": "type",
+   "text": "/",
+   "label": "type \"/\""
+  },
+  {
+   "t": "type",
+   "text": "/",
+   "label": "type \"/\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2)",
+   "label": "editor \"rich-text editor (document body)\""
+  },
+  {
+   "t": "type",
+   "text": "/",
+   "label": "type \"/\""
+  },
+  {
+   "t": "type",
+   "text": "/",
+   "label": "type \"/\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2)",
+   "label": "editor \"rich-text editor (document body)\""
+  },
+  {
+   "t": "type",
+   "text": "/",
+   "label": "type \"/\""
+  },
+  {
+   "t": "type",
+   "text": "/",
+   "label": "type \"/\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2)",
+   "label": "editor \"rich-text editor (document body)\""
+  },
+  {
+   "t": "type",
+   "text": "/",
+   "label": "type \"/\""
+  },
+  {
+   "t": "type",
+   "text": "/",
+   "label": "type \"/\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2)",
+   "label": "editor \"rich-text editor (document body)\""
+  },
+  {
+   "t": "type",
+   "text": "/",
+   "label": "type \"/\""
+  },
+  {
+   "t": "type",
+   "text": "/",
+   "label": "type \"/\""
+  },
+  {
+   "t": "click",
+   "css": "html > body:nth-child(2) > main:nth-child(2) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div:nth-child(2)",
+   "label": "editor \"rich-text editor (document body)\""
+  }
+ ],
+ "log": [
+  {
+   "n": 1,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "editor \"rich-text editor (document body)\"",
+   "backend": "clef",
+   "confidence": 0.3319752859508809,
+   "p": 0.6290452723025304,
+   "margin": 0.49036824111911104,
+   "ms": 8562.1895,
+   "escalated": false,
+   "cached": false,
+   "changed": false,
+   "shot": "step-01.jpg"
+  },
+  {
+   "n": 2,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"/\"",
+   "backend": "clef",
+   "confidence": 0.13333596005493176,
+   "p": 0.364854797924395,
+   "margin": 0.2674692300136875,
+   "ms": 9056.181083,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-02.jpg"
+  },
+  {
+   "n": 3,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"/\"",
+   "backend": "clef",
+   "confidence": 0.17670905007776638,
+   "p": 0.22882697251097225,
+   "margin": 0.069006133280404,
+   "ms": 1934.4558749999997,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-03.jpg"
+  },
+  {
+   "n": 4,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "editor \"rich-text editor (document body)\"",
+   "backend": "clef",
+   "confidence": 0.17865964490884512,
+   "p": 0.39315636600672627,
+   "margin": 0.2585143463714168,
+   "ms": 1177.736582999998,
+   "escalated": false,
+   "cached": false,
+   "changed": false,
+   "shot": "step-04.jpg"
+  },
+  {
+   "n": 5,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"/\"",
+   "backend": "clef",
+   "confidence": 0.23655516544906097,
+   "p": 0.46277670930863546,
+   "margin": 0.3327962559421729,
+   "ms": 1170.5936660000007,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-05.jpg"
+  },
+  {
+   "n": 6,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"/\"",
+   "backend": "clef",
+   "confidence": 0.24145054025499346,
+   "p": 0.3554192291926434,
+   "margin": 0.22619051664677664,
+   "ms": 9773.389041999995,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-06.jpg"
+  },
+  {
+   "n": 7,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "editor \"rich-text editor (document body)\"",
+   "backend": "clef",
+   "confidence": 0.23471465757542487,
+   "p": 0.4175608531615873,
+   "margin": 0.22755247038740783,
+   "ms": 7915.399083000004,
+   "escalated": false,
+   "cached": false,
+   "changed": false,
+   "shot": "step-07.jpg"
+  },
+  {
+   "n": 8,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"/\"",
+   "backend": "clef",
+   "confidence": 0.195573291924362,
+   "p": 0.4162525315950566,
+   "margin": 0.300624906867892,
+   "ms": 7392.328374999997,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-08.jpg"
+  },
+  {
+   "n": 9,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"/\"",
+   "backend": "clef",
+   "confidence": 0.2825462029167042,
+   "p": 0.4215148300435116,
+   "margin": 0.31665252591823334,
+   "ms": 11352.297417000009,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-09.jpg"
+  },
+  {
+   "n": 10,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "editor \"rich-text editor (document body)\"",
+   "backend": "clef",
+   "confidence": 0.21868467905668387,
+   "p": 0.3360006424658049,
+   "margin": 0.07048983856736124,
+   "ms": 1089.491624999995,
+   "escalated": false,
+   "cached": false,
+   "changed": false,
+   "shot": "step-10.jpg"
+  },
+  {
+   "n": 11,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"/\"",
+   "backend": "clef",
+   "confidence": 0.19277365681244651,
+   "p": 0.4163744342927707,
+   "margin": 0.3078847337355237,
+   "ms": 1040.7874580000062,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-11.jpg"
+  },
+  {
+   "n": 12,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"/\"",
+   "backend": "clef",
+   "confidence": 0.2610560783288747,
+   "p": 0.3976543094358059,
+   "margin": 0.28986188698132,
+   "ms": 10581.599665999995,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-12.jpg"
+  },
+  {
+   "n": 13,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "editor \"rich-text editor (document body)\"",
+   "backend": "clef",
+   "confidence": 0.20388145730752882,
+   "p": 0.35229996404673813,
+   "margin": 0.125557731203532,
+   "ms": 8503.731082999991,
+   "escalated": false,
+   "cached": false,
+   "changed": false,
+   "shot": "step-13.jpg"
+  },
+  {
+   "n": 14,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"/\"",
+   "backend": "clef",
+   "confidence": 0.17461155426522545,
+   "p": 0.38433739270745343,
+   "margin": 0.25354743789516226,
+   "ms": 8503.666834000003,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-14.jpg"
+  },
+  {
+   "n": 15,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"/\"",
+   "backend": "clef",
+   "confidence": 0.23883497217800997,
+   "p": 0.36408065348474533,
+   "margin": 0.23722035928981347,
+   "ms": 12992.820666999993,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-15.jpg"
+  },
+  {
+   "n": 16,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "editor \"rich-text editor (document body)\"",
+   "backend": "clef",
+   "confidence": 0.21833036515864035,
+   "p": 0.36652704962877675,
+   "margin": 0.14112436732909373,
+   "ms": 1081.9945409999928,
+   "escalated": false,
+   "cached": false,
+   "changed": false,
+   "shot": "step-16.jpg"
+  },
+  {
+   "n": 17,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"/\"",
+   "backend": "clef",
+   "confidence": 0.159484641204669,
+   "p": 0.36739801307880243,
+   "margin": 0.23299941907822785,
+   "ms": 972.8515830000106,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-17.jpg"
+  },
+  {
+   "n": 18,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"/\"",
+   "backend": "clef",
+   "confidence": 0.21719962565143935,
+   "p": 0.3276185030339151,
+   "margin": 0.19034867569046662,
+   "ms": 2144.579291000002,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-18.jpg"
+  },
+  {
+   "n": 19,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "editor \"rich-text editor (document body)\"",
+   "backend": "clef",
+   "confidence": 0.20454004007732085,
+   "p": 0.3671319203963818,
+   "margin": 0.15778776180438606,
+   "ms": 7660.184624999994,
+   "escalated": false,
+   "cached": false,
+   "changed": false,
+   "shot": "step-19.jpg"
+  },
+  {
+   "n": 20,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"/\"",
+   "backend": "clef",
+   "confidence": 0.15426352248928676,
+   "p": 0.3575221514773715,
+   "margin": 0.22188451307767093,
+   "ms": 7362.769834000006,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-20.jpg"
+  },
+  {
+   "n": 21,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"/\"",
+   "backend": "clef",
+   "confidence": 0.25287197815663187,
+   "p": 0.3813345767397984,
+   "margin": 0.26344679762334544,
+   "ms": 11551.503999999986,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-21.jpg"
+  },
+  {
+   "n": 22,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "editor \"rich-text editor (document body)\"",
+   "backend": "clef",
+   "confidence": 0.24269910221245938,
+   "p": 0.39333716281904135,
+   "margin": 0.17112090725285248,
+   "ms": 9149.176999999996,
+   "escalated": false,
+   "cached": false,
+   "changed": false,
+   "shot": "step-22.jpg"
+  },
+  {
+   "n": 23,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"/\"",
+   "backend": "clef",
+   "confidence": 0.15466431100152045,
+   "p": 0.35488659298394826,
+   "margin": 0.21316221241948474,
+   "ms": 3237.1887080000015,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-23.jpg"
+  },
+  {
+   "n": 24,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"/\"",
+   "backend": "clef",
+   "confidence": 0.22850511565115494,
+   "p": 0.3436547727377373,
+   "margin": 0.2102262132738951,
+   "ms": 2488.606999999989,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-24.jpg"
+  },
+  {
+   "n": 25,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "editor \"rich-text editor (document body)\"",
+   "backend": "clef",
+   "confidence": 0.23853313754823624,
+   "p": 0.3981691197111829,
+   "margin": 0.18505641872567027,
+   "ms": 6241.551584000001,
+   "escalated": false,
+   "cached": false,
+   "changed": false,
+   "shot": "step-25.jpg"
+  },
+  {
+   "n": 26,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"/\"",
+   "backend": "clef",
+   "confidence": 0.16090324209097318,
+   "p": 0.3623682024148537,
+   "margin": 0.22626378338654982,
+   "ms": 6761.583916000003,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-26.jpg"
+  },
+  {
+   "n": 27,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"/\"",
+   "backend": "clef",
+   "confidence": 0.2389941913261211,
+   "p": 0.36003703634967477,
+   "margin": 0.22571524956538686,
+   "ms": 9000.55266700001,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-27.jpg"
+  },
+  {
+   "n": 28,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "editor \"rich-text editor (document body)\"",
+   "backend": "clef",
+   "confidence": 0.23265678774282206,
+   "p": 0.3779046051103855,
+   "margin": 0.14616955671857765,
+   "ms": 7876.813040999987,
+   "escalated": false,
+   "cached": false,
+   "changed": false,
+   "shot": "step-28.jpg"
+  },
+  {
+   "n": 29,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"/\"",
+   "backend": "clef",
+   "confidence": 0.1544973253076537,
+   "p": 0.3564910907721152,
+   "margin": 0.21884275508603526,
+   "ms": 7075.00008300005,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-29.jpg"
+  },
+  {
+   "n": 30,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"/\"",
+   "backend": "clef",
+   "confidence": 0.2767915773135874,
+   "p": 0.41161293735347515,
+   "margin": 0.301974407541526,
+   "ms": 3680.682374999975,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-30.jpg"
+  },
+  {
+   "n": 31,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "editor \"rich-text editor (document body)\"",
+   "backend": "clef",
+   "confidence": 0.22667314266646965,
+   "p": 0.3635792731327184,
+   "margin": 0.12269303913631713,
+   "ms": 2224.8752499999828,
+   "escalated": false,
+   "cached": false,
+   "changed": false,
+   "shot": "step-31.jpg"
+  },
+  {
+   "n": 32,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"/\"",
+   "backend": "clef",
+   "confidence": 0.1843613174766473,
+   "p": 0.40209230297643217,
+   "margin": 0.28881332795652986,
+   "ms": 2865.3726669999887,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-32.jpg"
+  },
+  {
+   "n": 33,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"/\"",
+   "backend": "clef",
+   "confidence": 0.2646313829674728,
+   "p": 0.3950376870506695,
+   "margin": 0.2766637929254367,
+   "ms": 2644.3778339999844,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-33.jpg"
+  },
+  {
+   "n": 34,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "editor \"rich-text editor (document body)\"",
+   "backend": "clef",
+   "confidence": 0.24635269094505452,
+   "p": 0.39935802798356473,
+   "margin": 0.17445730615672703,
+   "ms": 1398.2561250000144,
+   "escalated": false,
+   "cached": false,
+   "changed": false,
+   "shot": "step-34.jpg"
+  },
+  {
+   "n": 35,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"/\"",
+   "backend": "clef",
+   "confidence": 0.1744693840928725,
+   "p": 0.3886710407908513,
+   "margin": 0.26561754896828316,
+   "ms": 3247.0243330000085,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-35.jpg"
+  },
+  {
+   "n": 36,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"/\"",
+   "backend": "clef",
+   "confidence": 0.2646083991054943,
+   "p": 0.39972047611007006,
+   "margin": 0.2893079801036611,
+   "ms": 4636.135874999978,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-36.jpg"
+  },
+  {
+   "n": 37,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "editor \"rich-text editor (document body)\"",
+   "backend": "clef",
+   "confidence": 0.23335393263173965,
+   "p": 0.379822586819506,
+   "margin": 0.1454389293136591,
+   "ms": 1934.4170000000158,
+   "escalated": false,
+   "cached": false,
+   "changed": false,
+   "shot": "step-37.jpg"
+  },
+  {
+   "n": 38,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"/\"",
+   "backend": "clef",
+   "confidence": 0.16901763402649705,
+   "p": 0.38379481953891065,
+   "margin": 0.2602135114927205,
+   "ms": 2474.779042000009,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-38.jpg"
+  },
+  {
+   "n": 39,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "type \"/\"",
+   "backend": "clef",
+   "confidence": 0.2756548311374948,
+   "p": 0.41315377305836565,
+   "margin": 0.30414706733081165,
+   "ms": 2776.8343749999767,
+   "escalated": false,
+   "cached": false,
+   "changed": true,
+   "shot": "step-39.jpg"
+  },
+  {
+   "n": 40,
+   "url": "/examples/mka-audience-editor?mode=edit",
+   "action": "editor \"rich-text editor (document body)\"",
+   "backend": "clef",
+   "confidence": 0.2526033771195829,
+   "p": 0.38197739568056616,
+   "margin": 0.1288032933001722,
+   "ms": 1146.7709999999497,
+   "escalated": false,
+   "cached": false,
+   "changed": false,
+   "shot": "step-40.jpg"
+  }
+ ],
+ "issues": [],
+ "stoppedBy": "max-steps"
+}

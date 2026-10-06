@@ -1,0 +1,1202 @@
+{
+ "issues": [],
+ "rows": [
+  {
+   "persona": "admin",
+   "token": "ZQ-BODY-LOCALTABLIGH-q81",
+   "backend": "clef",
+   "p": 0.8829935873750013,
+   "truth": false,
+   "ok": false,
+   "ms": 0
+  },
+  {
+   "persona": "admin",
+   "token": "ZQ-BODY-LOCALTABLIGH-q81",
+   "backend": "jev",
+   "p": 0.9,
+   "truth": false,
+   "ok": false,
+   "ms": 0
+  },
+  {
+   "persona": "admin",
+   "token": "ZQ-BODY-REGIONALQAIDS-m47",
+   "backend": "clef",
+   "p": 0.8998777250037855,
+   "truth": false,
+   "ok": false,
+   "ms": 0
+  },
+  {
+   "persona": "admin",
+   "token": "ZQ-BODY-REGIONALQAIDS-m47",
+   "backend": "jev",
+   "p": 0.82,
+   "truth": false,
+   "ok": false,
+   "ms": 0
+  },
+  {
+   "persona": "admin",
+   "token": "ZQ-BODY-NATIONAL-z02",
+   "backend": "clef",
+   "p": 0.9120960679173662,
+   "truth": false,
+   "ok": false,
+   "ms": 0
+  },
+  {
+   "persona": "admin",
+   "token": "ZQ-BODY-NATIONAL-z02",
+   "backend": "jev",
+   "p": 0.86,
+   "truth": false,
+   "ok": false,
+   "ms": 0
+  },
+  {
+   "persona": "admin",
+   "token": "ZQ-BODY-HIDENATIONAL-k93",
+   "backend": "clef",
+   "p": 0.8867561122178128,
+   "truth": false,
+   "ok": false,
+   "ms": 0
+  },
+  {
+   "persona": "admin",
+   "token": "ZQ-BODY-HIDENATIONAL-k93",
+   "backend": "jev",
+   "p": 0.34,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "admin",
+   "token": "ZQ-BODY-MAJLISALBANY-d15",
+   "backend": "clef",
+   "p": 0.8980615006969416,
+   "truth": false,
+   "ok": false,
+   "ms": 0
+  },
+  {
+   "persona": "admin",
+   "token": "ZQ-BODY-MAJLISALBANY-d15",
+   "backend": "jev",
+   "p": 0.89,
+   "truth": false,
+   "ok": false,
+   "ms": 0
+  },
+  {
+   "persona": "localNazim",
+   "token": "ZQ-BODY-LOCALTABLIGH-q81",
+   "backend": "clef",
+   "p": 0.5385333324862752,
+   "truth": false,
+   "ok": false,
+   "ms": 0
+  },
+  {
+   "persona": "localNazim",
+   "token": "ZQ-BODY-LOCALTABLIGH-q81",
+   "backend": "jev",
+   "p": 0.08,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "localNazim",
+   "token": "ZQ-BODY-REGIONALQAIDS-m47",
+   "backend": "clef",
+   "p": 0.10217612963306218,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "localNazim",
+   "token": "ZQ-BODY-REGIONALQAIDS-m47",
+   "backend": "jev",
+   "p": 0.08,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "localNazim",
+   "token": "ZQ-BODY-NATIONAL-z02",
+   "backend": "clef",
+   "p": 0.09554560860444697,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "localNazim",
+   "token": "ZQ-BODY-NATIONAL-z02",
+   "backend": "jev",
+   "p": 0.07,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "localNazim",
+   "token": "ZQ-BODY-HIDENATIONAL-k93",
+   "backend": "clef",
+   "p": 0.7630300105178148,
+   "truth": false,
+   "ok": false,
+   "ms": 0
+  },
+  {
+   "persona": "localNazim",
+   "token": "ZQ-BODY-HIDENATIONAL-k93",
+   "backend": "jev",
+   "p": 0.43,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "localNazim",
+   "token": "ZQ-BODY-MAJLISALBANY-d15",
+   "backend": "clef",
+   "p": 0.637710427964785,
+   "truth": false,
+   "ok": false,
+   "ms": 0
+  },
+  {
+   "persona": "localNazim",
+   "token": "ZQ-BODY-MAJLISALBANY-d15",
+   "backend": "jev",
+   "p": 0.1,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "regionalQaid",
+   "token": "ZQ-BODY-LOCALTABLIGH-q81",
+   "backend": "clef",
+   "p": 0.12173743476757735,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "regionalQaid",
+   "token": "ZQ-BODY-LOCALTABLIGH-q81",
+   "backend": "jev",
+   "p": 0.07,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "regionalQaid",
+   "token": "ZQ-BODY-REGIONALQAIDS-m47",
+   "backend": "clef",
+   "p": 0.3900168700342287,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "regionalQaid",
+   "token": "ZQ-BODY-REGIONALQAIDS-m47",
+   "backend": "jev",
+   "p": 0.07,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "regionalQaid",
+   "token": "ZQ-BODY-NATIONAL-z02",
+   "backend": "clef",
+   "p": 0.11725219697011256,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "regionalQaid",
+   "token": "ZQ-BODY-NATIONAL-z02",
+   "backend": "jev",
+   "p": 0.08,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "regionalQaid",
+   "token": "ZQ-BODY-HIDENATIONAL-k93",
+   "backend": "clef",
+   "p": 0.7372885157502301,
+   "truth": false,
+   "ok": false,
+   "ms": 0
+  },
+  {
+   "persona": "regionalQaid",
+   "token": "ZQ-BODY-HIDENATIONAL-k93",
+   "backend": "jev",
+   "p": 0.41,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "regionalQaid",
+   "token": "ZQ-BODY-MAJLISALBANY-d15",
+   "backend": "clef",
+   "p": 0.11476465915641175,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "regionalQaid",
+   "token": "ZQ-BODY-MAJLISALBANY-d15",
+   "backend": "jev",
+   "p": 0.08,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "mohtamim",
+   "token": "ZQ-BODY-LOCALTABLIGH-q81",
+   "backend": "clef",
+   "p": 0.1603756222262118,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "mohtamim",
+   "token": "ZQ-BODY-LOCALTABLIGH-q81",
+   "backend": "jev",
+   "p": 0.09,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "mohtamim",
+   "token": "ZQ-BODY-REGIONALQAIDS-m47",
+   "backend": "clef",
+   "p": 0.11752677590896093,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "mohtamim",
+   "token": "ZQ-BODY-REGIONALQAIDS-m47",
+   "backend": "jev",
+   "p": 0.09,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "mohtamim",
+   "token": "ZQ-BODY-NATIONAL-z02",
+   "backend": "clef",
+   "p": 0.43982538916682906,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "mohtamim",
+   "token": "ZQ-BODY-NATIONAL-z02",
+   "backend": "jev",
+   "p": 0.11,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "mohtamim",
+   "token": "ZQ-BODY-HIDENATIONAL-k93",
+   "backend": "clef",
+   "p": 0.14649906996361314,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "mohtamim",
+   "token": "ZQ-BODY-HIDENATIONAL-k93",
+   "backend": "jev",
+   "p": 0.1,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "mohtamim",
+   "token": "ZQ-BODY-MAJLISALBANY-d15",
+   "backend": "clef",
+   "p": 0.1146155370604532,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "mohtamim",
+   "token": "ZQ-BODY-MAJLISALBANY-d15",
+   "backend": "jev",
+   "p": 0.08,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "regionalNazim",
+   "token": "ZQ-BODY-LOCALTABLIGH-q81",
+   "backend": "clef",
+   "p": 0.16167217727926614,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "regionalNazim",
+   "token": "ZQ-BODY-LOCALTABLIGH-q81",
+   "backend": "jev",
+   "p": 0.1,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "regionalNazim",
+   "token": "ZQ-BODY-REGIONALQAIDS-m47",
+   "backend": "clef",
+   "p": 0.12177588695230672,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "regionalNazim",
+   "token": "ZQ-BODY-REGIONALQAIDS-m47",
+   "backend": "jev",
+   "p": 0.11,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "regionalNazim",
+   "token": "ZQ-BODY-NATIONAL-z02",
+   "backend": "clef",
+   "p": 0.10725352756589333,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "regionalNazim",
+   "token": "ZQ-BODY-NATIONAL-z02",
+   "backend": "jev",
+   "p": 0.09,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "regionalNazim",
+   "token": "ZQ-BODY-HIDENATIONAL-k93",
+   "backend": "clef",
+   "p": 0.19049007403685278,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "regionalNazim",
+   "token": "ZQ-BODY-HIDENATIONAL-k93",
+   "backend": "jev",
+   "p": 0.49,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "regionalNazim",
+   "token": "ZQ-BODY-MAJLISALBANY-d15",
+   "backend": "clef",
+   "p": 0.13023233777650858,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "regionalNazim",
+   "token": "ZQ-BODY-MAJLISALBANY-d15",
+   "backend": "jev",
+   "p": 0.08,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "unrecognized",
+   "token": "ZQ-BODY-LOCALTABLIGH-q81",
+   "backend": "clef",
+   "p": 0.08879335472729302,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "unrecognized",
+   "token": "ZQ-BODY-LOCALTABLIGH-q81",
+   "backend": "jev",
+   "p": 0.1,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "unrecognized",
+   "token": "ZQ-BODY-REGIONALQAIDS-m47",
+   "backend": "clef",
+   "p": 0.0932549572882463,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "unrecognized",
+   "token": "ZQ-BODY-REGIONALQAIDS-m47",
+   "backend": "jev",
+   "p": 0.1,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "unrecognized",
+   "token": "ZQ-BODY-NATIONAL-z02",
+   "backend": "clef",
+   "p": 0.1009931581363664,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "unrecognized",
+   "token": "ZQ-BODY-NATIONAL-z02",
+   "backend": "jev",
+   "p": 0.08,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "unrecognized",
+   "token": "ZQ-BODY-HIDENATIONAL-k93",
+   "backend": "clef",
+   "p": 0.5943979309054647,
+   "truth": false,
+   "ok": false,
+   "ms": 0
+  },
+  {
+   "persona": "unrecognized",
+   "token": "ZQ-BODY-HIDENATIONAL-k93",
+   "backend": "jev",
+   "p": 0.26,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "unrecognized",
+   "token": "ZQ-BODY-MAJLISALBANY-d15",
+   "backend": "clef",
+   "p": 0.09086720621764265,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "unrecognized",
+   "token": "ZQ-BODY-MAJLISALBANY-d15",
+   "backend": "jev",
+   "p": 0.09,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "notOfficeholder",
+   "token": "ZQ-BODY-LOCALTABLIGH-q81",
+   "backend": "clef",
+   "p": 0.08738080145726286,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "notOfficeholder",
+   "token": "ZQ-BODY-LOCALTABLIGH-q81",
+   "backend": "jev",
+   "p": 0.11,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "notOfficeholder",
+   "token": "ZQ-BODY-REGIONALQAIDS-m47",
+   "backend": "clef",
+   "p": 0.09207645078787495,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "notOfficeholder",
+   "token": "ZQ-BODY-REGIONALQAIDS-m47",
+   "backend": "jev",
+   "p": 0.09,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "notOfficeholder",
+   "token": "ZQ-BODY-NATIONAL-z02",
+   "backend": "clef",
+   "p": 0.09148343107964009,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "notOfficeholder",
+   "token": "ZQ-BODY-NATIONAL-z02",
+   "backend": "jev",
+   "p": 0.08,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "notOfficeholder",
+   "token": "ZQ-BODY-HIDENATIONAL-k93",
+   "backend": "clef",
+   "p": 0.7998365289029408,
+   "truth": false,
+   "ok": false,
+   "ms": 0
+  },
+  {
+   "persona": "notOfficeholder",
+   "token": "ZQ-BODY-HIDENATIONAL-k93",
+   "backend": "jev",
+   "p": 0.29,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "notOfficeholder",
+   "token": "ZQ-BODY-MAJLISALBANY-d15",
+   "backend": "clef",
+   "p": 0.0911112465546642,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "notOfficeholder",
+   "token": "ZQ-BODY-MAJLISALBANY-d15",
+   "backend": "jev",
+   "p": 0.1,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "author",
+   "token": "ZQ-BODY-LOCALTABLIGH-q81",
+   "backend": "clef",
+   "p": 0.8829935873750013,
+   "truth": false,
+   "ok": false,
+   "ms": 0
+  },
+  {
+   "persona": "author",
+   "token": "ZQ-BODY-LOCALTABLIGH-q81",
+   "backend": "jev",
+   "p": 0.9,
+   "truth": false,
+   "ok": false,
+   "ms": 0
+  },
+  {
+   "persona": "author",
+   "token": "ZQ-BODY-REGIONALQAIDS-m47",
+   "backend": "clef",
+   "p": 0.8998777250037855,
+   "truth": false,
+   "ok": false,
+   "ms": 0
+  },
+  {
+   "persona": "author",
+   "token": "ZQ-BODY-REGIONALQAIDS-m47",
+   "backend": "jev",
+   "p": 0.82,
+   "truth": false,
+   "ok": false,
+   "ms": 0
+  },
+  {
+   "persona": "author",
+   "token": "ZQ-BODY-NATIONAL-z02",
+   "backend": "clef",
+   "p": 0.9120960679173662,
+   "truth": false,
+   "ok": false,
+   "ms": 0
+  },
+  {
+   "persona": "author",
+   "token": "ZQ-BODY-NATIONAL-z02",
+   "backend": "jev",
+   "p": 0.86,
+   "truth": false,
+   "ok": false,
+   "ms": 0
+  },
+  {
+   "persona": "author",
+   "token": "ZQ-BODY-HIDENATIONAL-k93",
+   "backend": "clef",
+   "p": 0.8867561122178128,
+   "truth": false,
+   "ok": false,
+   "ms": 0
+  },
+  {
+   "persona": "author",
+   "token": "ZQ-BODY-HIDENATIONAL-k93",
+   "backend": "jev",
+   "p": 0.34,
+   "truth": false,
+   "ok": true,
+   "ms": 0
+  },
+  {
+   "persona": "author",
+   "token": "ZQ-BODY-MAJLISALBANY-d15",
+   "backend": "clef",
+   "p": 0.8980615006969416,
+   "truth": false,
+   "ok": false,
+   "ms": 0
+  },
+  {
+   "persona": "author",
+   "token": "ZQ-BODY-MAJLISALBANY-d15",
+   "backend": "jev",
+   "p": 0.89,
+   "truth": false,
+   "ok": false,
+   "ms": 0
+  }
+ ],
+ "results": [
+  {
+   "mission": "real-author-preview-regional-qaid",
+   "ok": true,
+   "detail": "viewing bar",
+   "steps": 2,
+   "modelCalls": 3,
+   "wallMs": 62560,
+   "modelMs": 31007.258542000003,
+   "log": [
+    {
+     "n": 1,
+     "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+     "action": "button \"Viewing: Everything (author view)\" [collapsed, closed]",
+     "backend": "jev",
+     "confidence": 0.36,
+     "p": 0.4,
+     "margin": 0.22000000000000003,
+     "ms": 27671.787292,
+     "escalated": true,
+     "cached": false,
+     "changed": true,
+     "shot": "step-01.jpg"
+    },
+    {
+     "n": 2,
+     "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+     "action": "button \"Regional Qaid · Northeast\"",
+     "backend": "clef",
+     "confidence": 0.5735513815829312,
+     "p": 0.7287956811084361,
+     "margin": 0.6953780321004661,
+     "ms": 3335.4712500000023,
+     "escalated": false,
+     "cached": false,
+     "changed": true,
+     "shot": "step-02.jpg"
+    }
+   ],
+   "issues": [],
+   "stoppedBy": "success"
+  },
+  {
+   "mission": "real-author-explore-picker",
+   "ok": false,
+   "detail": "budget exhausted",
+   "steps": 30,
+   "modelCalls": 33,
+   "wallMs": 121839,
+   "modelMs": 80068.74887300002,
+   "log": [
+    {
+     "n": 1,
+     "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+     "action": "button \"Collapse section\" [expanded]",
+     "backend": "random",
+     "confidence": 0,
+     "p": 0,
+     "margin": 0,
+     "ms": 0,
+     "escalated": false,
+     "cached": false,
+     "changed": true,
+     "shot": "step-01.jpg"
+    },
+    {
+     "n": 2,
+     "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+     "action": "button \"Edit\"",
+     "backend": "jev",
+     "confidence": 0.26,
+     "p": 0.3,
+     "margin": 0.11999999999999997,
+     "ms": 3044.441042000006,
+     "escalated": true,
+     "cached": false,
+     "changed": true,
+     "shot": "step-02.jpg"
+    },
+    {
+     "n": 3,
+     "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+     "action": "press Escape",
+     "backend": "clef",
+     "confidence": 0.1408450588811817,
+     "p": 0.28824252168472836,
+     "margin": 0.22554688379814475,
+     "ms": 4496.817332999999,
+     "escalated": false,
+     "cached": false,
+     "changed": true,
+     "shot": "step-03.jpg"
+    },
+    {
+     "n": 4,
+     "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+     "action": "button \"Edit\"",
+     "backend": "random",
+     "confidence": 0,
+     "p": 0,
+     "margin": 0,
+     "ms": 0,
+     "escalated": false,
+     "cached": false,
+     "changed": true,
+     "shot": "step-04.jpg"
+    },
+    {
+     "n": 5,
+     "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+     "action": "button \"Majlis: Any Majlis. Choose…\" [collapsed, closed]",
+     "backend": "jev",
+     "confidence": 0.19,
+     "p": 0.21,
+     "margin": 0.11999999999999998,
+     "ms": 5667.5426670000015,
+     "escalated": true,
+     "cached": false,
+     "changed": true,
+     "shot": "step-05.jpg"
+    },
+    {
+     "n": 6,
+     "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+     "action": "type \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"",
+     "backend": "clef",
+     "confidence": 0.3031436912878326,
+     "p": 0.4156873279326066,
+     "margin": 0.30805512282600694,
+     "ms": 4208.555833000006,
+     "escalated": false,
+     "cached": false,
+     "changed": true,
+     "shot": "step-06.jpg"
+    },
+    {
+     "n": 7,
+     "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+     "action": "text \"Search Majlis or region…\" [expanded, has value]",
+     "backend": "random",
+     "confidence": 0,
+     "p": 0,
+     "margin": 0,
+     "ms": 0,
+     "escalated": false,
+     "cached": false,
+     "changed": false,
+     "shot": "step-07.jpg"
+    },
+    {
+     "n": 8,
+     "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+     "action": "checkbox \"Hide from\" [unchecked, off]",
+     "backend": "random",
+     "confidence": 0,
+     "p": 0,
+     "margin": 0,
+     "ms": 0,
+     "escalated": false,
+     "cached": false,
+     "changed": true,
+     "shot": "step-08.jpg"
+    },
+    {
+     "n": 9,
+     "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+     "action": "press Escape",
+     "backend": "clef",
+     "confidence": 0.43175920547686697,
+     "p": 0.6191526382802691,
+     "margin": 0.5912864355316163,
+     "ms": 4697.322249999997,
+     "escalated": false,
+     "cached": false,
+     "changed": true,
+     "shot": "step-09.jpg"
+    },
+    {
+     "n": 10,
+     "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+     "action": "button \"Edit\"",
+     "backend": "jev",
+     "confidence": 0.09,
+     "p": 0.12,
+     "margin": 0.01999999999999999,
+     "ms": 3809.596125000011,
+     "escalated": true,
+     "cached": false,
+     "changed": true,
+     "shot": "step-10.jpg"
+    },
+    {
+     "n": 11,
+     "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+     "action": "press ArrowDown",
+     "backend": "random",
+     "confidence": 0,
+     "p": 0,
+     "margin": 0,
+     "ms": 0,
+     "escalated": false,
+     "cached": false,
+     "changed": false,
+     "shot": "step-11.jpg"
+    },
+    {
+     "n": 12,
+     "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+     "action": "button \"Majlis: Any Majlis. Choose…\" [collapsed, closed]",
+     "backend": "jev",
+     "confidence": 0.17,
+     "p": 0.19,
+     "margin": 0.1,
+     "ms": 5562.600833000004,
+     "escalated": true,
+     "cached": false,
+     "changed": true,
+     "shot": "step-12.jpg"
+    },
+    {
+     "n": 13,
+     "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+     "action": "type \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"",
+     "backend": "clef",
+     "confidence": 0.33593717902256015,
+     "p": 0.453686525865732,
+     "margin": 0.34124792021202294,
+     "ms": 4134.8832500000135,
+     "escalated": false,
+     "cached": false,
+     "changed": true,
+     "shot": "step-13.jpg"
+    },
+    {
+     "n": 14,
+     "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+     "action": "type \"\"",
+     "backend": "jev",
+     "confidence": 0.35,
+     "p": 0.38,
+     "margin": 0.19999999999999998,
+     "ms": 5138.821125000017,
+     "escalated": true,
+     "cached": false,
+     "changed": false,
+     "shot": "step-14.jpg"
+    },
+    {
+     "n": 15,
+     "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+     "action": "press Escape",
+     "backend": "jev",
+     "confidence": 0.69,
+     "p": 0.71,
+     "margin": 0.57,
+     "ms": 3760.296166999993,
+     "escalated": true,
+     "cached": false,
+     "changed": true,
+     "shot": "step-15.jpg"
+    },
+    {
+     "n": 16,
+     "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+     "action": "button \"Preview\"",
+     "backend": "random",
+     "confidence": 0,
+     "p": 0,
+     "margin": 0,
+     "ms": 0,
+     "escalated": false,
+     "cached": false,
+     "changed": true,
+     "shot": "step-16.jpg"
+    },
+    {
+     "n": 17,
+     "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+     "action": "link [closed]",
+     "backend": "random",
+     "confidence": 0,
+     "p": 0,
+     "margin": 0,
+     "ms": 0,
+     "escalated": false,
+     "cached": false,
+     "changed": false,
+     "shot": "step-17.jpg"
+    },
+    {
+     "n": 18,
+     "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+     "action": "press Enter",
+     "backend": "random",
+     "confidence": 0,
+     "p": 0,
+     "margin": 0,
+     "ms": 0,
+     "escalated": false,
+     "cached": false,
+     "changed": false,
+     "shot": "step-18.jpg"
+    },
+    {
+     "n": 19,
+     "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+     "action": "button \"Exit preview\"",
+     "backend": "clef",
+     "confidence": 0.310259024876985,
+     "p": 0.5825004365981494,
+     "margin": 0.49642353821568413,
+     "ms": 3029.9433750000026,
+     "escalated": false,
+     "cached": false,
+     "changed": true,
+     "shot": "step-19.jpg"
+    },
+    {
+     "n": 20,
+     "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+     "action": "button \"Edit\"",
+     "backend": "jev",
+     "confidence": 0.22,
+     "p": 0.24,
+     "margin": 0.1,
+     "ms": 3827.3412909999897,
+     "escalated": true,
+     "cached": false,
+     "changed": true,
+     "shot": "step-20.jpg"
+    },
+    {
+     "n": 21,
+     "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+     "action": "button \"Local\" [false]",
+     "backend": "random",
+     "confidence": 0,
+     "p": 0,
+     "margin": 0,
+     "ms": 0,
+     "escalated": false,
+     "cached": false,
+     "changed": true,
+     "shot": "step-21.jpg"
+    },
+    {
+     "n": 22,
+     "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+     "action": "press Escape",
+     "backend": "clef",
+     "confidence": 0.16681626462575538,
+     "p": 0.33379951379256395,
+     "margin": 0.27688128966508857,
+     "ms": 3488.4441670000087,
+     "escalated": false,
+     "cached": false,
+     "changed": true,
+     "shot": "step-22.jpg"
+    },
+    {
+     "n": 23,
+     "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+     "action": "button \"Expand section\" [collapsed]",
+     "backend": "random",
+     "confidence": 0,
+     "p": 0,
+     "margin": 0,
+     "ms": 0,
+     "escalated": false,
+     "cached": false,
+     "changed": true,
+     "shot": "step-23.jpg"
+    },
+    {
+     "n": 24,
+     "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+     "action": "button \"Edit\"",
+     "backend": "jev",
+     "confidence": 0.13,
+     "p": 0.17,
+     "margin": 0,
+     "ms": 4064.035042000003,
+     "escalated": true,
+     "cached": false,
+     "changed": true,
+     "shot": "step-24.jpg"
+    },
+    {
+     "n": 25,
+     "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+     "action": "checkbox \"Show to\" [checked, on]",
+     "backend": "jev",
+     "confidence": 0.16,
+     "p": 0.18,
+     "margin": 0.009999999999999981,
+     "ms": 4521.513915999996,
+     "escalated": true,
+     "cached": false,
+     "changed": false,
+     "shot": "step-25.jpg"
+    },
+    {
+     "n": 26,
+     "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+     "action": "button \"More filters: role, region, Majlis\" [collapsed]",
+     "backend": "jev",
+     "confidence": 0.11,
+     "p": 0.14,
+     "margin": 0.05000000000000002,
+     "ms": 3520.2501659999834,
+     "escalated": true,
+     "cached": false,
+     "changed": true,
+     "shot": "step-26.jpg"
+    },
+    {
+     "n": 27,
+     "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+     "action": "button \"Majlis: Any Majlis. Choose…\" [collapsed, closed]",
+     "backend": "jev",
+     "confidence": 0.26,
+     "p": 0.3,
+     "margin": 0.13999999999999999,
+     "ms": 3711.476416999998,
+     "escalated": true,
+     "cached": false,
+     "changed": true,
+     "shot": "step-27.jpg"
+    },
+    {
+     "n": 28,
+     "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+     "action": "press Escape",
+     "backend": "jev",
+     "confidence": 0.24,
+     "p": 0.27,
+     "margin": 0.08000000000000002,
+     "ms": 3357.153831999982,
+     "escalated": true,
+     "cached": false,
+     "changed": true,
+     "shot": "step-28.jpg"
+    },
+    {
+     "n": 29,
+     "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+     "action": "button \"Role: Any role. Choose…\" [collapsed, closed]",
+     "backend": "jev",
+     "confidence": 0.22,
+     "p": 0.25,
+     "margin": 0.14,
+     "ms": 3068.9061670000083,
+     "escalated": true,
+     "cached": false,
+     "changed": true,
+     "shot": "step-29.jpg"
+    },
+    {
+     "n": 30,
+     "url": "/course/5a627fee-cb83-4d07-98a2-87f57e1becab/activity/78334c8b-62ff-4a16-9e58-445cdfa1c6cc/edit",
+     "action": "type \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"",
+     "backend": "clef",
+     "confidence": 0.3005147215362439,
+     "p": 0.41580663063001944,
+     "margin": 0.2664484985769545,
+     "ms": 2958.8078749999986,
+     "escalated": false,
+     "cached": false,
+     "changed": true,
+     "shot": "step-30.jpg"
+    }
+   ],
+   "issues": [],
+   "stoppedBy": "max-steps"
+  }
+ ],
+ "contentUnchanged": true
+}

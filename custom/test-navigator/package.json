@@ -1,0 +1,10 @@
+{
+  "name": "@mka/test-navigator",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "description": "Model-assisted exploratory tester (fork-only). Playwright clicks; clef-flash/Jev only choose among enumerated element ids.",
+  "scripts": { "explore": "bun run src/cli.ts", "bench": "bun run src/bench.ts" },
+  "dependencies": { "playwright-core": "1.61.0" },
+  "devDependencies": { "@types/bun": "latest" }
+}
