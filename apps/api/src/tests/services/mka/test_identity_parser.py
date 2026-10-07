@@ -442,7 +442,7 @@ def test_non_ascii_never_matches():
 # --- rules file integrity -------------------------------------------------------------------------
 
 def test_rules_version_and_domains():
-    assert RULES.version == "2026.3"
+    assert RULES.version == "2026.4"
     assert set(RULES.domains) == {"mkausa.org", "atfalusa.org"}
 
 
@@ -482,3 +482,22 @@ def test_amoor_e_tuluba_and_atfal_national_mailboxes_in_rules():
     nat = RULES.raw["domains"]["mkausa.org"]["national_exact"]
     assert nat["atfal"]["department"] == "atfal"
     assert nat["amoor-e-tuluba"]["department"] == "amoor_e_tuluba"
+
+
+# --- rules 2026.4: Naib Mohtamim vocabulary (identity sync spec 2026-10-07) -------------------------
+
+def test_naib_mohtamim_is_a_known_role_with_a_title():
+    assert RULES.title("naib_mohtamim", "national", "tabligh") == "Naib Mohtamim Tabligh"
+    from src.services.mka import attributes as attrs
+
+    layer = attrs.validate_layer({"role": "naib_mohtamim", "level": "national", "department": "tabligh"}, RULES)
+    assert layer["role"] == "naib_mohtamim"  # a roster / admin override can now carry it
+
+
+def test_rules_2026_4_only_adds_the_naib_mohtamim_title_over_2026_3():
+    from src.services.mka.identity_parser import load_rules
+
+    old, new = load_rules("2026.3").raw, RULES.raw
+    assert {k: v for k, v in old.items() if k not in ("version", "role_titles")} == {
+        k: v for k, v in new.items() if k not in ("version", "role_titles")}
+    assert {k: v for k, v in new["role_titles"].items() if k != "naib_mohtamim"} == old["role_titles"]

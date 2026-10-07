@@ -28,7 +28,7 @@ from typing import Any, Optional
 logger = logging.getLogger(__name__)
 
 RULES_DIR = Path(__file__).resolve().parent / "identity_rules"
-DEFAULT_RULES_VERSION = "2026.3"
+DEFAULT_RULES_VERSION = "2026.4"
 
 STATUSES = ("matched", "partial", "ambiguous", "unrecognized", "not_applicable")
 LEVELS = ("national", "regional", "local")

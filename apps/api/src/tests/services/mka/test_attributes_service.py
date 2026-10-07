@@ -103,7 +103,7 @@ async def test_refresh_creates_row_and_audit(db):
     await db.commit()
     assert changed and row.email_seen == "tabligh.albany@mkausa.org"
     assert row.eff_status == "matched" and row.eff_majlis == "Albany" and row.eff_department == "tabligh"
-    assert row.rules_version == "2026.3"
+    assert row.rules_version == "2026.4"
     a = await _audit(db, 10)
     assert [x.action for x in a] == ["derive"] and a[0].actor_user_id is None
 
@@ -144,7 +144,7 @@ async def test_rules_version_bump_rewrites_without_audit(db):
     _, changed = await svc.refresh_attributes(db, u, action="recompute")
     await db.commit()
     assert changed is False  # derived value unchanged
-    assert (await svc.get_row(db, 13)).rules_version == "2026.3"
+    assert (await svc.get_row(db, 13)).rules_version == "2026.4"
     assert len(await _audit(db, 13)) == 1
 
 
