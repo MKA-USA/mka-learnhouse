@@ -2,7 +2,7 @@
 
 * ``POST /sync?org_slug=&dry_run=true``  ensure the Mohtamim role + managed groups, then sync every org member that has an
   attribute row. ``dry_run`` (the default) writes nothing and lists the planned changes (user ids only, capped). A real
-  run needs ``MKA_IDENTITY_SYNC_ENABLED`` (409 otherwise): the flag is the kill switch for every write.
+  run needs ``MKA_IDENTITY_SYNC_ENABLED`` and the org in ``MKA_IDENTITY_SYNC_ORG_IDS`` (409 otherwise): the flag is the kill switch for every write.
 * ``GET /status?org_slug=``              flag state, managed role id, group count, last applied sync.
 
 Auth is the same as the other admin endpoints (``_resolve_admin``): an ADMIN session of the org, or an org API token bound
@@ -40,6 +40,8 @@ async def api_sync(
     )
     if not dry_run and not sync.enabled():
         raise HTTPException(status_code=409, detail="identity sync is disabled")
+    if not dry_run and not sync.org_allowed(admin.org_id):
+        raise HTTPException(status_code=409, detail="organization is not allowlisted for identity sync")
     return await sync.backfill_org(db_session, admin.org_id, dry_run=dry_run)
 
 

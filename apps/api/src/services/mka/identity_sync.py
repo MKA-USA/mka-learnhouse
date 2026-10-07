@@ -64,7 +64,7 @@ MOHTAMIM_ROLE_DESCRIPTION = "MKA department head: creates and runs courses for t
 MOHTAMIM_ROLES = ("mohtamim", "naib_mohtamim")
 # Bump when MOHTAMIM_RIGHTS changes: ``ensure_org`` rewrites the role's rights ONCE per version (an admin's later edits
 # in the UI survive until the next bump).
-MOHTAMIM_RIGHTS_VERSION = 1
+MOHTAMIM_RIGHTS_VERSION = 2  # 2: media/folders narrowed to create+read (no update/delete)
 GROUP_DESCRIPTION = "Managed by MKA identity sync; membership follows the role mailbox"
 LEVEL_GROUPS = {"national": "National Amila", "regional": "Regional Amila", "local": "Local Amila"}
 EXCLUDED_DEPARTMENTS = frozenset({"atfal"})  # like the compliance roster; departments with has_course=false are skipped too
@@ -75,6 +75,29 @@ BATCH = 500
 def enabled() -> bool:
     """``MKA_IDENTITY_SYNC_ENABLED`` (default false), read at call time."""
     return os.environ.get("MKA_IDENTITY_SYNC_ENABLED", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def allowed_org_ids() -> frozenset[int]:
+    """``MKA_IDENTITY_SYNC_ORG_IDS``: comma-separated org ids the sync may WRITE in. Unset / empty = no org (fail closed:
+    the platform is multi-tenant and the managed role/groups must never appear in an org nobody opted in)."""
+    out: set[int] = set()
+    for part in os.environ.get("MKA_IDENTITY_SYNC_ORG_IDS", "").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            out.add(int(part))
+        except ValueError:
+            logger.warning("MKA identity sync: ignoring a non-numeric entry in MKA_IDENTITY_SYNC_ORG_IDS")
+    return frozenset(out)
+
+
+def org_allowed(org_id: int) -> bool:
+    return org_id in allowed_org_ids()
+
+
+class OrgNotAllowed(Exception):
+    """A write was requested for an org that is not in ``MKA_IDENTITY_SYNC_ORG_IDS``."""
 
 
 def _now() -> str:
@@ -104,8 +127,8 @@ def mohtamim_rights() -> dict:
         courses=_own(c=True, r=True, ro=True, uo=True, do=True),
         users=_crud(),
         usergroups=_crud(r=True),
-        folders=_crud(True, True, True, True),
-        media=_crud(True, True, True, True),
+        folders=_crud(True, True),  # create + read only: update/delete would reach every org member's media (security review)
+        media=_crud(True, True),
         organizations=_crud(r=True),
         coursechapters=_crud(True, True, True),
         activities=_crud(True, True, True),
@@ -255,6 +278,8 @@ async def ensure_org(db: AsyncSession, org_id: int, *, dry_run: bool = False) ->
         ctx.groups_recreated = sum(1 for k in missing if k in ctx.stale_keys)
         ctx.groups_created = len(missing) - ctx.groups_recreated
         return ctx
+    if not org_allowed(org_id):
+        raise OrgNotAllowed(org_id)
 
     async with _lock_for("ensure", org_id):
         await _pg_lock(db, f"mka-identity:ensure:{org_id}")  # READ COMMITTED: the re-read below sees what a rival committed
@@ -341,9 +366,19 @@ class UserPlan:
         return {"user_id": self.user_id, "add": list(self.add), "remove": list(self.remove), "role": self.role}
 
 
-async def _gate(db: AsyncSession, user: Any) -> tuple[Optional[dict], Optional[str]]:
-    """A COPY of the effective attributes to trust, or the reason they cannot be trusted. Reads only. (A copy, because a
-    later rollback expires the ORM row.)"""
+@dataclass
+class Trust:
+    effective: dict  # drives the groups
+    role_attrs: dict  # drives the Mohtamim role (see _gate)
+
+
+async def _gate(db: AsyncSession, user: Any) -> tuple[Optional[Trust], Optional[str]]:
+    """COPIES of the attributes to trust, or the reason they cannot be trusted. Reads only. (Copies, because a later
+    rollback expires the ORM row.)
+
+    The ROLE is decided from ``row.derived`` (the parser output for the proven mailbox) when the account belongs to more
+    than one org, mirroring ``attributes.roster_for_user``: a roster or admin-override layer written for one org must
+    never grant a role in another. A single-org account uses the effective attributes (override > roster > parser)."""
     row = await attrs.get_row(db, user.id)
     if row is None:
         return None, "no_attributes"
@@ -351,14 +386,20 @@ async def _gate(db: AsyncSession, user: Any) -> tuple[Optional[dict], Optional[s
         return None, "unproven"
     if attrs.is_stale(row, user):  # e.g. a rules-version bump awaiting recompute: reading it would look like "no groups"
         return None, "stale"
-    return dict(row.effective or {}), None
+    effective = dict(row.effective or {})
+    derived = dict(row.derived or {})
+    n_orgs = len(set((await db.execute(select(UserOrganization.org_id).where(UserOrganization.user_id == user.id))).scalars().all()))
+    return Trust(effective=effective, role_attrs=derived if n_orgs > 1 else effective), None
 
 
-async def _sync_one(db: AsyncSession, ctx: OrgCtx, user: Any, effective: dict, *, dry_run: bool) -> UserPlan:
+async def _sync_one(db: AsyncSession, ctx: OrgCtx, user: Any, trust: Trust, *, dry_run: bool) -> UserPlan:
+    if not dry_run and not org_allowed(ctx.org_id):
+        raise OrgNotAllowed(ctx.org_id)
+    effective = trust.effective
     plan = UserPlan(user_id=user.id)
     cat_keys = set(ctx.groups)
     desired = desired_group_keys(effective, {k: k for k in cat_keys})
-    wants_role = qualifies_for_mohtamim_role(effective)
+    wants_role = qualifies_for_mohtamim_role(trust.role_attrs)
 
     async def compute() -> UserPlan:
         p = UserPlan(user_id=user.id)
@@ -439,16 +480,62 @@ def _invalidate_session(user_id: int) -> None:
         logger.debug("MKA identity sync: session cache invalidation failed", exc_info=True)
 
 
+async def _peek_ctx(db: AsyncSession, org_id: int) -> OrgCtx:
+    """The org's managed role / groups as they ARE (never creates anything)."""
+    return (await _read_ctx(db, org_id, catalogue()))[0]
+
+
+async def _revert_only(db: AsyncSession, ctx: OrgCtx, user_id: int, *, dry_run: bool = False) -> UserPlan:
+    """Fail-closed step for an identity that cannot be trusted right now (no row, unproven, stale, refresh failed): a
+    holder of the org's managed role goes back to the default role. Groups are left alone; nothing is ever granted."""
+    plan = UserPlan(user_id=user_id)
+    if ctx.role_id is None:
+        return plan
+
+    async def compute() -> Optional[UserOrganization]:
+        membership = (
+            await db.execute(
+                select(UserOrganization)
+                .where(UserOrganization.user_id == user_id, UserOrganization.org_id == ctx.org_id)
+                .execution_options(populate_existing=True)
+            )
+        ).scalars().first()
+        plan.role = "revert" if membership is not None and membership.role_id == ctx.role_id else None
+        return membership
+
+    async with _lock_for("user", user_id, ctx.org_id):
+        await compute()
+        if dry_run or not plan.role:
+            return plan
+        if not org_allowed(ctx.org_id):
+            raise OrgNotAllowed(ctx.org_id)
+        await _pg_lock(db, f"mka-identity:user:{user_id}:{ctx.org_id}")
+        membership = await compute()
+        if not plan.role or membership is None:
+            return plan
+        membership.role_id = DEFAULT_ROLE_ID
+        membership.update_date = _now()
+        db.add(membership)
+        await db.commit()
+    _invalidate_session(user_id)
+    return plan
+
+
 async def sync_user_identity(db: AsyncSession, org_id: int, user: Any) -> UserPlan:
-    """Sync ONE user in ONE org (spec A3). ``user`` is anything with ``id`` and ``email``. Performs no writes when the
-    flag is off, the identity is not proven / current, or nothing differs. May raise: the login wrapper catches."""
+    """Sync ONE user in ONE org (spec A3). ``user`` is anything with ``id`` and ``email``. No writes when the flag is off,
+    the org is not allowlisted, or nothing differs. An identity that cannot be trusted only ever LOSES the managed role.
+    May raise: the login wrapper catches."""
     if not enabled():
         return UserPlan(user_id=user.id, skipped="disabled")
-    effective, reason = await _gate(db, user)
-    if effective is None:
-        return UserPlan(user_id=user.id, skipped=reason)
+    if not org_allowed(org_id):
+        return UserPlan(user_id=user.id, skipped="org_not_allowed")
+    trust, reason = await _gate(db, user)
+    if trust is None:
+        plan = await _revert_only(db, await _peek_ctx(db, org_id), user.id)
+        plan.skipped = reason
+        return plan
     ctx = await ensure_org(db, org_id)
-    return await _sync_one(db, ctx, user, effective, dry_run=False)
+    return await _sync_one(db, ctx, user, trust, dry_run=False)
 
 
 async def identity_sync_user(db_factory: Callable[[], AsyncSession], user: Any) -> None:
@@ -463,16 +550,20 @@ async def identity_sync_user(db_factory: Callable[[], AsyncSession], user: Any) 
 
 async def _run(db_factory: Callable[[], AsyncSession], user: Any) -> None:
     async with db_factory() as s:
-        effective, _reason = await _gate(s, user)
-        if effective is None:
-            return
-        org_ids = list(
-            (await s.execute(select(UserOrganization.org_id).where(UserOrganization.user_id == user.id))).scalars().all()
+        org_ids = sorted(
+            set((await s.execute(select(UserOrganization.org_id).where(UserOrganization.user_id == user.id))).scalars().all())
+            & allowed_org_ids()
         )
-        for org_id in sorted(set(org_ids)):
+        if not org_ids:
+            return
+        trust, _reason = await _gate(s, user)
+        for org_id in org_ids:
             try:
+                if trust is None:
+                    await _revert_only(s, await _peek_ctx(s, org_id), user.id)
+                    continue
                 ctx = await ensure_org(s, org_id)
-                plan = await _sync_one(s, ctx, user, effective, dry_run=False)
+                plan = await _sync_one(s, ctx, user, trust, dry_run=False)
                 if plan.changed:
                     logger.info("MKA identity sync: org %s user %s +%d -%d role=%s", org_id, user.id,
                                 len(plan.add), len(plan.remove), plan.role)
@@ -497,6 +588,8 @@ async def backfill_org(db: AsyncSession, org_id: int, *, dry_run: bool = True) -
     }
     skipped: dict[str, int] = {}
     planned: list[dict] = []
+    if not dry_run and not org_allowed(org_id):
+        raise OrgNotAllowed(org_id)
     ctx = await ensure_org(db, org_id, dry_run=dry_run)
     counts["groups_created"] = ctx.groups_created
     counts["groups_recreated"] = ctx.groups_recreated
@@ -519,11 +612,15 @@ async def backfill_org(db: AsyncSession, org_id: int, *, dry_run: bool = True) -
             counts["users_seen"] += 1
             user = SimpleNamespace(id=uid, email=email)
             try:
-                effective, reason = await _gate(db, user)
-                if effective is None:
+                trust, reason = await _gate(db, user)
+                if trust is None:  # cannot be trusted: never grant, but a held managed role is taken back
                     skipped[reason or "skipped"] = skipped.get(reason or "skipped", 0) + 1
+                    reverted = await _revert_only(db, ctx, uid, dry_run=dry_run)
+                    counts["roles_reverted"] += reverted.role == "revert"
+                    if dry_run and reverted.changed and len(planned) < PLAN_ROWS_CAP:
+                        planned.append(reverted.row())
                     continue
-                plan = await _sync_one(db, ctx, user, effective, dry_run=dry_run)
+                plan = await _sync_one(db, ctx, user, trust, dry_run=dry_run)
             except Exception as exc:  # noqa: BLE001
                 counts["errors"] += 1
                 logger.error("MKA identity backfill failed for one user: %s", type(exc).__name__)
@@ -538,8 +635,31 @@ async def backfill_org(db: AsyncSession, org_id: int, *, dry_run: bool = True) -
             counts["roles_reverted"] += plan.role == "revert"
             if dry_run and plan.changed and len(planned) < PLAN_ROWS_CAP:
                 planned.append(plan.row())
+    # Holders of the managed role with NO attribute row at all (never signed in through the hook, or the row was deleted).
+    if ctx.role_id is not None:
+        orphans = (
+            await db.execute(
+                select(UserOrganization.user_id).where(
+                    UserOrganization.org_id == org_id, UserOrganization.role_id == ctx.role_id,
+                    UserOrganization.user_id.notin_(select(MkaUserAttributes.user_id)),  # type: ignore[attr-defined]
+                )
+            )
+        ).scalars().all()
+        for uid in orphans:
+            counts["users_seen"] += 1
+            skipped["no_attributes"] = skipped.get("no_attributes", 0) + 1
+            try:
+                reverted = await _revert_only(db, ctx, uid, dry_run=dry_run)
+            except Exception as exc:  # noqa: BLE001
+                counts["errors"] += 1
+                logger.error("MKA identity backfill failed for one user: %s", type(exc).__name__)
+                await db.rollback()
+                continue
+            counts["roles_reverted"] += reverted.role == "revert"
+            if dry_run and reverted.changed and len(planned) < PLAN_ROWS_CAP:
+                planned.append(reverted.row())
     result: dict = {
-        **counts, "dry_run": dry_run, "role_created": ctx.role_created, "role_updated": ctx.role_updated,
+        **counts, "dry_run": dry_run, "org_allowed": org_allowed(org_id), "role_created": ctx.role_created, "role_updated": ctx.role_updated,
         "skipped": skipped,
     }
     if dry_run:
@@ -568,6 +688,8 @@ async def status(db: AsyncSession, org_id: int) -> dict:
     state = await db.get(MkaIdentitySyncState, org_id)
     return {
         "enabled": enabled(),
+        "orgs_allowed": sorted(allowed_org_ids()),
+        "org_allowed": org_allowed(org_id),
         "role_id": ctx.role_id,
         "role_rights_version": binding.rights_version if binding is not None else None,
         "role_rights_version_current": MOHTAMIM_RIGHTS_VERSION,
@@ -579,6 +701,6 @@ async def status(db: AsyncSession, org_id: int) -> dict:
 
 
 __all__ = [
-    "backfill_org", "catalogue", "desired_group_keys", "enabled", "ensure_org", "identity_sync_user",
+    "OrgNotAllowed", "allowed_org_ids", "backfill_org", "catalogue", "org_allowed", "desired_group_keys", "enabled", "ensure_org", "identity_sync_user",
     "mohtamim_rights", "qualifies_for_mohtamim_role", "status", "sync_user_identity",
 ]

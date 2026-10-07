@@ -28,6 +28,7 @@ def session_client(db, uid):
 @pytest.fixture(autouse=True)
 def clean_env(monkeypatch):
     monkeypatch.delenv("MKA_IDENTITY_SYNC_ENABLED", raising=False)
+    monkeypatch.setenv("MKA_IDENTITY_SYNC_ORG_IDS", "1")  # the `org` fixture
 
 
 @pytest.fixture
@@ -90,3 +91,17 @@ async def test_token_rights_and_org_boundary(db, org, other_org, people, monkeyp
         assert (await c.get(STATUS, params={"org_slug": other_org.slug})).status_code in (401, 403, 404)
     async with await token_client(db, org, {}, n=3) as c:
         assert (await c.post(SYNC, params={"org_slug": org.slug})).status_code == 403
+
+
+async def test_apply_needs_the_org_on_the_allowlist_but_dry_run_does_not(db, org, other_org, people, monkeypatch):
+    monkeypatch.setenv("MKA_IDENTITY_SYNC_ENABLED", "true")
+    monkeypatch.delenv("MKA_IDENTITY_SYNC_ORG_IDS")
+    async with session_client(db, 1) as c:
+        dry = await c.post(SYNC, params={"org_slug": org.slug})
+        assert dry.status_code == 200 and dry.json()["org_allowed"] is False
+        denied = await c.post(SYNC, params={"org_slug": org.slug, "dry_run": "false"})
+        assert denied.status_code == 409 and "allowlisted" in denied.json()["detail"]
+        assert (await c.get(STATUS, params={"org_slug": org.slug})).json()["orgs_allowed"] == []
+    monkeypatch.setenv("MKA_IDENTITY_SYNC_ORG_IDS", "1")
+    async with session_client(db, 1) as c:
+        assert (await c.post(SYNC, params={"org_slug": org.slug, "dry_run": "false"})).status_code == 200
