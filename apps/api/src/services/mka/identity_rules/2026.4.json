@@ -92,7 +92,7 @@
         "immigrants": {"department": "new_immigrants", "role": "nazim_dept", "regional": "regional_nazim_dept"},
         "motamid": {"department": "aitmad", "role": "motamid", "regional": "regional_motamid"},
         "qaid": {"department": null, "role": "qaid", "regional": "regional_qaid"},
-        "naibqaid": {"department": null, "role": "naib_qaid"}
+        "naibqaid": {"department": null, "role": "naib_qaid", "regional": "naib_qaid"}
       },
       "_comment_regional_aliases": "Explicit full-localpart mailboxes that ARE a regional officeholder, outside the {prefix}.{slug} scheme. Key = localpart (lowercase, no +tag); 'region' is a key of 'regions'; 'role' as in role_titles. NOT a pattern: add one line per confirmed mailbox (e.g. east.region). newyorkmetro.region confirmed by the product owner 2026-10-05.",
       "regional_mailbox_aliases": {

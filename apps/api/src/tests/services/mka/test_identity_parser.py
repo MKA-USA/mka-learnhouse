@@ -142,7 +142,10 @@ HAND_ROWS = [
     ("newyorkmetro.regions@mkausa.org", "unrecognized", None, None, None, None, None, None),
     ("newyorkmetro.region.x@mkausa.org", "unrecognized", None, None, None, None, None, None),
     ("region.newyorkmetro@mkausa.org", "unrecognized", None, None, None, None, None, None),
-    ("naibqaid.northeast@mkausa.org", "partial", True, None, None, "naib_qaid", None, None),
+    ("naibqaid.northeast@mkausa.org", M, True, "regional", None, "naib_qaid", None, "Northeast"),
+    ("naibqaid.newyorkmetro@mkausa.org", M, True, "regional", None, "naib_qaid", None, "New York Metro"),
+    ("naibqaid.albany@mkausa.org", M, True, "local", None, "naib_qaid", "Albany", "Northeast"),
+    ("naibqaid.atlantis@mkausa.org", "partial", True, None, None, "naib_qaid", None, None),
     ("tabligh.northeast@mkausa.org", M, True, "regional", "tabligh", "regional_nazim_dept", None, "Northeast"),
     ("tabligh.syracuse@mkausa.org", "partial", True, None, "tabligh", "nazim_dept", None, None),
     ("nazim.atlantis@atfalusa.org", "partial", True, None, "atfal", "nazim_atfal", None, None),
@@ -494,10 +497,13 @@ def test_naib_mohtamim_is_a_known_role_with_a_title():
     assert layer["role"] == "naib_mohtamim"  # a roster / admin override can now carry it
 
 
-def test_rules_2026_4_only_adds_the_naib_mohtamim_title_over_2026_3():
+def test_rules_2026_4_differs_from_2026_3_only_by_the_naib_additions():
+    import copy
+
     from src.services.mka.identity_parser import load_rules
 
-    old, new = load_rules("2026.3").raw, RULES.raw
-    assert {k: v for k, v in old.items() if k not in ("version", "role_titles")} == {
-        k: v for k, v in new.items() if k not in ("version", "role_titles")}
-    assert {k: v for k, v in new["role_titles"].items() if k != "naib_mohtamim"} == old["role_titles"]
+    old, new = copy.deepcopy(load_rules("2026.3").raw), copy.deepcopy(RULES.raw)
+    assert new["role_titles"].pop("naib_mohtamim") == "Naib Mohtamim {department}"
+    assert new["domains"]["mkausa.org"]["local_prefixes"]["naibqaid"].pop("regional") == "naib_qaid"
+    new["version"] = old["version"]
+    assert new == old
