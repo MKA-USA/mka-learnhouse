@@ -142,7 +142,10 @@ HAND_ROWS = [
     ("newyorkmetro.regions@mkausa.org", "unrecognized", None, None, None, None, None, None),
     ("newyorkmetro.region.x@mkausa.org", "unrecognized", None, None, None, None, None, None),
     ("region.newyorkmetro@mkausa.org", "unrecognized", None, None, None, None, None, None),
-    ("naibqaid.northeast@mkausa.org", "partial", True, None, None, "naib_qaid", None, None),
+    ("naibqaid.northeast@mkausa.org", M, True, "regional", None, "naib_qaid", None, "Northeast"),
+    ("naibqaid.newyorkmetro@mkausa.org", M, True, "regional", None, "naib_qaid", None, "New York Metro"),
+    ("naibqaid.albany@mkausa.org", M, True, "local", None, "naib_qaid", "Albany", "Northeast"),
+    ("naibqaid.atlantis@mkausa.org", "partial", True, None, None, "naib_qaid", None, None),
     ("tabligh.northeast@mkausa.org", M, True, "regional", "tabligh", "regional_nazim_dept", None, "Northeast"),
     ("tabligh.syracuse@mkausa.org", "partial", True, None, "tabligh", "nazim_dept", None, None),
     ("nazim.atlantis@atfalusa.org", "partial", True, None, "atfal", "nazim_atfal", None, None),
@@ -442,7 +445,7 @@ def test_non_ascii_never_matches():
 # --- rules file integrity -------------------------------------------------------------------------
 
 def test_rules_version_and_domains():
-    assert RULES.version == "2026.3"
+    assert RULES.version == "2026.4"
     assert set(RULES.domains) == {"mkausa.org", "atfalusa.org"}
 
 
@@ -482,3 +485,25 @@ def test_amoor_e_tuluba_and_atfal_national_mailboxes_in_rules():
     nat = RULES.raw["domains"]["mkausa.org"]["national_exact"]
     assert nat["atfal"]["department"] == "atfal"
     assert nat["amoor-e-tuluba"]["department"] == "amoor_e_tuluba"
+
+
+# --- rules 2026.4: Naib Mohtamim vocabulary (identity sync spec 2026-10-07) -------------------------
+
+def test_naib_mohtamim_is_a_known_role_with_a_title():
+    assert RULES.title("naib_mohtamim", "national", "tabligh") == "Naib Mohtamim Tabligh"
+    from src.services.mka import attributes as attrs
+
+    layer = attrs.validate_layer({"role": "naib_mohtamim", "level": "national", "department": "tabligh"}, RULES)
+    assert layer["role"] == "naib_mohtamim"  # a roster / admin override can now carry it
+
+
+def test_rules_2026_4_differs_from_2026_3_only_by_the_naib_additions():
+    import copy
+
+    from src.services.mka.identity_parser import load_rules
+
+    old, new = copy.deepcopy(load_rules("2026.3").raw), copy.deepcopy(RULES.raw)
+    assert new["role_titles"].pop("naib_mohtamim") == "Naib Mohtamim {department}"
+    assert new["domains"]["mkausa.org"]["local_prefixes"]["naibqaid"].pop("regional") == "naib_qaid"
+    new["version"] = old["version"]
+    assert new == old

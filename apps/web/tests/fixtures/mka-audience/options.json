@@ -590,6 +590,11 @@
         "title": "Mohtamim (department)"
       },
       {
+        "key": "naib_mohtamim",
+        "plural": "Naib Mohtamims",
+        "title": "Naib Mohtamim (department)"
+      },
+      {
         "key": "nazim_dept",
         "plural": "Nazims",
         "title": "Nazim (department)"
@@ -640,7 +645,7 @@
         "title": "National staff"
       }
     ],
-    "rules_version": "2026.3"
+    "rules_version": "2026.4"
   },
   "path": "options?org_id=1",
   "status": 200

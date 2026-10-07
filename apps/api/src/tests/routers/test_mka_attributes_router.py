@@ -239,7 +239,7 @@ async def test_me_returns_only_own_effective_without_metadata(db, org, seeded, a
         "status": "matched", "is_officeholder": True, "level": "local", "department": "tabligh",
         "role": "nazim_dept", "role_title": "Nazim Tabligh", "majlis": "Albany", "region": "Northeast",
     }
-    assert body["can_view_all"] is False and body["rules_version"] == "2026.3"
+    assert body["can_view_all"] is False and body["rules_version"] == "2026.4"
     assert "source" not in body["attributes"] and "flags" not in body["attributes"]
 
 

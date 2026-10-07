@@ -11,7 +11,7 @@
       "status": "unrecognized"
     },
     "can_view_all": false,
-    "rules_version": "2026.3",
+    "rules_version": "2026.4",
     "stale": false
   },
   "path": "me",
