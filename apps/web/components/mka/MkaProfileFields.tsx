@@ -3,13 +3,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import MajlisCombobox from './MajlisCombobox'
 import {
   getMkaOptions,
@@ -25,7 +19,7 @@ type Props = {
   idPrefix?: string
 }
 
-const NONE = '__none__' // Radix Select forbids empty-string item values
+const NONE = '__none__' // Radix RadioGroup forbids empty-string item values
 
 export default function MkaProfileFields({
   values,
@@ -110,32 +104,33 @@ export default function MkaProfileFields({
       </div>
 
       <div className="space-y-1.5">
-        <Label htmlFor={`${idPrefix}-tanzeem`}>Tanzeem (optional)</Label>
-        <Select
+        <Label id={`${idPrefix}-tanzeem-label`}>Tanzeem (optional)</Label>
+        <RadioGroup
+          id={`${idPrefix}-tanzeem`}
           value={values.tanzeem || NONE}
           onValueChange={(v) => onChange('tanzeem', v === NONE ? '' : v)}
           disabled={disabled}
+          aria-labelledby={`${idPrefix}-tanzeem-label`}
+          aria-invalid={!!errors.tanzeem || undefined}
+          aria-describedby={errId('tanzeem')}
+          className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:gap-x-5"
         >
-          <SelectTrigger
-            id={`${idPrefix}-tanzeem`}
-            className="w-full"
-            aria-invalid={!!errors.tanzeem || undefined}
-            aria-describedby={errId('tanzeem')}
-          >
-            <SelectValue />
-          </SelectTrigger>
-          {/* ui/select.tsx sets zIndex var(--z-modal-content) (220) via inline style, below the
-              profile gate's dialog (calc(var(--z-popover) - 10) = 240); props spread after it,
-              so this overrides it and the list opens above the gate. It only sets zIndex. */}
-          <SelectContent style={{ zIndex: 'var(--z-popover)' }}>
-            <SelectItem value={NONE}>Not specified</SelectItem>
-            {(options?.tanzeem ?? []).map((t) => (
-              <SelectItem key={t.value} value={t.value}>
-                {t.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+          {[{ value: NONE, label: 'Not specified' }, ...(options?.tanzeem ?? [])].map((t) => {
+            const id = `${idPrefix}-tanzeem-${t.value}`
+            return (
+              <div key={t.value} className="flex items-center gap-2">
+                <RadioGroupItem
+                  id={id}
+                  value={t.value}
+                  aria-invalid={!!errors.tanzeem || undefined}
+                />
+                <Label htmlFor={id} className="font-normal">
+                  {t.label}
+                </Label>
+              </div>
+            )
+          })}
+        </RadioGroup>
         {errors.tanzeem && (
           <p id={errId('tanzeem')} role="alert" className="text-xs text-destructive">
             {errors.tanzeem}
