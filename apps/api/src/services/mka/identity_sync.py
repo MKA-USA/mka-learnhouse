@@ -368,7 +368,7 @@ class UserPlan:
 
 @dataclass
 class Trust:
-    effective: dict  # drives the groups
+    effective: dict  # drives the groups (see _gate)
     role_attrs: dict  # drives the Mohtamim role (see _gate)
 
 
@@ -376,7 +376,7 @@ async def _gate(db: AsyncSession, user: Any) -> tuple[Optional[Trust], Optional[
     """COPIES of the attributes to trust, or the reason they cannot be trusted. Reads only. (Copies, because a later
     rollback expires the ORM row.)
 
-    The ROLE is decided from ``row.derived`` (the parser output for the proven mailbox) when the account belongs to more
+    The ROLE AND GROUPS are decided from ``row.derived`` (the parser output for the proven mailbox) when the account belongs to more
     than one org, mirroring ``attributes.roster_for_user``: a roster or admin-override layer written for one org must
     never grant a role in another. A single-org account uses the effective attributes (override > roster > parser)."""
     row = await attrs.get_row(db, user.id)
@@ -389,7 +389,8 @@ async def _gate(db: AsyncSession, user: Any) -> tuple[Optional[Trust], Optional[
     effective = dict(row.effective or {})
     derived = dict(row.derived or {})
     n_orgs = len(set((await db.execute(select(UserOrganization.org_id).where(UserOrganization.user_id == user.id))).scalars().all()))
-    return Trust(effective=effective, role_attrs=derived if n_orgs > 1 else effective), None
+    trusted = derived if n_orgs > 1 else effective  # multi-org: nothing from an override/roster layer, for groups or role
+    return Trust(effective=trusted, role_attrs=trusted), None
 
 
 async def _sync_one(db: AsyncSession, ctx: OrgCtx, user: Any, trust: Trust, *, dry_run: bool) -> UserPlan:
@@ -588,8 +589,12 @@ async def backfill_org(db: AsyncSession, org_id: int, *, dry_run: bool = True) -
     }
     skipped: dict[str, int] = {}
     planned: list[dict] = []
-    if not dry_run and not org_allowed(org_id):
-        raise OrgNotAllowed(org_id)
+    if not org_allowed(org_id):
+        if not dry_run:
+            raise OrgNotAllowed(org_id)
+        # A preview of an org nobody opted in reveals nothing about its people: zero counts, no rows.
+        return {**counts, "dry_run": True, "org_allowed": False, "role_created": False, "role_updated": False,
+                "skipped": {}, "planned": [], "planned_truncated": False}
     ctx = await ensure_org(db, org_id, dry_run=dry_run)
     counts["groups_created"] = ctx.groups_created
     counts["groups_recreated"] = ctx.groups_recreated
@@ -688,7 +693,6 @@ async def status(db: AsyncSession, org_id: int) -> dict:
     state = await db.get(MkaIdentitySyncState, org_id)
     return {
         "enabled": enabled(),
-        "orgs_allowed": sorted(allowed_org_ids()),
         "org_allowed": org_allowed(org_id),
         "role_id": ctx.role_id,
         "role_rights_version": binding.rights_version if binding is not None else None,

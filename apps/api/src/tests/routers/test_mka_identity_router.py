@@ -99,9 +99,11 @@ async def test_apply_needs_the_org_on_the_allowlist_but_dry_run_does_not(db, org
     async with session_client(db, 1) as c:
         dry = await c.post(SYNC, params={"org_slug": org.slug})
         assert dry.status_code == 200 and dry.json()["org_allowed"] is False
+        assert dry.json()["planned"] == [] and dry.json()["users_seen"] == 0 and dry.json()["roles_set"] == 0
         denied = await c.post(SYNC, params={"org_slug": org.slug, "dry_run": "false"})
         assert denied.status_code == 409 and "allowlisted" in denied.json()["detail"]
-        assert (await c.get(STATUS, params={"org_slug": org.slug})).json()["orgs_allowed"] == []
+        status = (await c.get(STATUS, params={"org_slug": org.slug})).json()
+        assert status["org_allowed"] is False and "orgs_allowed" not in status
     monkeypatch.setenv("MKA_IDENTITY_SYNC_ORG_IDS", "1")
     async with session_client(db, 1) as c:
         assert (await c.post(SYNC, params={"org_slug": org.slug, "dry_run": "false"})).status_code == 200

@@ -400,17 +400,21 @@ async def test_unset_allowlist_syncs_nothing_and_a_non_allowlisted_org_gets_zero
         await sync.ensure_org(db, org.id)
     with pytest.raises(sync.OrgNotAllowed):
         await sync.backfill_org(db, org.id, dry_run=False)
-    assert (await sync.status(db, org.id))["orgs_allowed"] == []
+    status = await sync.status(db, org.id)
+    assert status["org_allowed"] is False and "orgs_allowed" not in status  # never the full list
 
 
 async def test_dry_run_on_a_non_allowlisted_org_reports_it_and_writes_nothing(db, other_org):
     await make(db, other_org, 72, "tabligh@example.invalid", is_officeholder=True, **NATIONAL_TABLIGH)
     before = await snapshot(db)
     dry = await sync.backfill_org(db, other_org.id, dry_run=True)
-    assert dry["org_allowed"] is False and dry["roles_set"] == 1 and await snapshot(db) == before
+    assert dry["org_allowed"] is False and await snapshot(db) == before
+    assert dry["planned"] == [] and dry["skipped"] == {}
+    assert all(dry[k] == 0 for k in ("users_seen", "groups_created", "groups_recreated", "memberships_added",
+                                      "memberships_removed", "roles_set", "roles_reverted", "errors"))
     with pytest.raises(sync.OrgNotAllowed):
         await sync.backfill_org(db, other_org.id, dry_run=False)
-    assert (await sync.status(db, other_org.id))["orgs_allowed"] == [1]
+    assert (await sync.status(db, other_org.id))["org_allowed"] is False
 
 
 async def test_a_roster_or_override_layer_in_one_org_grants_nothing_in_another(db, org, other_org, factory, monkeypatch):
@@ -424,7 +428,7 @@ async def test_a_roster_or_override_layer_in_one_org_grants_nothing_in_another(d
     await db.commit()
     await sync.identity_sync_user(factory, u)
     assert await role_of(db, org.id, 73) == 4 and await role_of(db, other_org.id, 73) == 4
-    assert await group_keys(db, other_org.id, 73) == ["department:tabligh", "level:national"]  # groups (not the role) follow effective
+    assert await group_keys(db, org.id, 73) == [] and await group_keys(db, other_org.id, 73) == []  # override content grants no groups either
 
     row = await db.get(MkaUserAttributes, 73)  # the PARSER says Mohtamim: both orgs may grant
     row.derived = {"status": "matched", "is_officeholder": True, **{k: NATIONAL_TABLIGH[k] for k in ("level", "role", "department")}}
@@ -546,3 +550,20 @@ async def test_backfill_reverts_holders_with_and_without_a_row_and_dry_run_previ
     assert await role_of(db, org.id, 87) == 4 and await role_of(db, org.id, 88) == 4
     assert await role_of(db, org.id, 86) == ctx.role_id  # the trusted holder keeps it
     assert (await sync.backfill_org(db, org.id, dry_run=False))["roles_reverted"] == 0
+
+
+async def test_dry_run_rows_are_members_of_the_target_org_only_and_use_derived_for_shared_accounts(db, org, other_org, monkeypatch):
+    monkeypatch.setenv("MKA_IDENTITY_SYNC_ORG_IDS", "1,2")
+    await make(db, org, 90, "maal.albany@example.invalid", is_officeholder=True, **NAZIM_MAAL_ALBANY)
+    await make(db, other_org, 91, "maal.albany2@example.invalid", is_officeholder=True, **NAZIM_MAAL_ALBANY)
+    # a shared account whose OVERRIDE layer says Mohtamim, but whose parser result says nothing
+    shared = await make(db, org, 92, "shared@example.invalid", is_officeholder=True, **NATIONAL_TABLIGH)
+    db.add(UserOrganization(user_id=92, org_id=other_org.id, role_id=4, creation_date="x", update_date="x"))
+    await db.commit()
+    await mutate(db, 92, derived={"status": "unrecognized", "is_officeholder": None, "level": None, "role": None,
+                                  "department": None, "majlis": None, "region": None})
+    dry = await sync.backfill_org(db, org.id, dry_run=True)
+    ids = {p["user_id"] for p in dry["planned"]}
+    assert ids == {90} and 91 not in ids and 92 not in ids  # org-2-only user absent; the shared account plans nothing
+    assert set(dry["planned"][0]) == {"user_id", "add", "remove", "role"}
+    assert shared.id == 92
