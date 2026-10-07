@@ -41,9 +41,14 @@
       "maal",
       "tabligh"
     ],
-    "filter": null,
-    "kind": "all",
-    "scope": "all"
+    "filter": {
+      "field": "majlis",
+      "label": "Your Majlis: Albany",
+      "majlis": "Albany",
+      "value": "Albany"
+    },
+    "kind": "filtered",
+    "scope": "own"
   },
   "path": "scope",
   "status": 200

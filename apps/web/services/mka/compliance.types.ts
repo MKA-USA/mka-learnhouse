@@ -7,7 +7,19 @@
  * read defensively by the UI (see README notes in the PR/report).
  */
 
+/** Legacy `scope` string of GET /scope. A `filtered` viewer is reported as `own` (limited), never `all`. */
 export type ComplianceScope = 'all' | 'own' | 'none'
+
+/** `kind` of GET /scope: the precise answer. `filtered` = Mohtamim / Qaid / Naib limited to one department / region / Majlis. */
+export type ComplianceScopeKind = 'all' | 'filtered' | 'own' | 'none'
+
+/** The unit a `filtered` viewer answers for. The API applies it to every row it returns (JSON, CSV, remind). */
+export interface ScopeFilter {
+  field: 'department' | 'region' | 'majlis'
+  value: string
+  /** e.g. "Your Majlis: Albany" */
+  label: string
+}
 
 export type ComplianceStatus =
   | 'not_signed_in'
@@ -52,6 +64,10 @@ export interface ScopeCourse {
 /** GET /scope */
 export interface ScopeResponse {
   scope: ComplianceScope
+  /** Precise scope (seam C). Absent on older API builds: derive from `scope`. */
+  kind?: ComplianceScopeKind
+  /** Set when `kind === 'filtered'`, else null / absent. */
+  filter?: ScopeFilter | null
   courses: ScopeCourse[]
   departments: string[]
   /** The cycle these courses belong to (extra; ignored). */

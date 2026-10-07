@@ -18,6 +18,7 @@ import type {
   ComplianceCycle,
   ComplianceRag,
   ComplianceScope,
+  ComplianceScopeKind,
   ComplianceStatus,
   CourseKind,
   CourseSummaryResponse,
@@ -307,11 +308,19 @@ function overviewOf(): Omit<OverviewResponse, 'cycle'> {
 // ---- public mock API ------------------------------------------------------------------------------
 const wait = (ms = 120) => new Promise((r) => setTimeout(r, ms))
 
-/** Mock viewer scope: `?mock_scope=all|own|none` (default all). Client-only; absent on the server. */
-export function mockViewerScope(): ComplianceScope {
+/**
+ * Mock viewer scope: `?mock_scope=all|own|none|filtered` (default all). Client-only; absent on the server.
+ * `filtered` is the Mohtamim / Qaid case: a limited unit that still has an overview. Reported as legacy `own`.
+ */
+function mockKind(): ComplianceScopeKind {
   if (typeof window === 'undefined') return 'all'
   const v = new URLSearchParams(window.location.search).get('mock_scope')
-  return v === 'own' || v === 'none' ? v : 'all'
+  return v === 'own' || v === 'none' || v === 'filtered' ? v : 'all'
+}
+
+export function mockViewerScope(): ComplianceScope {
+  const k = mockKind()
+  return k === 'filtered' ? 'own' : k
 }
 
 function cycleFor(cycleId?: number | null): ComplianceCycle {
@@ -326,10 +335,13 @@ function visibleCourses(scope: ComplianceScope): ScopeCourse[] {
 
 export async function mockScope(cycleId?: number | null): Promise<ScopeResponse> {
   await wait(60)
+  const kind = mockKind()
   const scope = mockViewerScope()
   const courses = visibleCourses(scope)
   return {
     scope,
+    kind,
+    filter: kind === 'filtered' ? { field: 'majlis', value: 'Albany', label: 'Your Majlis: Albany' } : null,
     courses,
     departments: (scope === 'all' ? DEPARTMENTS : scope === 'own' ? OWN_DEPARTMENTS : []).map(dk),
     cycle: cycleFor(cycleId),
@@ -339,7 +351,8 @@ export async function mockScope(cycleId?: number | null): Promise<ScopeResponse>
 
 export async function mockOverview(cycleId?: number | null): Promise<OverviewResponse> {
   await wait()
-  if (mockViewerScope() !== 'all') throw new MockApiError(403, 'Forbidden')
+  const kind = mockKind()
+  if (kind !== 'all' && kind !== 'filtered') throw new MockApiError(403, 'Forbidden')
   return { cycle: cycleFor(cycleId), ...overviewOf() }
 }
 

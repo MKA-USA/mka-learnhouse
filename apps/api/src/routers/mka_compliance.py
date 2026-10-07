@@ -5,7 +5,8 @@ Authentication: the router-level dependency admits a session OR an org API token
 * Import (``POST /cycles``, ``POST /expected/import``, ``DELETE /cycles/{id}/expected``): org ADMIN session
   (``org_id`` / ``org_slug``) OR org API token (``org_slug``): the same ``_resolve_admin`` as /mka/attributes.
 * Reads (``/scope``, ``/overview``, ``/courses/{uuid}/...``): ``compliance_scope.resolve_scope`` decides
-  ``all`` / ``own`` / ``none``. API tokens are ``all`` for their own org only.
+  ``all`` / ``filtered`` / ``own`` / ``none``. A ``filtered`` viewer (Mohtamim / Qaid and their Naibs) gets every read limited to
+  their department / region / Majlis on the expected-roster rows, on the server (JSON, CSV and remind alike). API tokens are ``all`` for their own org only.
 
 The org is NEVER taken on trust: sessions must be members of the ``org_id`` they pass, tokens must match the
 token's org. Every response is ``Cache-Control: private, no-store``.
@@ -150,7 +151,9 @@ async def api_scope(
     if cycle is not None:
         rows = scope_svc.visible_courses(scope, await scope_svc.cycle_courses(db_session, scope.org_id, cycle.id))
     return {
-        "scope": scope.kind,
+        "scope": scope.legacy_scope(),  # 'all' | 'own' | 'none' (a filtered viewer is 'own': limited, never 'all')
+        "kind": scope.kind,             # 'all' | 'filtered' | 'own' | 'none'
+        "filter": scope.filter_view(),  # {field, value, <field>, label} for kind == 'filtered', else null
         "cycle": svc.cycle_view(cycle),
         "cycles": [] if scope.kind == "none" else [
             svc.cycle_view(c) for c in await scope_svc.all_cycles(db_session, scope.org_id)
@@ -171,12 +174,13 @@ async def api_overview(
     db_session: AsyncSession = Depends(get_db_session),
 ) -> dict:
     scope, cycle = await _viewer_context(request, response, current_user, org_id, org_slug, cycle_id, db_session)
-    scope_svc.require_all(scope)
+    scope_svc.require_overview(scope)
     if cycle is None:
         return svc.build_overview(None, None, svc.today())
-    rows = await scope_svc.cycle_courses(db_session, scope.org_id, cycle.id)
+    rows = scope_svc.visible_courses(scope, await scope_svc.cycle_courses(db_session, scope.org_id, cycle.id))
     ds = await svc.load_dataset(
-        db_session, scope.org_id, cycle, [cc for cc, _ in rows], {c.id: c for _, c in rows}
+        db_session, scope.org_id, cycle, [cc for cc, _ in rows], {c.id: c for _, c in rows},
+        roster_filter=scope.roster_filter,
     )
     return svc.build_overview(ds, cycle, svc.today())
 
@@ -184,7 +188,9 @@ async def api_overview(
 async def _course_dataset(request, response, current_user, org_id, org_slug, cycle_id, course_uuid, db_session):
     scope, cycle = await _viewer_context(request, response, current_user, org_id, org_slug, cycle_id, db_session)
     link, course = await scope_svc.resolve_course(db_session, scope, cycle, course_uuid)  # 403 none / 404 not yours
-    ds = await svc.load_dataset(db_session, scope.org_id, cycle, [link], {course.id: course})
+    ds = await svc.load_dataset(
+        db_session, scope.org_id, cycle, [link], {course.id: course}, roster_filter=scope.roster_filter
+    )
     return ds, link, course
 
 
@@ -329,7 +335,7 @@ async def api_remind_course(
     try:
         return await reminders.remind_course(
             db_session, org=org, cycle=cycle, link=link, course=course, viewer_id=current_user.id, dry_run=dry_run,
-            expected_digest=preview_digest,
+            expected_digest=preview_digest, roster_filter=scope.roster_filter,
         )
     except reminders.ManualRemindBlocked as blocked:
         headers = {"Retry-After": str(blocked.retry_after)} if blocked.retry_after else None

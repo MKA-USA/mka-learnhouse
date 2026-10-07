@@ -26,6 +26,8 @@
     "departments": [
       "tabligh"
     ],
+    "filter": null,
+    "kind": "own",
     "scope": "own"
   },
   "path": "scope",

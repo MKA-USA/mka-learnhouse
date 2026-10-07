@@ -147,7 +147,7 @@ async def test_default_cycle_after_the_window_is_the_latest_started(db, org, wor
 async def test_plain_learner_scope_discloses_no_cycles(db, org, world):  # noqa: F811  (pytest fixture imported from another test module)
     async with client_for(db, 2) as c:
         body = (await c.get(f"{BASE}/scope", params=q(org))).json()
-    assert body == {"scope": "none", "cycle": None, "cycles": [], "courses": [], "departments": []}
+    assert body == {"scope": "none", "kind": "none", "filter": None, "cycle": None, "cycles": [], "courses": [], "departments": []}
 
 
 def test_today_uses_the_cycle_timezone(monkeypatch):

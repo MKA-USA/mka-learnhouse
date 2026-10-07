@@ -17,7 +17,7 @@ import { Heatmap } from './Heatmap'
 import { RagBadge, StatusBar } from './badges'
 import { SummaryCards } from './SummaryCards'
 import { ErrorState, NoAccessState, NoCycleState, NoExpectedState, PageLoading } from './states'
-import { attestedPct, chaseTotal, deptLabel, fmtPct } from './format'
+import { attestedPct, chaseTotal, deptLabel, fmtPct, hasOverview, scopeKind, scopeLabel } from './format'
 import { courseTabHref } from './links'
 
 /** Scope `own`: one card per course the viewer authors, each with its own RAG + headline numbers. */
@@ -97,18 +97,20 @@ export default function MkaCompliancePage({ orgslug }: { orgslug: string }) {
   const [cycleId, setCycleId] = useState<number | null>(null)
   const today = complianceToday()
   const scopeQ = useComplianceScopeQuery(cycleId)
-  const scope = scopeQ.data?.scope
-  const overview = useComplianceOverview(cycleId, scope === 'all')
+  const scope = scopeKind(scopeQ.data)
+  const withOverview = hasOverview(scope) // 'all' and 'filtered' (the API limits a filtered viewer's rows)
+  const unitLabel = scopeLabel(scopeQ.data) // "Your Majlis: Albany" for a Mohtamim / Qaid / Naib, else null
+  const overview = useComplianceOverview(cycleId, withOverview)
   // Own scope has no overview endpoint; the cycle comes from the first course summary.
   const firstOwn = scope === 'own' ? scopeQ.data?.courses[0] : undefined
   const ownSummary = useCourseSummary(firstOwn?.course_uuid ?? '', cycleId, !!firstOwn)
-  const cycle = scope === 'all' ? overview.data?.cycle : ownSummary.data?.cycle
+  const cycle = withOverview ? overview.data?.cycle : ownSummary.data?.cycle
 
   let body: React.ReactNode
   if (scopeQ.isPending) body = <PageLoading />
   else if (scopeQ.error) body = <ErrorState error={scopeQ.error} onRetry={() => void scopeQ.refetch()} />
   else if (scope === 'none' || !scopeQ.data) body = <NoAccessState />
-  else if (scope === 'all') {
+  else if (withOverview) {
     if (overview.isPending) body = <PageLoading />
     else if (overview.error || !overview.data) {
       body = <ErrorState error={overview.error} onRetry={() => void overview.refetch()} />
@@ -150,8 +152,17 @@ export default function MkaCompliancePage({ orgslug }: { orgslug: string }) {
               <p className="text-md font-medium text-gray-400">
                 {scope === 'own'
                   ? 'Where your courses stand this cycle, and who to chase.'
-                  : 'Where each department and region stands this cycle, and who to chase.'}
+                  : scope === 'filtered'
+                    ? 'Where your people stand this cycle, and who to chase.'
+                    : 'Where each department and region stands this cycle, and who to chase.'}
               </p>
+              {unitLabel ? (
+                <p className="pt-1" data-testid="compliance-scope">
+                  <span className="inline-flex items-center rounded-full bg-gray-100 px-3 py-1 text-sm font-semibold text-gray-700">
+                    {unitLabel}
+                  </span>
+                </p>
+              ) : null}
             </div>
             {cycle ? <CyclePicker cycle={cycle} cycles={scopeQ.data?.cycles} onChange={setCycleId} today={today} /> : <div className="h-9" aria-hidden="true" />}
           </div>

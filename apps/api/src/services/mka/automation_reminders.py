@@ -623,8 +623,10 @@ async def remind_course(
     dry_run: bool,
     now: Optional[datetime] = None,
     expected_digest: Optional[str] = None,
+    roster_filter: Optional[dict] = None,
 ) -> dict:
-    """Remind everyone still outstanding on ONE course. The caller has already resolved scope (404 otherwise)."""
+    """Remind everyone still outstanding on ONE course. The caller has already resolved scope (404 otherwise);
+    ``roster_filter`` (a filtered viewer's department / region / Majlis) limits the people considered, in SQL."""
     moment = now or current_instant()
     naive_now = _naive_utc(moment)
     # Review H1: a manual remind only ever acts on the CURRENT, already-started cycle, resolved HERE with the same
@@ -645,7 +647,9 @@ async def remind_course(
     if not url:
         raise ManualRemindBlocked(409, "Reminders are not configured")
 
-    ds = await svc.load_dataset(db, org.id, cycle, [link], {course.id: course})  # type: ignore[arg-type]
+    ds = await svc.load_dataset(
+        db, org.id, cycle, [link], {course.id: course}, roster_filter=roster_filter  # type: ignore[arg-type]
+    )
     records = svc.course_records(ds, link, today.isoformat())
     people, counts = collect_people([(course.name, records)], ds.user_map, excluded_departments())
     counts = {**_blank_counts(), **counts}
