@@ -9,13 +9,13 @@ export function Heatmap({ model }: { model: Model }) {
   const { departments, regions, heat } = model;
   if (!departments.length) return null;
   return (
-    <div className="overflow-x-auto rounded-2xl border border-border bg-surface">
+    <div className="max-h-[60vh] overflow-auto rounded-2xl border border-border bg-surface">
       <table className="w-full min-w-[720px] border-collapse text-sm">
         <caption className="sr-only">Signed-off share by department and region. Each cell shows the state in words, the signed-off percentage and the number of officeholders.</caption>
-        <thead>
+        <thead className="sticky top-0 z-10 bg-surface">
           <tr>
-            <th scope="col" className="sticky left-0 bg-surface p-2 text-left font-medium">Department</th>
-            {regions.map((r) => <th key={r} scope="col" className="p-2 text-left text-xs font-medium text-muted">{regionLabel(r)}</th>)}
+            <th scope="col" className="sticky left-0 z-20 bg-surface p-2 text-left font-medium">Department</th>
+            {regions.map((r) => <th key={r} scope="col" className="bg-surface p-2 text-left text-xs font-medium text-muted">{regionLabel(r)}</th>)}
           </tr>
         </thead>
         <tbody>

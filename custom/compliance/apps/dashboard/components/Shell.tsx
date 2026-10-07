@@ -18,7 +18,13 @@ export function Shell({ data, children }: { data: ScopedData; children: React.Re
           <nav aria-label="Primary" className="text-sm text-muted"><Link className="hover:underline" href="/">Overview</Link></nav>
           <span className="ml-auto flex flex-wrap items-center gap-3 text-sm">
             <Chip size="sm"><Chip.Label>Viewing: {data.scopeText}</Chip.Label></Chip>
-            {data.viewer.devPersona ? <PersonaSwitcher current={data.viewer.devPersona} /> : (
+            {data.viewer.devPersona ? (
+              <span className="flex items-center gap-2">
+                <span className="rounded bg-warning-soft px-1.5 py-0.5 text-xs font-medium text-warning">Dev mode</span>
+                <PersonaSwitcher current={data.viewer.devPersona} />
+                <form action={async () => { "use server"; await signOut({ redirectTo: "/login" }); }}><button className="underline" type="submit">Sign out</button></form>
+              </span>
+            ) : (
               <form action={async () => { "use server"; await signOut({ redirectTo: "/login" }); }}><button className="underline" type="submit">Sign out</button></form>
             )}
           </span>
@@ -40,7 +46,14 @@ export function PageHeader({ title, sub, actions, crumbs }: { title: string; sub
     <div className="space-y-1">
       {crumbs?.length ? (
         <nav aria-label="Breadcrumb" className="text-sm text-muted">
-          {crumbs.map((c, i) => <span key={c.label}>{i ? " / " : ""}{c.href ? <Link className="hover:underline" href={c.href}>{c.label}</Link> : <span aria-current="page">{c.label}</span>}</span>)}
+          <ol className="flex items-center gap-1.5">
+            {crumbs.map((c, i) => (
+              <li key={c.label} className="flex items-center gap-1.5">
+                {i > 0 ? <span aria-hidden="true" className="text-muted/60">/</span> : null}
+                {c.href ? <Link className="hover:underline" href={c.href}>{c.label}</Link> : <span aria-current="page">{c.label}</span>}
+              </li>
+            ))}
+          </ol>
         </nav>
       ) : null}
       <div className="flex flex-wrap items-start justify-between gap-3">

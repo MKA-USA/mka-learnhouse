@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { chaseList } from "@mka/analytics/pure";
 import { AttentionList } from "@/components/AttentionList";
-import { ChaseButton } from "@/components/ChaseButton";
+import { ChaseButton, CopyEmailsButton } from "@/components/ChaseButton";
 import { FilterBar } from "@/components/FilterBar";
 import { PeopleTable } from "@/components/PeopleTable";
 import { RagBadge } from "@/components/RagBadge";
@@ -19,22 +19,25 @@ export default async function DepartmentPage({ params, searchParams }: { params:
   const deptRows = data.rows.filter((r) => r.departmentSlug === slug);
   if (!deptRows.length) notFound();                               // out of scope looks identical to "does not exist"
   const name = data.departments.find((d) => d.slug === slug)?.name ?? "Executive (Qaids)";
-  const rows = applyFilters(deptRows, { region: f.region, status: f.status, q: f.q });
+  const status = f.status || "attention";
+  const rows = applyFilters(deptRows, { region: f.region, status, q: f.q });
   const agg = aggregate(slug, rows, data.cycle);
   const att = attention(agg, data.cycle, data.asOf, CFG);
   const byRegion = groupRows(data, deptRows, "region", regionLabel);
   const byMajlis = groupRows(data, rows.filter((r) => r.majlis), "majlis", (k) => k);
   const regions = [...new Set(deptRows.map((r) => r.region))].sort().map((r) => ({ id: regionParam(r), label: regionLabel(r) }));
-  const people = chaseList(rows, (s) => s).concat(rows.filter((r) => r.stage === "attested"));
+  const people = chaseList(rows, (s) => s);
+  const page = Number(f.q ? 1 : (await searchParams).page) || 1;
+  const basePath = `/department/${encodeURIComponent((await params).slug)}${f.region ? `?region=${encodeURIComponent(f.region)}` : ""}${status !== "attention" ? `${f.region ? "&" : "?"}status=${status}` : ""}`;
   return (
     <Shell data={data}>
-      <PageHeader crumbs={[{ href: "/", label: "Overview" }, { label: name }]} title={name} sub={<span className="flex flex-wrap items-center gap-2"><RagBadge rag={att.rag} /><span>{att.summary}</span></span>} actions={<ChaseButton filters={f} />} />
+      <PageHeader crumbs={[{ href: "/", label: "Overview" }, { label: name }]} title={name} sub={<span className="flex flex-wrap items-center gap-2"><RagBadge rag={att.rag} /><span>{att.summary}</span></span>} actions={<div className="flex items-center gap-2"><CopyEmailsButton filters={f} /><ChaseButton filters={f} /></div>} />
       <StatTiles agg={agg} />
       <Section title="By region" hint="Where this department is behind."><AttentionList items={byRegion} hrefFor={(k) => `/department/${encodeURIComponent(slug || "executive")}?region=${encodeURIComponent(regionParam(k))}`} /></Section>
       {byMajlis.length ? <Section title="Majalis to chase" hint="Worst first."><AttentionList items={byMajlis} limit={10} hrefFor={(k) => `/majlis/${encodeURIComponent(k)}`} /></Section> : null}
       <Section title="People">
         <FilterBar show={["region", "status", "q"]} regions={regions} statuses={STATUS_OPTIONS} />
-        <PeopleTable rows={people} asOf={data.asOf} deptName={() => name} caption={`${name} officeholders`} />
+        <PeopleTable rows={people} asOf={data.asOf} deptName={() => name} caption={`${name} officeholders`} page={page} basePath={basePath} />
       </Section>
     </Shell>
   );

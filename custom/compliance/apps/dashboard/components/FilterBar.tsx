@@ -39,10 +39,13 @@ export function FilterBar({ regions, departments, statuses, show }: { regions?: 
       {show.includes("region") && regions ? <Pick label="Region" value={sp.get("region") ?? ""} options={regions} onChange={(v) => set("region", v)} /> : null}
       {show.includes("status") && statuses ? <Pick label="Status" value={sp.get("status") ?? ""} options={statuses} onChange={(v) => set("status", v)} /> : null}
       {show.includes("q") ? (
-        <SearchField className="w-full sm:w-64" name="q" value={q} onChange={setQ} onClear={() => set("q", "")}>
-          <Label>Find a person</Label>
-          <SearchField.Group><SearchField.SearchIcon /><SearchField.Input placeholder="Name, mailbox or Majlis" /><SearchField.ClearButton /></SearchField.Group>
-        </SearchField>
+        <div className="flex w-full items-end gap-2 sm:w-auto">
+          <SearchField className="w-full sm:w-64" name="q" value={q} onChange={setQ} onClear={() => set("q", "")}>
+            <Label>Find a person</Label>
+            <SearchField.Group><SearchField.SearchIcon /><SearchField.Input placeholder="Name, mailbox or Majlis" /><SearchField.ClearButton /></SearchField.Group>
+          </SearchField>
+          <button type="submit" className="rounded-lg border border-border px-3 py-2 text-sm font-medium hover:bg-surface-hover">Search</button>
+        </div>
       ) : null}
     </form>
   );
