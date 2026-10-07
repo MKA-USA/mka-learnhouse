@@ -56,6 +56,15 @@ async def test_dump_happy_paths(db, org, world):  # noqa: F811  (pytest fixture 
         assert (await _get(c, org, "learners_tabligh_as_author", "courses/course_tabligh/learners")).status_code == 200
     async with client_for(db, 2) as c:  # plain learner: scope none (200, empty)
         assert (await _get(c, org, "scope_none", "scope")).status_code == 200
+    # a Majlis Qaid (seam C): legacy scope 'own', kind 'filtered', the unit in `filter`; the overview works and is limited
+    from src.tests.routers.mka_compliance_world import add_attributes, add_user
+
+    await add_user(db, org.id, 52, "majlis.qaid@example.invalid", 4)
+    await add_attributes(db, 52, "majlis.qaid@example.invalid", level="local", role="qaid", majlis="Albany", region="Northeast")
+    async with client_for(db, 52) as c:
+        assert (await _get(c, org, "scope_filtered", "scope")).status_code == 200
+        assert (await _get(c, org, "overview_filtered", "overview")).status_code == 200
+        assert (await _get(c, org, "learners_general_filtered_scope", "courses/course_general/learners", page_size=200)).status_code == 200
 
 
 @pytest.mark.asyncio

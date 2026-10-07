@@ -8,10 +8,13 @@ import type {
   ComplianceCounts,
   ComplianceCycle,
   ComplianceRag,
+  ComplianceScopeKind,
   ComplianceStatus,
   DepartmentRow,
   LearnerFilters,
   RemindResponse,
+  ScopeFilter,
+  ScopeResponse,
 } from '@services/mka/compliance.types'
 
 /** Fixed "today" for the mock layer so fixtures and screenshots are deterministic. */
@@ -395,3 +398,29 @@ export function remindErrorMessage(
 
 /** Can the preview be confirmed? Needs someone to remind and the feature switched on. */
 export const canSendReminders = (r: Pick<RemindResponse, 'enabled' | 'would_send'>): boolean => r.enabled && r.would_send > 0
+
+
+// ---- viewer scope (seam C) --------------------------------------------------
+
+/**
+ * The precise scope of a /scope response. Reads `kind` when the API sends it, else falls back to the legacy
+ * `scope` string. Unknown values degrade to 'none' (render nothing); the API enforces on every endpoint anyway.
+ */
+export function scopeKind(data: Pick<ScopeResponse, 'scope' | 'kind'> | null | undefined): ComplianceScopeKind {
+  const k = data?.kind ?? data?.scope
+  return k === 'all' || k === 'filtered' || k === 'own' ? k : 'none'
+}
+
+/** The overview needs a whole-org or a filtered view (the API limits the rows of the latter). */
+export function hasOverview(kind: ComplianceScopeKind): boolean {
+  return kind === 'all' || kind === 'filtered'
+}
+
+/** The page header line for a filtered viewer ("Your Majlis: Albany"); null for everyone else. */
+export function scopeLabel(data: Pick<ScopeResponse, 'scope' | 'kind' | 'filter'> | null | undefined): string | null {
+  if (scopeKind(data) !== 'filtered') return null
+  const f: ScopeFilter | null | undefined = data?.filter
+  const label = typeof f?.label === 'string' ? f.label.trim() : ''
+  if (label) return label
+  return f?.value ? `Your ${f.field === 'majlis' ? 'Majlis' : f.field}: ${f.value}` : 'Your unit'
+}

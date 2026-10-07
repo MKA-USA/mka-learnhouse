@@ -111,7 +111,7 @@ async def test_scope_all(db, org, world, name, uid):
 async def test_scope_none_and_everything_else_is_403(db, org, world, name, uid):
     async with client_for(db, uid) as c:
         r = await c.get(f"{BASE}/scope", params=q(org))
-        assert r.status_code == 200 and r.json() == {"scope": "none", "cycle": r.json()["cycle"], "cycles": r.json()["cycles"], "courses": [], "departments": []}
+        assert r.status_code == 200 and r.json() == {"scope": "none", "kind": "none", "filter": None, "cycle": r.json()["cycle"], "cycles": r.json()["cycles"], "courses": [], "departments": []}
         assert (await c.get(f"{BASE}/overview", params=q(org))).status_code == 403
         for path in ("summary", "learners", "learners.csv", "trend"):
             assert (await c.get(f"{BASE}/courses/course_tabligh/{path}", params=q(org))).status_code == 403, path
@@ -368,7 +368,7 @@ async def test_no_cycle_yet_gives_empty_states_not_errors(db, org, other_org, ad
         sc = (await c.get(f"{BASE}/scope", params=q(org))).json()
         ov = (await c.get(f"{BASE}/overview", params=q(org))).json()
         course = await c.get(f"{BASE}/courses/anything/summary", params=q(org))
-    assert sc == {"scope": "all", "cycle": None, "cycles": [], "courses": [], "departments": []}
+    assert sc == {"scope": "all", "kind": "all", "filter": None, "cycle": None, "cycles": [], "courses": [], "departments": []}
     assert ov["cycle"] is None and ov["totals"]["expected"] == 0 and ov["departments"] == [] and ov["cells"] == []
     assert course.status_code == 404
 

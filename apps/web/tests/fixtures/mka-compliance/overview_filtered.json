@@ -1,0 +1,213 @@
+{
+  "body": {
+    "as_of": "2026-11-16",
+    "attention": [
+      {
+        "attested": 0,
+        "attested_pct": 0.0,
+        "department": "maal",
+        "department_name": "Maal",
+        "expected": 1,
+        "not_signed_in": 0,
+        "not_started": 0,
+        "overdue": 0,
+        "rag": "red",
+        "reasons": [
+          "attested 0% vs 50% expected"
+        ],
+        "region": null,
+        "score": 30.0
+      },
+      {
+        "attested": 0,
+        "attested_pct": 0.0,
+        "department": "maal",
+        "department_name": "Maal",
+        "expected": 1,
+        "not_signed_in": 0,
+        "not_started": 0,
+        "overdue": 0,
+        "rag": "red",
+        "reasons": [
+          "attested 0% vs 50% expected"
+        ],
+        "region": "Northeast",
+        "score": 30.0
+      },
+      {
+        "attested": 1,
+        "attested_pct": 50.0,
+        "department": "tabligh",
+        "department_name": "Tabligh",
+        "expected": 2,
+        "not_signed_in": 1,
+        "not_started": 0,
+        "overdue": 0,
+        "rag": "amber",
+        "reasons": [
+          "1 of 2 never signed in"
+        ],
+        "region": null,
+        "score": 10.0
+      },
+      {
+        "attested": 1,
+        "attested_pct": 50.0,
+        "department": "tabligh",
+        "department_name": "Tabligh",
+        "expected": 2,
+        "not_signed_in": 1,
+        "not_started": 0,
+        "overdue": 0,
+        "rag": "amber",
+        "reasons": [
+          "1 of 2 never signed in"
+        ],
+        "region": "Northeast",
+        "score": 10.0
+      }
+    ],
+    "cells": [
+      {
+        "attested": 0,
+        "attested_pct": 0.0,
+        "completed": 0,
+        "completed_pct": 0.0,
+        "contact_mismatches": 0,
+        "department": "maal",
+        "department_name": "Maal",
+        "expected": 1,
+        "expected_attested_pct": 50.0,
+        "in_progress": 1,
+        "last_activity_at": "2026-11-10",
+        "median_days_to_complete": null,
+        "not_signed_in": 0,
+        "not_started": 0,
+        "overdue": 0,
+        "rag": "red",
+        "reasons": [
+          "attested 0% vs 50% expected"
+        ],
+        "region": "Northeast",
+        "score": 30.0,
+        "started_pct": 100.0,
+        "summary": "attested 0% vs 50% expected"
+      },
+      {
+        "attested": 1,
+        "attested_pct": 50.0,
+        "completed": 0,
+        "completed_pct": 50.0,
+        "contact_mismatches": 0,
+        "department": "tabligh",
+        "department_name": "Tabligh",
+        "expected": 2,
+        "expected_attested_pct": 50.0,
+        "in_progress": 0,
+        "last_activity_at": "2026-11-07",
+        "median_days_to_complete": 4,
+        "not_signed_in": 1,
+        "not_started": 0,
+        "overdue": 0,
+        "rag": "amber",
+        "reasons": [
+          "1 of 2 never signed in"
+        ],
+        "region": "Northeast",
+        "score": 10.0,
+        "started_pct": 50.0,
+        "summary": "1 of 2 never signed in"
+      }
+    ],
+    "cycle": {
+      "deadline_on": "2026-12-01",
+      "id": 1,
+      "label": "2026-27",
+      "starts_on": "2026-11-01"
+    },
+    "departments": [
+      {
+        "attested": 0,
+        "attested_pct": 0.0,
+        "completed": 0,
+        "completed_pct": 0.0,
+        "contact_mismatches": 0,
+        "department": "maal",
+        "department_name": "Maal",
+        "expected": 1,
+        "expected_attested_pct": 50.0,
+        "in_progress": 1,
+        "last_activity_at": "2026-11-10",
+        "median_days_to_complete": null,
+        "not_signed_in": 0,
+        "not_started": 0,
+        "overdue": 0,
+        "rag": "red",
+        "reasons": [
+          "attested 0% vs 50% expected"
+        ],
+        "score": 30.0,
+        "started_pct": 100.0,
+        "summary": "attested 0% vs 50% expected"
+      },
+      {
+        "attested": 1,
+        "attested_pct": 50.0,
+        "completed": 0,
+        "completed_pct": 50.0,
+        "contact_mismatches": 0,
+        "department": "tabligh",
+        "department_name": "Tabligh",
+        "expected": 2,
+        "expected_attested_pct": 50.0,
+        "in_progress": 0,
+        "last_activity_at": "2026-11-07",
+        "median_days_to_complete": 4,
+        "not_signed_in": 1,
+        "not_started": 0,
+        "overdue": 0,
+        "rag": "amber",
+        "reasons": [
+          "1 of 2 never signed in"
+        ],
+        "score": 10.0,
+        "started_pct": 50.0,
+        "summary": "1 of 2 never signed in"
+      }
+    ],
+    "totals": {
+      "attested": 1,
+      "completed": 0,
+      "expected": 3,
+      "in_progress": 1,
+      "not_signed_in": 1,
+      "not_started": 0,
+      "overdue": 0
+    },
+    "totals_detail": {
+      "attested": 1,
+      "attested_pct": 33.3,
+      "completed": 0,
+      "completed_pct": 33.3,
+      "contact_mismatches": 0,
+      "expected": 3,
+      "expected_attested_pct": 50.0,
+      "in_progress": 1,
+      "last_activity_at": "2026-11-10",
+      "median_days_to_complete": 4,
+      "not_signed_in": 1,
+      "not_started": 0,
+      "overdue": 0,
+      "rag": "amber",
+      "reasons": [
+        "1 of 3 never signed in",
+        "attested 33% vs 50% expected"
+      ],
+      "score": 16.7,
+      "started_pct": 66.7,
+      "summary": "1 of 3 never signed in; attested 33% vs 50% expected"
+    }
+  },
+  "path": "overview",
+  "status": 200
+}
