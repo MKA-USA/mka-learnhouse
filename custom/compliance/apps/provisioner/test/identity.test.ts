@@ -70,7 +70,15 @@ describe("sync-identity / identity-status commands", () => {
     expect(log.mock.calls.map((c: unknown[]) => String(c[0])).join("\n")).toContain("unexpected response shape");
   });
   test("HTTP 404 gives the explained message", async () => {
-    useMock({ detail: "nope" }, 404); await expect(cmdSyncIdentity(parseArgs(["sync-identity"]))).rejects.toThrow("not deployed");
+    useMock({ detail: "nope" }, 404); await expect(cmdSyncIdentity(parseArgs(["sync-identity"]))).rejects.toThrow("fork identity API not deployed");
+  });
+  test("identity-status refuses a non-staging host and sends nothing", async () => {
+    const m = useMock(); process.env.LH_API_BASE = "https://ilm.mkausa.org/api/v1";
+    await expect(cmdIdentityStatus(parseArgs(["identity-status"]))).rejects.toBeInstanceOf(SafetyError); expect(m.seen).toHaveLength(0);
+  });
+  test("object errors print as JSON, not [object Object]", async () => {
+    useMock({ errors: { u1: "boom" } }); await cmdSyncIdentity(parseArgs(["sync-identity"]));
+    const printed = log.mock.calls.map((c: unknown[]) => String(c[0])).join("\n"); expect(printed).toContain('{"u1":"boom"}'); expect(printed).not.toContain("[object Object]");
   });
   test("identity-status prints a one-line summary", async () => {
     useMock({ enabled: false, role_id: null, group_count: 0, last_sync_at: null }); await cmdIdentityStatus(parseArgs(["identity-status"]));

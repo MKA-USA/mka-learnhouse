@@ -26,6 +26,7 @@ export function explainHttp(e: LhHttpError): string {
   return `HTTP ${e.status}`;
 }
 const errStatus = (e: unknown) => (e instanceof LhHttpError ? explainHttp(e) : (e as Error).message);
+const identityErrStatus = (e: unknown) => (e instanceof LhHttpError && e.status === 404 ? "HTTP 404: fork identity API not deployed on this host." : errStatus(e));
 
 export async function cmdPushCycle(a: Args) {
   gate(a, "push-cycle"); const apply = a.has("apply");
@@ -108,25 +109,26 @@ export async function cmdAssignAuthors(a: Args) {
   } finally { await sql.end(); }
 }
 
-const countOf = (v: unknown) => (Array.isArray(v) ? v.length : typeof v === "number" ? v : v === undefined || v === null ? 0 : v);
+const countOf = (v: unknown): number => (Array.isArray(v) ? v.length : typeof v === "number" ? v : v === undefined || v === null ? 0 : typeof v === "object" ? Object.keys(v).length : 1);
+const errText = (v: unknown): string => (Array.isArray(v) || typeof v === "number" ? String(countOf(v)) : v == null ? "0" : JSON.stringify(v).slice(0, 300));
 
 export async function cmdSyncIdentity(a: Args) {
   gate(a, "sync-identity"); const apply = a.has("apply");
   if (apply && a.has("dry-run")) throw new SafetyError("sync-identity: pass either --apply or --dry-run, not both");
   try {
     const r = await syncIdentity(client(1500), !apply);
-    console.log(`SYNC-IDENTITY ${apply ? "APPLY" : "(dry run, nothing is written)"}: users_seen ${r.users_seen ?? "?"}, groups_created ${r.groups_created ?? "?"}, memberships_added ${r.memberships_added ?? "?"}, memberships_removed ${r.memberships_removed ?? "?"}, roles_set ${r.roles_set ?? "?"}, roles_reverted ${r.roles_reverted ?? "?"}, errors ${countOf(r.errors)}${Array.isArray(r.planned) ? `, planned ${r.planned.length}` : ""}`);
+    console.log(`SYNC-IDENTITY ${apply ? "APPLY" : "(dry run, nothing is written)"}: users_seen ${r.users_seen ?? "?"}, groups_created ${r.groups_created ?? "?"}, memberships_added ${r.memberships_added ?? "?"}, memberships_removed ${r.memberships_removed ?? "?"}, roles_set ${r.roles_set ?? "?"}, roles_reverted ${r.roles_reverted ?? "?"}, errors ${errText(r.errors)}${Array.isArray(r.planned) ? `, planned ${r.planned.length}` : ""}`);
     const known = ["users_seen", "groups_created", "memberships_added", "memberships_removed", "roles_set", "roles_reverted", "errors", "planned"];
     const extra = Object.keys(r ?? {}).filter((k) => !known.includes(k));
     if (!r || typeof r !== "object" || extra.length) console.log(`(unexpected response shape; see out/sync-identity-report.json)`);
     writeOut("sync-identity-report.json", JSON.stringify({ apply, response: r }, null, 1));
     if (countOf(r?.errors)) process.exitCode = 1;
-  } catch (e) { if (e instanceof LhHttpError) throw new Error(errStatus(e)); throw e; }
+  } catch (e) { if (e instanceof LhHttpError) throw new Error(identityErrStatus(e)); throw e; }
 }
 
 export async function cmdIdentityStatus(_a: Args) {
   try {
     const r = await identityStatus(client(1500));
     console.log(`IDENTITY-STATUS: enabled ${r.enabled ?? "?"}, role_id ${r.role_id ?? "none"}, group_count ${r.group_count ?? "?"}, last_sync_at ${r.last_sync_at ?? "never"}`);
-  } catch (e) { if (e instanceof LhHttpError) throw new Error(errStatus(e)); throw e; }
+  } catch (e) { if (e instanceof LhHttpError) throw new Error(identityErrStatus(e)); throw e; }
 }
