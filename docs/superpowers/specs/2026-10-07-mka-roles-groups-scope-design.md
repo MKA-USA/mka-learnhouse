@@ -74,3 +74,16 @@ Upstream Analytics page access; AND-combined groups; changing the SSO default ro
 3. qaid.albany@: Compliance shows Albany only; CSV has only Albany rows; Remind reaches only Albany.
 4. Backfill dry-run on the 126-row pilot reports counts; apply is idempotent on rerun.
 5. All API tests green (`uv run --no-sync --with greenlet pytest src/tests/services/mka src/tests/routers -q`), web tests green, no upstream file touched except the documented one-line hook if any.
+
+## 7. Amendments (2026-10-07, after review)
+
+These supersede the earlier sections where they differ.
+
+- **(a) A1 media and folder rights:** create and read only. Update and delete come from authorship of one's own items.
+- **(b) Flag scope:** `MKA_IDENTITY_SYNC_ENABLED` gates all writes, including backfill `--apply`. A dry run is always allowed.
+- **(c) Org allowlist:** new required env `MKA_IDENTITY_SYNC_ORG_IDS`, comma-separated org ids. Empty means the sync writes nothing anywhere.
+- **(d) Fail-closed revert:** the managed Mohtamim role is reverted on any skipped sync. The login hook runs even when the attribute refresh fails. The backfill visits all holders of the managed role, not only users with a stored attribute row.
+- **(e) Deleted managed groups:** recreated under the same key, and counted as `groups_recreated`.
+- **(f) Remind cooldown:** the manual-remind cooldown is keyed per course plus scope unit for filtered viewers.
+- **(g) Naib rules:** `identity_rules` 2026.4 adds the `naib_mohtamim` title and `naibqaid.<region>` for regional Naib Qaids.
+- **(h) Atfal:** the Atfal Mohtamim keeps the role. Only the department group is excluded.
