@@ -63,6 +63,16 @@ logger = logging.getLogger(__name__)
 OUTSTANDING = ("not_signed_in", "not_started", "in_progress", "overdue", "completed")
 _URGENCY = {"overdue": 4, "not_signed_in": 3, "not_started": 2, "in_progress": 1, "completed": 1}
 MANUAL_EVENT = "manual_remind"
+
+
+def manual_event_key(roster_filter: Optional[dict]) -> str:
+    """The 24 h manual-remind limit is per (course, scope unit): ``manual_remind`` for an unfiltered viewer (unchanged),
+    ``manual_remind:<field>:<value>`` for a Mohtamim / Qaid limited to a department / region / Majlis, so two Majlis
+    Qaids can each remind the same course on the same day."""
+    if not roster_filter:
+        return MANUAL_EVENT
+    field, value = next(iter(roster_filter.items()))
+    return f"{MANUAL_EVENT}:{field}:{str(value).strip().casefold()}"
 MANUAL_WINDOW = timedelta(hours=24)
 DEFAULT_EXCLUDED_DEPARTMENTS = "atfal"
 
@@ -582,10 +592,13 @@ class ManualRemindBlocked(Exception):
         self.status_code, self.detail, self.retry_after = status_code, detail, retry_after
 
 
-async def _last_manual(db: AsyncSession, org_id: int, course_uuid: str, since: datetime, before_id: Optional[int] = None):
+async def _last_manual(
+    db: AsyncSession, org_id: int, course_uuid: str, since: datetime, before_id: Optional[int] = None,
+    event: str = MANUAL_EVENT,
+):
     stmt = select(func.max(MkaAutomationEvent.received_at)).where(
         MkaAutomationEvent.org_id == org_id,
-        MkaAutomationEvent.event == MANUAL_EVENT,
+        MkaAutomationEvent.event == event,
         MkaAutomationEvent.course_uuid == course_uuid,
         MkaAutomationEvent.status.in_(("received", "processed")),  # type: ignore[attr-defined]
         MkaAutomationEvent.received_at > since,
@@ -637,7 +650,8 @@ async def remind_course(
         raise ManualRemindBlocked(409, "Reminders only apply to the current cycle, and this one has not started yet")
     if current is None or current.id != cycle.id:
         raise ManualRemindBlocked(409, "Reminders only apply to the current cycle")
-    last = await _last_manual(db, org.id, link.course_uuid, naive_now - MANUAL_WINDOW)  # type: ignore[arg-type]
+    unit_event = manual_event_key(roster_filter)
+    last = await _last_manual(db, org.id, link.course_uuid, naive_now - MANUAL_WINDOW, event=unit_event)  # type: ignore[arg-type]
     if last is not None:
         wait = int((last + MANUAL_WINDOW - naive_now).total_seconds())
         raise ManualRemindBlocked(429, "This course was already reminded in the last 24 hours", max(wait, 1))
@@ -671,14 +685,14 @@ async def remind_course(
     event_id: Optional[int] = None
     if not dry_run:
         event = MkaAutomationEvent(
-            org_id=org.id, event=MANUAL_EVENT, user_id=viewer_id, course_uuid=link.course_uuid, status="received",
+            org_id=org.id, event=unit_event, user_id=viewer_id, course_uuid=link.course_uuid, status="received",
             received_at=naive_now,
         )
         db.add(event)
         await db.commit()
         event_id = event.id
         # TOCTOU: two clicks can both pass the check above; the earlier row wins, the later one backs out.
-        if await _last_manual(db, org.id, link.course_uuid, naive_now - MANUAL_WINDOW, before_id=event_id) is not None:  # type: ignore[arg-type]
+        if await _last_manual(db, org.id, link.course_uuid, naive_now - MANUAL_WINDOW, before_id=event_id, event=unit_event) is not None:  # type: ignore[arg-type]
             event.status = "ignored"
             await db.commit()
             raise ManualRemindBlocked(429, "This course was already reminded in the last 24 hours", 86400)

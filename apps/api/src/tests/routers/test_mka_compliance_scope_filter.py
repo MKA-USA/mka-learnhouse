@@ -9,7 +9,7 @@ import io
 import pytest
 from sqlmodel import select
 
-from src.db.mka_automation import MkaAutomationSendLog
+from src.db.mka_automation import MkaAutomationEvent, MkaAutomationSendLog
 from src.db.mka_compliance import MkaComplianceExpected
 from src.tests.routers.mka_compliance_world import add_attributes, add_user
 from src.tests.routers.test_mka_automation_reminders_router import (  # noqa: F401  (fixtures: env is autouse)
@@ -267,3 +267,38 @@ async def test_remind_cannot_be_widened_by_a_different_region_or_course(db, org,
     assert r.status_code == 200, r.text
     logs = (await db.execute(select(MkaAutomationSendLog))).scalars().all()
     assert {row.intended_email.split("@")[0] for row in logs} == SOUTHWEST
+
+
+# ---------------------------------------------------------------------------------------------------------
+# the 24 h manual-remind limit is per (course, scope unit)
+# ---------------------------------------------------------------------------------------------------------
+
+async def test_two_majlis_qaids_can_remind_the_same_course_on_the_same_day(db, org, viewers, transport, on):
+    await add_user(db, org.id, 70, "qaid.boston@example.invalid", 4)
+    await add_attributes(db, 70, "qaid.boston@example.invalid", level="local", role="qaid", majlis="Boston", region="Northeast")
+    async with client_for(db, 52) as c:  # Albany
+        assert (await real(c, GENERAL, org)).status_code == 200
+    async with client_for(db, 70) as c:  # Boston, same course, same day
+        r = await real(c, GENERAL, org)
+        assert r.status_code == 200, r.text
+    logs = (await db.execute(select(MkaAutomationSendLog))).scalars().all()
+    assert {x.intended_email.split("@")[0] for x in logs} >= {"l3", "crossorg", "l2"}
+
+
+async def test_the_same_qaid_twice_is_blocked_and_naibs_share_their_units_slot(db, org, viewers, transport, on):
+    async with client_for(db, 52) as c:
+        assert (await real(c, GENERAL, org)).status_code == 200
+        assert (await real(c, GENERAL, org)).status_code == 429
+    async with client_for(db, 53) as c:  # the Naib of the same Majlis is the same unit
+        assert (await real(c, GENERAL, org)).status_code == 429
+
+
+async def test_an_unfiltered_admin_is_still_blocked_by_the_per_course_key(db, org, viewers, transport, on):
+    async with client_for(db, 1) as c:
+        assert (await real(c, GENERAL, org)).status_code == 200
+        assert (await real(c, GENERAL, org)).status_code == 429
+    events = (await db.execute(select(MkaAutomationEvent))).scalars().all()
+    assert [e.event for e in events] == ["manual_remind"]
+    # a unit's slot is independent of the admin's: Albany can still remind this course today
+    async with client_for(db, 52) as c:
+        assert (await real(c, GENERAL, org)).status_code in (200,)
