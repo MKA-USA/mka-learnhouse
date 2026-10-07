@@ -75,10 +75,13 @@ Not deployed anywhere yet; nothing here has been applied. All commands are dry-r
 bun run lh push-cycle [--apply --confirm-staging] [--starts-on 2026-11-01 --deadline-on 2026-12-01]
 bun run lh push-roster --all|--pilot|--only a,b [--apply --confirm-staging] [--batch-size 1000] [--server-dry-run]
 bun run lh assign-authors --map mohtamims.csv [--apply --confirm-staging]
+bun run lh sync-identity [--dry-run (default) | --apply --confirm-staging]
+bun run lh identity-status
 ```
 Cycle dates are config, not code: flags > `cycle` table row > built-in default for known labels (`roster --starts-on ... --deadline-on ...` stores them).
 `push-cycle` sends `out/cycle-courses.json` to `POST /mka/compliance/cycles`; `push-roster` sends the expected roster (every role of the non-excluded departments, regional included;
 rows with source `formula-unconfirmed` carry `formula_unconfirmed: true`, currently none) to `POST /mka/compliance/expected/import` in batches (API limit 2000). Auth: org API token plus `org_slug`.
+`sync-identity` calls `POST /mka/identity/sync` (Mohtamim role and group backfill; dry run by default, per-row detail in `out/sync-identity-report.json`); `identity-status` calls `GET /mka/identity/status`. Runbook: `docs/runbooks/roles-and-groups.md`.
 Per-row errors go to `out/push-roster-report.json`; console shows counts only. Runbook: `docs/runbooks/cycle-rollout.md`.
 
 ## Contract check against the fork's real code

@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  LhApi, LhClient, LhHttpError, MAX_EXPECTED_ROWS, SafetyError, STAGING_API_BASE, assertStaging, assignAuthors, buildCyclePayload, chunk, connect, courseMap, getCycleId,
+  LhApi, LhClient, LhHttpError, MAX_EXPECTED_ROWS, SafetyError, STAGING_API_BASE, assertStaging, assignAuthors, identityStatus, syncIdentity, buildCyclePayload, chunk, connect, courseMap, getCycleId,
   loadRoster, parseCsv, pushCycle, pushExpected, resolveDepartment, selectLearners, withoutExcluded, toExpectedRow, validateCyclePayload, validateExpected, type CycleCoursesFile, type RosterRow,
 } from "@mka/compliance-core";
 import { eq } from "drizzle-orm";
@@ -106,4 +106,27 @@ export async function cmdAssignAuthors(a: Args) {
     console.log(`result: ${JSON.stringify(tally)}`);
     writeOut("assign-authors-report.json", JSON.stringify({ cycle, apply, results: res, skipped }, null, 1));
   } finally { await sql.end(); }
+}
+
+const countOf = (v: unknown) => (Array.isArray(v) ? v.length : typeof v === "number" ? v : v === undefined || v === null ? 0 : v);
+
+export async function cmdSyncIdentity(a: Args) {
+  gate(a, "sync-identity"); const apply = a.has("apply");
+  if (apply && a.has("dry-run")) throw new SafetyError("sync-identity: pass either --apply or --dry-run, not both");
+  try {
+    const r = await syncIdentity(client(1500), !apply);
+    console.log(`SYNC-IDENTITY ${apply ? "APPLY" : "(dry run, nothing is written)"}: users_seen ${r.users_seen ?? "?"}, groups_created ${r.groups_created ?? "?"}, memberships_added ${r.memberships_added ?? "?"}, memberships_removed ${r.memberships_removed ?? "?"}, roles_set ${r.roles_set ?? "?"}, roles_reverted ${r.roles_reverted ?? "?"}, errors ${countOf(r.errors)}${Array.isArray(r.planned) ? `, planned ${r.planned.length}` : ""}`);
+    const known = ["users_seen", "groups_created", "memberships_added", "memberships_removed", "roles_set", "roles_reverted", "errors", "planned"];
+    const extra = Object.keys(r ?? {}).filter((k) => !known.includes(k));
+    if (!r || typeof r !== "object" || extra.length) console.log(`(unexpected response shape; see out/sync-identity-report.json)`);
+    writeOut("sync-identity-report.json", JSON.stringify({ apply, response: r }, null, 1));
+    if (countOf(r?.errors)) process.exitCode = 1;
+  } catch (e) { if (e instanceof LhHttpError) throw new Error(errStatus(e)); throw e; }
+}
+
+export async function cmdIdentityStatus(_a: Args) {
+  try {
+    const r = await identityStatus(client(1500));
+    console.log(`IDENTITY-STATUS: enabled ${r.enabled ?? "?"}, role_id ${r.role_id ?? "none"}, group_count ${r.group_count ?? "?"}, last_sync_at ${r.last_sync_at ?? "never"}`);
+  } catch (e) { if (e instanceof LhHttpError) throw new Error(errStatus(e)); throw e; }
 }
