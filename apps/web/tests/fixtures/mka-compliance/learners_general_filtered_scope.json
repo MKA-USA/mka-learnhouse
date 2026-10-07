@@ -1,0 +1,115 @@
+{
+  "body": {
+    "as_of": "2026-11-16",
+    "course": {
+      "course_uuid": "course_general",
+      "department": null,
+      "department_name": null,
+      "kind": "general",
+      "name": "General 2026-27"
+    },
+    "cycle": {
+      "deadline_on": "2026-12-01",
+      "id": 1,
+      "label": "2026-27",
+      "starts_on": "2026-11-01"
+    },
+    "items": [
+      {
+        "attested_at": null,
+        "completed_at": null,
+        "contact_check": {
+          "answers": null,
+          "mismatch": null
+        },
+        "days_overdue": 0,
+        "department": "tabligh",
+        "department_name": "Tabligh",
+        "due_on": "2026-12-01",
+        "email": "crossorg@example.invalid",
+        "id": 7,
+        "last_activity_at": null,
+        "lessons_done": 0,
+        "lessons_total": 3,
+        "level": "local",
+        "majlis": "Albany",
+        "overdue": false,
+        "person_name": "Cross Org",
+        "region": "Northeast",
+        "role_title": "Nazim Tabligh",
+        "role_titles": [
+          "Nazim Tabligh"
+        ],
+        "signed_in": false,
+        "stage": "not_signed_in",
+        "status": "not_signed_in",
+        "trailrun_status": null
+      },
+      {
+        "attested_at": null,
+        "completed_at": null,
+        "contact_check": {
+          "answers": null,
+          "mismatch": null
+        },
+        "days_overdue": 0,
+        "department": "maal",
+        "department_name": "Maal",
+        "due_on": "2026-12-01",
+        "email": "l3@example.invalid",
+        "id": 3,
+        "last_activity_at": "2026-11-10",
+        "lessons_done": 1,
+        "lessons_total": 3,
+        "level": "local",
+        "majlis": "Albany",
+        "overdue": false,
+        "person_name": "L Three",
+        "region": "Northeast",
+        "role_title": "Nazim Maal",
+        "role_titles": [
+          "Nazim Maal"
+        ],
+        "signed_in": true,
+        "stage": "in_progress",
+        "status": "in_progress",
+        "trailrun_status": "STATUS_IN_PROGRESS"
+      },
+      {
+        "attested_at": "2026-11-06",
+        "completed_at": "2026-11-03",
+        "contact_check": {
+          "answers": null,
+          "mismatch": null
+        },
+        "days_overdue": 0,
+        "department": "tabligh",
+        "department_name": "Tabligh",
+        "due_on": "2026-12-01",
+        "email": "l1@example.invalid",
+        "id": 1,
+        "last_activity_at": "2026-11-06",
+        "lessons_done": 3,
+        "lessons_total": 3,
+        "level": "local",
+        "majlis": "Albany",
+        "overdue": false,
+        "person_name": "L One",
+        "region": "Northeast",
+        "role_title": "Nazim Tabligh",
+        "role_titles": [
+          "Nazim Tabligh"
+        ],
+        "signed_in": true,
+        "stage": "attested",
+        "status": "attested",
+        "trailrun_status": "STATUS_COMPLETED"
+      }
+    ],
+    "page": 1,
+    "page_size": 200,
+    "total": 3
+  },
+  "path": "courses/course_general/learners",
+  "status": 200
+}

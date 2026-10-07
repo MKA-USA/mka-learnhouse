@@ -51,7 +51,7 @@ const scopeCourse = { course_uuid: "string", name: "string", kind: { enum: ["gen
 // The UI types say `region: string` / `majlis: string`; the API sends null for unassigned groups, so the types are widened to
 // `string | null` (fixed in compliance.types.ts) and the shapes below follow the fixed types.
 const SHAPES = {
-  scope: { scope: { enum: ["all", "own", "none"] }, courses: [scopeCourse], departments: ["string"], "cycle?": { ...cycle }, "cycles?": [cycle] },
+  scope: { scope: { enum: ["all", "own", "none"] }, "kind?": { enum: ["all", "filtered", "own", "none"] }, "filter?": "object?", courses: [scopeCourse], departments: ["string"], "cycle?": { ...cycle }, "cycles?": [cycle] },
   overview: {
     cycle: { ...cycle }, totals: counts,
     departments: [{ ...counts, department: "string", "department_name?": "string?", attested_pct: "number", rag, score: "number", reasons: ["string"] }],
@@ -74,13 +74,22 @@ SHAPES.learners = { cycle: { ...cycle }, items: [SHAPES.learner], total: "number
 
 describe("shapes: API fixtures satisfy compliance.types.ts", () => {
   test("fixtures exist", () => expect(Object.keys(fx).length).toBeGreaterThanOrEqual(20));
-  for (const n of ["scope_all", "scope_own", "scope_none", "nocycle_scope"])
+  for (const n of ["scope_all", "scope_own", "scope_none", "nocycle_scope", "scope_filtered"])
     test(n, () => {
       const body = ok(n);
       const shape = { ...SHAPES.scope, "cycle?": body.cycle ? { ...cycle } : "object?" };
       expect(validate(shape, body, n)).toEqual([]);
     });
   test("overview", () => expect(validate(SHAPES.overview, ok("overview"), "overview")).toEqual([]));
+  test("overview of a filtered viewer", () => expect(validate(SHAPES.overview, ok("overview_filtered"), "overview_filtered")).toEqual([]));
+  test("scope: a filtered viewer is legacy 'own' with kind and a labelled filter", () => {
+    const s = ok("scope_filtered");
+    expect(s.scope).toBe("own");
+    expect(s.kind).toBe("filtered");
+    expect(validate({ field: { enum: ["department", "region", "majlis"] }, value: "string", label: "string" }, s.filter, "filter")).toEqual([]);
+    expect(s.filter.label).toBe("Your Majlis: Albany");
+    for (const n of ["scope_all", "scope_own", "scope_none"]) expect(ok(n).kind).toBe(ok(n).scope);
+  });
   test("nocycle overview (cycle null, empty)", () => {
     const b = ok("nocycle_overview");
     expect(b.cycle).toBeNull();

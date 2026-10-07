@@ -1546,6 +1546,25 @@ diff --git a/apps/web/components/Auth/TurnstileWidget.tsx b/apps/web/components/
 +)
 ```
 
+### MKA identity sync API (hook H6)
+
+- **Date**: 2026-10-07
+- **Reason**: mounts the fork-only `/mka/identity` router (`POST /sync`, `GET /status`). All logic is fork-only (`routers/mka_identity.py`, `services/mka/identity_sync.py`, `db/mka_identity.py`, migration `mka_20261007_identity_sync`, rules `identity_rules/2026.4.json`, tests). The login call site lives in the fork-owned `services/mka/attributes.py` (no upstream hook). Spec: `docs/superpowers/specs/2026-10-07-mka-roles-groups-scope-design.md`. No extension point exists for adding a router.
+- **Auth**: same as `/mka/attributes`: `require_authenticated_user_or_api_token` at the router, `_resolve_admin` per handler (org admin session or org API token; a real run needs the Full Access preset, a dry run the Read-only preset).
+- **Re-apply after pulling upstream**: `grep -n "mka_identity" apps/api/src/router.py`; run `cd apps/api && uv run --with greenlet python -m pytest src/tests/services/mka src/tests/routers -q -k mka`.
+
+`apps/api/src/router.py` (import + mount, after the mka_automation block):
+```diff
++from src.routers import mka_identity as mka_identity_router_module  # MKA fork
+@@ after the mka_automation include_router block
++v1_router.include_router(  # MKA fork: identity sync (role + groups); admin session or org API token, gated per handler
++    mka_identity_router_module.router,
++    prefix="/mka/identity",
++    tags=["mka-identity"],
++    dependencies=[Depends(require_authenticated_user_or_api_token)],
++)
+```
+
 ## MKA native compliance analytics: web hooks H1-H3 (apps/web)
 
 - **Date**: 2026-10-04

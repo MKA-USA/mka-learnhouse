@@ -30,7 +30,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import distinct, func
+from sqlalchemy import distinct, false, func
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -128,10 +128,11 @@ def _proven(row: MkaUserAttributes, user: User) -> bool:
     return attrs.is_address_proven(row, user)
 
 
-def _roster_users(org_id: int, cycle_id: int):
-    """SELECT id of the users of THIS org whose email is on the cycle's roster."""
+def _roster_users(org_id: int, cycle_id: int, roster_filter: Optional[dict] = None):
+    """SELECT id of the users of THIS org whose email is on the cycle's roster (limited to the viewer's filter)."""
     roster_emails = select(MkaComplianceExpected.email).where(
-        MkaComplianceExpected.cycle_id == cycle_id, MkaComplianceExpected.org_id == org_id
+        MkaComplianceExpected.cycle_id == cycle_id, MkaComplianceExpected.org_id == org_id,
+        *roster_filter_clauses(roster_filter),
     )
     return (
         select(User.id)
@@ -140,22 +141,55 @@ def _roster_users(org_id: int, cycle_id: int):
     )
 
 
-async def load_roster(db: AsyncSession, org_id: int, cycle_id: int) -> list[MkaComplianceExpected]:
+# Seam C (roles/groups/scope spec 2026-10-07): the attribute filter a scoped viewer carries. ONE place turns it into SQL, so
+# every roster read (overview, summary, learners, CSV, trend, remind) is limited on the database side.
+ROSTER_FILTER_COLUMNS = {
+    "department": MkaComplianceExpected.department,
+    "region": MkaComplianceExpected.region,
+    "majlis": MkaComplianceExpected.majlis,
+}
+
+
+def roster_filter_clauses(roster_filter: Optional[dict]) -> list:
+    """SQL conditions for ``{"department"|"region"|"majlis": value}`` (case/space-insensitive equality). ``None`` = no
+    restriction. FAILS CLOSED: an unknown field or an empty value matches nothing."""
+    if not roster_filter:
+        return []
+    clauses = []
+    for field, value in roster_filter.items():
+        column = ROSTER_FILTER_COLUMNS.get(field)
+        wanted = str(value or "").strip().casefold()
+        if column is None or not wanted:
+            return [false()]
+        clauses.append(func.lower(func.trim(column)) == wanted)
+    return clauses
+
+
+async def load_roster(
+    db: AsyncSession, org_id: int, cycle_id: int, roster_filter: Optional[dict] = None
+) -> list[MkaComplianceExpected]:
     return list(
         (
             await db.execute(
                 select(MkaComplianceExpected)
-                .where(MkaComplianceExpected.cycle_id == cycle_id, MkaComplianceExpected.org_id == org_id)
+                .where(
+                    MkaComplianceExpected.cycle_id == cycle_id,
+                    MkaComplianceExpected.org_id == org_id,
+                    *roster_filter_clauses(roster_filter),
+                )
                 .order_by(MkaComplianceExpected.id)  # type: ignore[arg-type]
             )
         ).scalars().all()
     )
 
 
-async def load_user_map(db: AsyncSession, org_id: int, cycle_id: int) -> dict[str, int]:
-    """lower(email) -> user id, restricted to roster emails and members of the org."""
+async def load_user_map(
+    db: AsyncSession, org_id: int, cycle_id: int, roster_filter: Optional[dict] = None
+) -> dict[str, int]:
+    """lower(email) -> user id, restricted to roster emails (of the viewer's filter) and members of the org."""
     roster_emails = select(MkaComplianceExpected.email).where(
-        MkaComplianceExpected.cycle_id == cycle_id, MkaComplianceExpected.org_id == org_id
+        MkaComplianceExpected.cycle_id == cycle_id, MkaComplianceExpected.org_id == org_id,
+        *roster_filter_clauses(roster_filter),
     )
     rows = (
         await db.execute(
@@ -173,7 +207,8 @@ async def load_user_map(db: AsyncSession, org_id: int, cycle_id: int) -> dict[st
 
 
 async def load_progress(
-    db: AsyncSession, org_id: int, cycle: MkaComplianceCycle, links: list[MkaComplianceCycleCourse]
+    db: AsyncSession, org_id: int, cycle: MkaComplianceCycle, links: list[MkaComplianceCycleCourse],
+    roster_filter: Optional[dict] = None,
 ) -> dict:
     """Progress for the given cycle courses. Returns::
 
@@ -185,7 +220,7 @@ async def load_progress(
     course_ids = sorted({cc.course_id for cc in links})
     if not course_ids:
         return {"totals": {}, "progress": {}, "contact": {}}
-    roster_users = _roster_users(org_id, cycle.id)  # type: ignore[arg-type]
+    roster_users = _roster_users(org_id, cycle.id, roster_filter)  # type: ignore[arg-type]
 
     # The sign-off and contact-check assignments are the attestation, NOT lessons: counting their activities would
     # make `completed` (all lessons done, not yet attested) impossible. Deviation from the literal spec wording,
@@ -420,7 +455,7 @@ def _iso(d) -> Optional[str]:
 class Dataset:
     """Everything the builders need, loaded once per request."""
 
-    def __init__(self, cycle: MkaComplianceCycle, roster, user_map, progress_bundle, links, courses):
+    def __init__(self, cycle: MkaComplianceCycle, roster, user_map, progress_bundle, links, courses, contacts=None):
         self.cycle = cycle
         self.cycle_dict = {
             "label": cycle.label, "starts_on": cycle.starts_on.isoformat(), "deadline_on": cycle.deadline_on.isoformat(),
@@ -432,7 +467,9 @@ class Dataset:
         self.contact = progress_bundle["contact"]
         self.links = links
         self.courses = courses  # course_id -> Course
-        self.contacts = expected_contacts(roster)
+        # Who a learner should name (regional Qaid / department head) is indexed from the WHOLE roster even for a filtered
+        # viewer, so the self-check verdicts do not change with the viewer; only evaluated field keys ever leave the API.
+        self.contacts = contacts if contacts is not None else expected_contacts(roster)
 
     def course_progress(self, uid: Optional[int], link: Optional[MkaComplianceCycleCourse]) -> Optional[dict]:
         if uid is None or link is None:
@@ -452,12 +489,18 @@ class Dataset:
 
 
 async def load_dataset(
-    db: AsyncSession, org_id: int, cycle: MkaComplianceCycle, links: list, courses: dict
+    db: AsyncSession, org_id: int, cycle: MkaComplianceCycle, links: list, courses: dict,
+    roster_filter: Optional[dict] = None,
 ) -> Dataset:
-    roster = await load_roster(db, org_id, cycle.id)  # type: ignore[arg-type]
-    user_map = await load_user_map(db, org_id, cycle.id) if roster else {}
-    bundle = await load_progress(db, org_id, cycle, links) if roster else {"progress": {}, "totals": {}, "contact": {}}
-    return Dataset(cycle, roster, user_map, bundle, links, courses)
+    """``roster_filter`` (a scoped viewer's attribute filter) limits the expected-roster rows IN SQL; everything built
+    from the dataset (people, progress, records, CSV, reminders) can then only ever see those rows."""
+    roster = await load_roster(db, org_id, cycle.id, roster_filter)  # type: ignore[arg-type]
+    user_map = await load_user_map(db, org_id, cycle.id, roster_filter) if roster else {}  # type: ignore[arg-type]
+    bundle = await load_progress(db, org_id, cycle, links, roster_filter) if roster else {"progress": {}, "totals": {}, "contact": {}}
+    contacts = None
+    if roster_filter:
+        contacts = expected_contacts(await load_roster(db, org_id, cycle.id))  # type: ignore[arg-type]
+    return Dataset(cycle, roster, user_map, bundle, links, courses, contacts)
 
 
 def dedupe(rows: list[dict], key) -> list[dict]:

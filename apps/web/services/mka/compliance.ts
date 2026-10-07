@@ -14,7 +14,7 @@ import { getAPIUrl } from '@services/config/config'
 import { RequestBodyWithAuthHeader } from '@services/utils/ts/requests'
 import { useLHSession } from '@components/Contexts/LHSessionContext'
 import { useOrg } from '@components/Contexts/OrgContext'
-import { buildQuery, learnerQuery, MOCK_TODAY, truncationNotice } from '@components/mka/compliance/format'
+import { buildQuery, learnerQuery, MOCK_TODAY, scopeKind, truncationNotice } from '@components/mka/compliance/format'
 import type {
   ComplianceScope,
   CourseSummaryResponse,
@@ -22,6 +22,7 @@ import type {
   LearnersResponse,
   OverviewResponse,
   RemindResponse,
+  ScopeFilter,
   ScopeResponse,
 } from './compliance.types'
 
@@ -224,7 +225,14 @@ export function useComplianceScopeQuery(cycleId: number | null = null) {
  */
 export function useMkaComplianceScope(): ComplianceScope {
   const { data } = useComplianceScopeQuery()
-  return data?.scope ?? 'none'
+  // `kind` is the precise answer (seam C); nav only needs "anything but none", and a filtered viewer's legacy `scope` is 'own'.
+  return scopeKind(data) === 'none' ? 'none' : (data?.scope ?? 'none')
+}
+
+/** The unit a Mohtamim / Qaid / Naib is limited to (null for everyone else, and while loading). */
+export function useMkaComplianceFilter(): ScopeFilter | null {
+  const { data } = useComplianceScopeQuery()
+  return scopeKind(data) === 'filtered' ? (data?.filter ?? null) : null
 }
 
 export function useComplianceOverview(cycleId: number | null, enabled = true) {

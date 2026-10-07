@@ -4,6 +4,8 @@
     "cycle": null,
     "cycles": [],
     "departments": [],
+    "filter": null,
+    "kind": "none",
     "scope": "none"
   },
   "path": "scope",

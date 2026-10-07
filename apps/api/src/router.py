@@ -16,6 +16,7 @@ from src.routers import mka_profile as mka_profile_router_module  # MKA fork
 from src.routers import mka_attributes as mka_attributes_router_module  # MKA fork
 from src.routers import mka_compliance as mka_compliance_router_module  # MKA fork
 from src.routers import mka_automation as mka_automation_router_module  # MKA fork
+from src.routers import mka_identity as mka_identity_router_module  # MKA fork
 from src.routers import monitoring
 from src.routers import nudges as nudges_router_module
 from src.routers import stream
@@ -98,6 +99,12 @@ v1_router.include_router(  # MKA fork: automation; NO router-level auth dependen
     mka_automation_router_module.router,
     prefix="/mka/automation",
     tags=["mka-automation"],
+)
+v1_router.include_router(  # MKA fork: identity sync (role + groups); admin session or org API token, gated per handler
+    mka_identity_router_module.router,
+    prefix="/mka/identity",
+    tags=["mka-identity"],
+    dependencies=[Depends(require_authenticated_user_or_api_token)],
 )
 v1_router.include_router(
     usergroups.router,

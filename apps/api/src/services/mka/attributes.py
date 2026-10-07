@@ -471,7 +471,6 @@ async def mka_refresh_on_login(db_session: AsyncSession, user: User, amr: Option
             except IntegrityError:
                 await s.rollback()
                 logger.info("MKA attribute refresh lost an insert race on login (ignored)")
-                return
             except Exception:  # noqa: BLE001 - fail-open for LOGIN by design
                 logger.exception("MKA attribute refresh failed on login (ignored)")
                 await s.rollback()
@@ -483,6 +482,9 @@ async def mka_refresh_on_login(db_session: AsyncSession, user: User, amr: Option
         logger.exception("MKA attribute stale-mark failed (ignored)")
     if refreshed:
         await _autoenroll_after_refresh(db_session, snap)
+    # ALWAYS, even when the refresh failed: an identity that cannot be trusted must still lose a managed role it holds
+    # (fail closed). The sync itself re-checks proof and freshness and never grants on an untrusted row.
+    await _identity_sync_after_refresh(db_session, snap)
 
 
 async def _autoenroll_after_refresh(db_session: AsyncSession, snap: Any) -> None:
@@ -498,6 +500,19 @@ async def _autoenroll_after_refresh(db_session: AsyncSession, snap: Any) -> None
         await autoenroll_user(lambda: _new_session(db_session), snap)
     except Exception:  # noqa: BLE001
         logger.exception("MKA auto-enrol hook failed (ignored)")
+
+
+async def _identity_sync_after_refresh(db_session: AsyncSession, snap: Any) -> None:
+    """Identity sync (spec 2026-10-07 A3): Mohtamim role + managed groups. Flag-gated, own session, never raises. Runs only
+    after a SUCCESSFUL refresh so the proof it relies on (``is_address_proven``) is the row just written."""
+    try:
+        from src.services.mka import identity_sync as _isync
+
+        if not _isync.enabled():
+            return
+        await _isync.identity_sync_user(lambda: _new_session(db_session), snap)
+    except Exception:  # noqa: BLE001
+        logger.exception("MKA identity sync hook failed (ignored)")
 
 
 async def recompute_users(

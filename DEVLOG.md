@@ -4,6 +4,33 @@ MKA USA's learning platform, a fork of the open-source LearnHouse (Next.js web, 
 Stack: Next.js + Turbopack, Bun, FastAPI/SQLModel, Postgres, GitHub Actions, Coolify.
 Started: 2026-10 (fork customisation)
 
+## 2026-10-07 — Mohtamim role, overlapping user groups, reporting scope by Majlis/region/department
+
+**Goal:** Give every Mohtamim a user type that can create and run courses, put each officeholder in all the groups they belong to (Majlis, region, department, level) without anyone adding them by hand, and let Qaids, Naib Qaids, Mohtamims and Naib Mohtamims see completion reports for exactly their own people.
+
+**Did:**
+- Spec `docs/superpowers/specs/2026-10-07-mka-roles-groups-scope-design.md` (user decisions + post-review amendments in section 7), built as three seams in parallel.
+- #30 identity sync: an org-scoped "Mohtamim" role (Instructor rights + chapters/activities/assignments, media/folders create/read only, dashboard access) and 85 managed groups (52 Majalis, 10 regions, 20 departments, National/Regional/Local Amila) created idempotently; membership and role re-synced on every Google sign-in from the role mailbox, plus a backfill endpoint and status endpoint. Identity rules 2026.4 add Naib Mohtamim and regional Naib Qaid.
+- #29 compliance scope by attributes: department / region / Majlis filters applied in SQL on every compliance endpoint and CSV, Naibs included; `/scope` gains `kind` and `filter`; manual Remind cooldown keyed per course and scope unit.
+- #28 provisioner `sync-identity` / `identity-status`, runbook `custom/compliance/docs/runbooks/roles-and-groups.md`.
+- #31 fix: the seeded global roles never advanced Postgres's id sequence, so the first managed-role insert collided on id 1; sequences are now bumped before inserts, with a Postgres-backed test.
+- Dev: flags set, attributes recomputed, backfill applied: role id 5, 85 groups, idempotent rerun.
+
+**Decisions (why):**
+- Automatic assignment from the mailbox over manual admin assignment: 1,380 officeholders change every Nov 1; nobody will maintain that by hand. The flag gates every write and dry-run is always available.
+- Org allowlist (`MKA_IDENTITY_SYNC_ORG_IDS`) and fail-closed revert came out of an independent security review: without them a user in two orgs could carry a role across tenants, and a stale identity could keep the Mohtamim role forever.
+- Media and folder update/delete removed from the role: those are org-wide grants in LearnHouse's RBAC; authorship already covers a Mohtamim's own files.
+- Qaid reporting via the Compliance page, not LearnHouse's Analytics page: Analytics is admin-only upstream and opening it would mean editing an upstream file.
+- Groups are OR-linked in LearnHouse course access; an AND ("Maal members who are national") would need a combined group and was left out.
+
+**Challenges:**
+- The spec described Qaid scoping as already existing; the code only scoped by course authorship. Caught during research, built as seam C.
+- Three security findings (cross-tenant escalation, stale privilege, disclosure of other tenants' org ids) surfaced across two review rounds before merge.
+- Unit tests on SQLite could not catch the Postgres sequence collision; a gated Postgres test now covers apply.
+- The attribute recompute endpoint rejects API tokens; it had to be run from the admin's browser session.
+
+**Status / Next:** Live on dev (ilm-dev). Not yet exercised by a real role mailbox: the acceptance check is tabligh@ signing in and landing as Mohtamim in Department: Tabligh + National Amila, and qaid.albany@ seeing Albany only. Prod has no flags set and no backfill. Naib Mohtamim mailbox convention still unknown (title only in the rules).
+
 ## 2026-10-06 — Overnight consolidation: dev fully merged, prod release PR prepared
 
 **Goal:** The user went to sleep with eight parallel Claude sessions open and asked one session to pull every branch of work into a single thread, finish the remaining items, and deploy the final state.

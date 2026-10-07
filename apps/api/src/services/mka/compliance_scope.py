@@ -4,6 +4,9 @@
 
 * ``all``  superadmin; org role admin/maintainer; a role carrying ``organizations.action_update``;
            org API token; or national-level attributes holder matching ``SCOPE_ALL_ATTRIBUTE_RULES``.
+* ``filtered`` an attribute holder who answers for ONE unit (seam C, spec 2026-10-07): a Mohtamim / Naib Mohtamim sees their
+           department, a regional Qaid / Naib their region, a Majlis Qaid / Naib their Majlis. Every read applies the
+           filter to the expected-roster rows on the server (``Scope.roster_filter``); nobody outside the unit is returned.
 * ``own``  ACTIVE CREATOR/MAINTAINER/CONTRIBUTOR author of at least one cycle course (and passing the upstream
            ``update`` check on it). Sees only those courses.
 * ``none`` everyone else.
@@ -55,6 +58,20 @@ SCOPE_ALL_ATTRIBUTE_RULES: tuple[dict, ...] = (
     {"level": "national", "role": "motamid"},       # National Motamid (UNCONFIRMED)
 )
 
+# Seam C: attribute holders limited to ONE unit. A rule matches on the viewer's EFFECTIVE attributes (fail-closed read,
+# status 'matched', address proven) when level and role match AND the attribute named by ``field`` is set (a Mohtamim
+# without a department, a Majlis Qaid without a Majlis ... get nothing). Naib role names are accepted in every spelling the
+# rules file might emit, so a rules bump never silently removes access (and never grants more: unknown roles match nothing).
+SCOPE_FILTER_RULES: tuple[dict, ...] = (
+    {"level": "national", "roles": frozenset({"mohtamim", "naib_mohtamim"}), "field": "department"},
+    {"level": "regional", "roles": frozenset({
+        "regional_qaid", "qaid", "naib_qaid", "regional_naib_qaid", "naib_regional_qaid", "naib_qaid_regional",
+    }), "field": "region"},
+    {"level": "local", "roles": frozenset({"qaid", "naib_qaid"}), "field": "majlis"},
+)
+
+FIELD_LABELS = {"department": "department", "region": "region", "majlis": "Majlis"}
+
 AUTHOR_AUTHORSHIPS = (
     ResourceAuthorshipEnum.CREATOR,
     ResourceAuthorshipEnum.MAINTAINER,
@@ -64,16 +81,51 @@ AUTHOR_AUTHORSHIPS = (
 
 @dataclass(frozen=True)
 class Scope:
-    kind: str  # 'all' | 'own' | 'none'
+    kind: str  # 'all' | 'filtered' | 'own' | 'none'
     org_id: int
-    source: str  # why (audit/debug, never returned to clients): superadmin|token|admin_role|org_update_right|attributes|author|none
+    source: str  # why (audit/debug, never returned to clients): superadmin|token|admin_role|org_update_right|attributes|attribute_filter|author|none
     user_id: Optional[int] = None
     own_course_ids: frozenset = field(default_factory=frozenset)  # Course.id the viewer may see (kind == 'own')
+    filter_field: Optional[str] = None  # kind == 'filtered': 'department' | 'region' | 'majlis'
+    filter_value: Optional[str] = None
+
+    @property
+    def roster_filter(self) -> Optional[dict]:
+        """The attribute filter every roster read must carry (``None`` = the whole roster)."""
+        if self.kind == "filtered":  # fail closed: a half-built filter yields clauses that match nothing, never the whole roster
+            return {self.filter_field or "": self.filter_value or ""}
+        return None
 
     def allows(self, course_id: int) -> bool:
-        if self.kind == "all":
+        if self.kind in ("all", "filtered"):  # a filtered viewer sees the courses; their ROWS are what is limited
             return True
         return self.kind == "own" and course_id in self.own_course_ids
+
+    def allows_link(self, link: MkaComplianceCycleCourse) -> bool:
+        """Course-level visibility: a department-filtered viewer sees the general course and their own department's."""
+        if not self.allows(link.course_id):
+            return False
+        if self.kind == "filtered" and self.filter_field == "department":
+            return link.kind == "general" or _same(link.department, self.filter_value)
+        return True
+
+    def legacy_scope(self) -> str:
+        """The pre-seam-C ``scope`` string of /scope: ``filtered`` is reported as ``own`` (limited), never ``all``."""
+        return "own" if self.kind == "filtered" else self.kind
+
+    def filter_view(self) -> Optional[dict]:
+        """What /scope tells the client about the filter (None when the viewer is not filtered)."""
+        if self.kind != "filtered" or not self.filter_field:
+            return None
+        label_value = self.filter_value or ""
+        return {
+            "field": self.filter_field, "value": label_value, self.filter_field: label_value,
+            "label": f"Your {FIELD_LABELS[self.filter_field]}: {label_value}",
+        }
+
+
+def _same(a: Optional[str], b: Optional[str]) -> bool:
+    return (a or "").strip().casefold() == (b or "").strip().casefold() != ""
 
 
 def _role_has_org_update(role: Optional[Role], org_id: int) -> bool:
@@ -94,6 +146,20 @@ def attributes_grant_all(effective: dict) -> bool:
     if effective.get("status") != "matched":
         return False
     return any(all(effective.get(k) == v for k, v in rule.items()) for rule in SCOPE_ALL_ATTRIBUTE_RULES)
+
+
+def attributes_filter(effective: dict) -> Optional[tuple[str, str]]:
+    """Pure: ``(field, value)`` when this EFFECTIVE (already fail-closed) attribute dict answers for exactly one
+    unit, else ``None``. Callers check ``attributes_grant_all`` first and ``is_address_proven`` as well."""
+    if effective.get("status") != "matched":
+        return None
+    for rule in SCOPE_FILTER_RULES:
+        if effective.get("level") != rule["level"] or effective.get("role") not in rule["roles"]:
+            continue
+        value = effective.get(rule["field"])
+        if isinstance(value, str) and value.strip():
+            return rule["field"], value.strip()
+    return None
 
 
 async def _resolve_org_id(org_id: Optional[int], org_slug: Optional[str], db: AsyncSession) -> int:
@@ -184,6 +250,9 @@ async def resolve_scope(
         # CURRENT address must also carry real Workspace/Google proof (M1 of the final review).
         if attributes_grant_all(effective) and attrs.is_address_proven(row, user):
             return Scope("all", resolved_org, "attributes", uid)
+        unit = attributes_filter(effective)
+        if unit is not None and attrs.is_address_proven(row, user):
+            return Scope("filtered", resolved_org, "attribute_filter", uid, filter_field=unit[0], filter_value=unit[1])
 
     own = await _own_course_ids(request, uid, resolved_org, db)
     if own:
@@ -244,7 +313,7 @@ async def cycle_courses(db: AsyncSession, org_id: int, cycle_id: int) -> list[tu
 def visible_courses(scope: Scope, rows: list[tuple[MkaComplianceCycleCourse, Course]]):
     if scope.kind == "none":
         return []
-    return [(cc, c) for cc, c in rows if scope.allows(cc.course_id)]
+    return [(cc, c) for cc, c in rows if scope.allows_link(cc)]
 
 
 def require_viewer(scope: Scope) -> None:
@@ -255,6 +324,12 @@ def require_viewer(scope: Scope) -> None:
 
 def require_all(scope: Scope) -> None:
     if scope.kind != "all":
+        raise HTTPException(status_code=403, detail="Organization-wide compliance access required")
+
+
+def require_overview(scope: Scope) -> None:
+    """The overview needs a whole-org view (``all``) or a filtered one (its rows are limited server-side)."""
+    if scope.kind not in ("all", "filtered"):
         raise HTTPException(status_code=403, detail="Organization-wide compliance access required")
 
 
@@ -290,6 +365,6 @@ async def resolve_course(
             )
         )
     ).first()
-    if row is None or not scope.allows(row[0].course_id):
+    if row is None or not scope.allows_link(row[0]):
         raise not_found
     return row[0], row[1]
