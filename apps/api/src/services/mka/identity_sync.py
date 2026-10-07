@@ -227,6 +227,22 @@ async def _pg_lock(db: AsyncSession, key: str) -> None:
         await db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:k))"), {"k": key})
 
 
+async def _sync_pg_sequence(db: AsyncSession, table: str) -> None:
+    """Move ``<table>.id``'s sequence past MAX(id). ``setup.install_default_elements`` seeds the global roles with EXPLICIT
+    ids 1-4 and never advances the sequence, so the first sequence-assigned ``Role`` insert would collide with the
+    seeded Admin role (UniqueViolation on ``role_pkey``). Never moves the sequence backwards. No-op off Postgres."""
+    if db.get_bind().dialect.name != "postgresql":
+        return
+    seq = (await db.execute(text("SELECT pg_get_serial_sequence(:t, 'id')"), {"t": table})).scalar()
+    if not seq:
+        return
+    top = (await db.execute(text(f"SELECT COALESCE(MAX(id), 0) FROM {table}"))).scalar() or 0  # noqa: S608 (fixed table names)
+    last, called = (await db.execute(text(f"SELECT last_value, is_called FROM {seq}"))).one()  # noqa: S608 (name from the catalog)
+    next_free = last + 1 if called else last
+    if top >= next_free:
+        await db.execute(text("SELECT setval(CAST(:s AS regclass), :v, true)"), {"s": seq, "v": top})
+
+
 async def _read_ctx(db: AsyncSession, org_id: int, cat: dict[str, str]) -> tuple[OrgCtx, Optional[MkaManagedRole], Optional[Role]]:
     binding = (
         await db.execute(
@@ -287,6 +303,8 @@ async def ensure_org(db: AsyncSession, org_id: int, *, dry_run: bool = False) ->
         if not _needs_writes(ctx, binding):
             return ctx
         now = _now()
+        await _sync_pg_sequence(db, "role")
+        await _sync_pg_sequence(db, "usergroup")
 
         # --- role ---
         if role is None:
