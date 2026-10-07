@@ -137,9 +137,32 @@ async def test_a_deleted_group_is_recreated_and_renames_do_not_matter(db, org):
     await db.delete(gone)
     await db.commit()
     again = await sync.ensure_org(db, org.id)
-    assert again.groups_created == 1 and again.groups["region:east"] == ctx.groups["region:east"]
+    assert again.groups_recreated == 1 and again.groups_created == 0 and again.groups["region:east"] == ctx.groups["region:east"]
     assert again.groups["region:gulf"] != ctx.groups["region:gulf"]
     assert (await db.get(UserGroup, ctx.groups["region:east"])).name == "Our East"
+    binding = (await db.execute(select(MkaManagedGroup).where(MkaManagedGroup.key == "region:gulf"))).scalars().one()
+    assert binding.usergroup_id == again.groups["region:gulf"]  # same key, new group
+
+
+async def test_backfill_reports_recreated_groups_and_dry_run_previews_them(db, org):
+    ctx = await sync.ensure_org(db, org.id)
+    await db.delete(await db.get(UserGroup, ctx.groups["majlis:albany"]))
+    await db.commit()
+    dry = await sync.backfill_org(db, org.id, dry_run=True)
+    assert dry["groups_recreated"] == 1 and dry["groups_created"] == 0
+    assert (await sync.ensure_org(db, org.id, dry_run=True)).groups["majlis:albany"] is None  # nothing written
+    done = await sync.backfill_org(db, org.id, dry_run=False)
+    assert done["groups_recreated"] == 1 and done["groups_created"] == 0
+    assert (await sync.backfill_org(db, org.id, dry_run=False))["groups_recreated"] == 0
+
+
+async def test_login_sync_recreates_a_deleted_group_it_needs(db, org, factory):
+    u = await make(db, org, 60, "maal.albany@example.invalid", is_officeholder=True, **NAZIM_MAAL_ALBANY)
+    ctx = await sync.ensure_org(db, org.id)
+    await db.delete(await db.get(UserGroup, ctx.groups["majlis:albany"]))
+    await db.commit()
+    await sync.identity_sync_user(factory, u)
+    assert "majlis:albany" in await group_keys(db, org.id, 60)
 
 
 # --- per-user sync -----------------------------------------------------------------------------------------------

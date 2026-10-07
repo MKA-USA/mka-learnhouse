@@ -39,7 +39,7 @@ async def api_sync(
         token_right=TOKEN_READ if dry_run else TOKEN_WRITE_FULL,
     )
     if not dry_run and not sync.enabled():
-        raise HTTPException(status_code=409, detail="Identity sync is disabled (MKA_IDENTITY_SYNC_ENABLED is not true); run with dry_run=true")
+        raise HTTPException(status_code=409, detail="identity sync is disabled")
     return await sync.backfill_org(db_session, admin.org_id, dry_run=dry_run)
 
 

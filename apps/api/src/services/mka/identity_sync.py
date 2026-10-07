@@ -182,6 +182,8 @@ class OrgCtx:
     role_created: bool = False
     role_updated: bool = False
     groups_created: int = 0
+    groups_recreated: int = 0  # bound key whose usergroup was deleted (e.g. in the UI): same key, new group
+    stale_keys: set[str] = field(default_factory=set)
 
     @property
     def key_by_gid(self) -> dict[int, str]:
@@ -222,6 +224,10 @@ async def _read_ctx(db: AsyncSession, org_id: int, cat: dict[str, str]) -> tuple
         )
     ).all()
     present = {k: gid for k, gid in rows if k in cat}
+    bound = set(
+        (await db.execute(select(MkaManagedGroup.key).where(MkaManagedGroup.org_id == org_id))).scalars().all()
+    )
+    ctx.stale_keys = {k for k in bound if k in cat and k not in present}
     ctx.groups = {k: present.get(k) for k in cat}
     return ctx, binding, role
 
@@ -245,7 +251,9 @@ async def ensure_org(db: AsyncSession, org_id: int, *, dry_run: bool = False) ->
     if dry_run:
         ctx.role_created = ctx.role_id is None
         ctx.role_updated = ctx.role_id is not None and (binding is None or binding.rights_version != MOHTAMIM_RIGHTS_VERSION)
-        ctx.groups_created = sum(1 for gid in ctx.groups.values() if gid is None)
+        missing = [k for k, gid in ctx.groups.items() if gid is None]
+        ctx.groups_recreated = sum(1 for k in missing if k in ctx.stale_keys)
+        ctx.groups_created = len(missing) - ctx.groups_recreated
         return ctx
 
     async with _lock_for("ensure", org_id):
@@ -303,7 +311,11 @@ async def ensure_org(db: AsyncSession, org_id: int, *, dry_run: bool = False) ->
             await db.execute(delete(MkaManagedGroup).where(MkaManagedGroup.org_id == org_id, MkaManagedGroup.key == key))
             db.add(MkaManagedGroup(org_id=org_id, key=key, usergroup_id=group.id))  # type: ignore[arg-type]
             ctx.groups[key] = group.id
-            ctx.groups_created += 1
+            if key in ctx.stale_keys:
+                ctx.groups_recreated += 1
+                logger.info("MKA identity sync: recreated managed group %s in org %s", key, org_id)
+            else:
+                ctx.groups_created += 1
         await db.commit()
         return ctx
 
@@ -480,13 +492,14 @@ async def backfill_org(db: AsyncSession, org_id: int, *, dry_run: bool = True) -
     """Ensure the role and groups, then sync every org member that has an attribute row. In ``dry_run`` nothing is
     written and ``planned`` lists the changes (user ids only, capped). Per-user failures are counted, not raised."""
     counts = {
-        "users_seen": 0, "groups_created": 0, "memberships_added": 0, "memberships_removed": 0,
+        "users_seen": 0, "groups_created": 0, "groups_recreated": 0, "memberships_added": 0, "memberships_removed": 0,
         "roles_set": 0, "roles_reverted": 0, "errors": 0,
     }
     skipped: dict[str, int] = {}
     planned: list[dict] = []
     ctx = await ensure_org(db, org_id, dry_run=dry_run)
     counts["groups_created"] = ctx.groups_created
+    counts["groups_recreated"] = ctx.groups_recreated
     last_id = 0
     while True:
         rows = (
