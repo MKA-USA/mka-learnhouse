@@ -30,7 +30,8 @@ migration run starts from the wrong revision). If ilm-dev `alembic current` is n
 |---|---|---|
 | `MKA_COMPLIANCE_TZ` | API | optional; default `America/New_York`. Decides the deadline-day boundary for "overdue". |
 | `MKA_GOOGLE_ONLY_DOMAINS` | API | UNCHANGED. Also feeds the identity proof (see risks). Do not edit as part of this rollout. |
-| `MKA_IDENTITY_SYNC_ENABLED` | API | optional; default `false`. `true` turns on per-sign-in role and group sync (see step 7). |
+| `MKA_IDENTITY_SYNC_ENABLED` | API | optional; default `false`. `true` allows per-sign-in role and group sync and `sync-identity --apply` writes (step 7). |
+| `MKA_IDENTITY_SYNC_ORG_IDS` | API | comma-separated org ids the sync may write to; required, empty = no writes anywhere. ilm-dev: `1`. |
 | `NEXT_PUBLIC_MKA_COMPLIANCE_MOCK` | web build | MUST be unset / not `1`. (The mock is also hard-disabled when `NODE_ENV=production`, and `/examples/mka-compliance-preview*` 404s.) |
 | `NEXT_PUBLIC_MKA_COMPLIANCE_REMIND` | web build | leave unset (the "Remind" placeholder stays hidden pending a product decision). |
 
@@ -46,7 +47,7 @@ migration run starts from the wrong revision). If ilm-dev `alembic current` is n
    (re-import is idempotent; `dry_run: true` first). Give viewers access per the roles runbook.
 7. Roles and groups (after `push-roster`; needs the identity sync API deployed): `cd custom/compliance/apps/provisioner`, then
    `bun run lh identity-status`, `bun run lh sync-identity` (dry run, review the counts), `bun run lh sync-identity --apply --confirm-staging`.
-   Set `MKA_IDENTITY_SYNC_ENABLED=true` on the API only when you want sign-in sync. Runbook: `custom/compliance/docs/runbooks/roles-and-groups.md`.
+   Set `MKA_IDENTITY_SYNC_ENABLED=true` and `MKA_IDENTITY_SYNC_ORG_IDS=<org id>` on the API only when you want sign-in sync. Runbook: `custom/compliance/docs/runbooks/roles-and-groups.md`.
 
 ## Pre-go-live checklist
 - Verify ONE real @atfalusa.org Google sign-in carries `hd=atfalusa.org` (or whether atfalusa.org is a secondary domain

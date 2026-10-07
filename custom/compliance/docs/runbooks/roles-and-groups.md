@@ -5,7 +5,7 @@ Audience: an Ilm org admin or the person running the provisioner. Design: `docs/
 ## What it does
 When an officeholder signs in with their role mailbox, the platform (a) gives national Mohtamim and Naib Mohtamim accounts the **Mohtamim** role and (b) puts every officeholder in the groups that match their Majlis, region, department and level. Nobody is added by hand. Sync runs on every Google sign-in (fail-open: a sync problem never blocks login) and can be run in bulk as a backfill.
 
-It is off until `MKA_IDENTITY_SYNC_ENABLED=true` (see below).
+It is off until `MKA_IDENTITY_SYNC_ENABLED=true` and `MKA_IDENTITY_SYNC_ORG_IDS` lists the org (see below).
 
 ## The Mohtamim role
 Applies to `mohtamim` and `naib_mohtamim` at national level, only when the account's current role is plain User (role id 4).
@@ -14,10 +14,12 @@ Applies to `mohtamim` and `naib_mohtamim` at national level, only when the accou
 |---|---|
 | Everything the Instructor role has, so Mohtamims can create courses | Users, roles, or organization settings |
 | Chapters, activities and assignments: create, read, update | Edit or delete of courses they did not create and are not an ACTIVE author of |
-| Media and folders: create, read, update, delete | |
+| Media and folders: create and read only; update and delete come from authorship of one's own items | |
 | Read user groups, dashboard access, read organization | |
 
 A Mohtamim edits and publishes courses they created or are an ACTIVE author of. The provisioner's `assign-authors` already makes each Mohtamim a contributor on their department course.
+
+If an org already has a custom role named "Mohtamim", the sync **adopts** it: its rights are overwritten with the managed set above, and holders who do not qualify are reverted to User. Review that role's current holders before the first `--apply`.
 
 Rules the sync never breaks:
 - Admin (1), Maintainer (2), Instructor (3) and any other custom role are never changed.
@@ -61,19 +63,27 @@ bun run lh identity-status
 - `identity-status` prints `enabled`, `role_id`, `group_count`, `last_sync_at`. The flag gates **all writes**: with it off, both sign-in sync and `sync-identity --apply` write nothing. A dry run always works regardless of the flag.
 
 ## Enable the sign-in sync
-Env var `MKA_IDENTITY_SYNC_ENABLED` (default `false`) on the **API** service. The deployment compose file must pass it through on both services that run the API code (same pattern as the other `MKA_*` vars):
+Two env vars on the **API** service:
+
+| Var | Value |
+|---|---|
+| `MKA_IDENTITY_SYNC_ENABLED` | default `false`; `true` allows writes |
+| `MKA_IDENTITY_SYNC_ORG_IDS` | comma-separated org ids the sync may write to; **required**. Empty means the sync writes nothing anywhere. On ilm-dev the org id is `1` (slug `default`). |
+
+Both must allow the org before anything is written. The deployment compose file must pass both through on both services that run the API code (same pattern as the other `MKA_*` vars):
 
 ```
 - MKA_IDENTITY_SYNC_ENABLED=${MKA_IDENTITY_SYNC_ENABLED:-false}
+- MKA_IDENTITY_SYNC_ORG_IDS=${MKA_IDENTITY_SYNC_ORG_IDS:-}
 ```
 
-Set it in the deploy environment (dev: `true` after merge; prod: later, by the owner) and redeploy. Confirm with `bun run lh identity-status` (`enabled true`).
+Set it in the deploy environment (dev: `true` after merge; prod: later, by the owner) and redeploy. Set `MKA_IDENTITY_SYNC_ORG_IDS=1` on ilm-dev. Confirm with `bun run lh identity-status` (`enabled true`).
 
 ## Verify after enabling
 1. Sign in as a test Mohtamim mailbox (for example `tabligh@`): role is Mohtamim, groups are `Department: Tabligh` and `National Amila`, and course creation works.
 2. Sign in as a local Nazim (for example `nazim.maal.albany@`): role stays User, four groups as above, no Compliance nav.
 
 ## Rollback
-1. Set `MKA_IDENTITY_SYNC_ENABLED=false` and redeploy. All writes stop: sign-in sync and `sync-identity --apply` do nothing. A dry run still works.
+1. Set `MKA_IDENTITY_SYNC_ENABLED=false` (or empty `MKA_IDENTITY_SYNC_ORG_IDS` to stop one org or all) and redeploy. All writes stop: sign-in sync and `sync-identity --apply` do nothing. A dry run still works.
 2. Roles and group memberships already written **stay as set**; nothing is reverted automatically.
 3. To undo a role by hand: Settings, Users, open the person, set the role back to User. To remove a group: Settings, User groups. Do not delete managed groups; remove members instead. Deleting one drops every course Access link to it, and a recreated group gets a new id. If one is deleted, run `sync-identity --apply` to recreate it and re-link courses by hand.
