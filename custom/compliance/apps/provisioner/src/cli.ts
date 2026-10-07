@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { parseArgs } from "./args";
 import { cmdApply, cmdExportCourses, cmdPlan, cmdPublish, cmdReconcile } from "./commands-lh";
-import { cmdAssignAuthors, cmdPushCycle, cmdPushRoster } from "./commands-push";
+import { cmdAssignAuthors, cmdIdentityStatus, cmdPushCycle, cmdPushRoster, cmdSyncIdentity } from "./commands-push";
 import { cmdGapReport, cmdImport, cmdRoster, cmdSeedThinkific } from "./commands-data";
 
 const a = parseArgs(process.argv.slice(2));
@@ -18,6 +18,8 @@ const USAGE = `provisioner <command>
   push-cycle [--apply --confirm-staging] [--starts-on --deadline-on]   -> fork POST /mka/compliance/cycles
   push-roster --all|--pilot|--only [--apply --confirm-staging] [--batch-size N]   -> POST /mka/compliance/expected/import
   assign-authors --map mohtamims.csv [--apply --confirm-staging]
+  sync-identity [--dry-run (default) | --apply --confirm-staging]   -> POST /mka/identity/sync (Mohtamim role + groups backfill)
+  identity-status                               -> GET /mka/identity/status
   gap-report [--cycle] [--data <dir>] [--carry-over 2025-26]
   (any command) --include-atfal   Atfal is excluded by default (core config); this switches it back on`;
 try {
@@ -32,6 +34,8 @@ try {
     case "push-cycle": await cmdPushCycle(a); break;
     case "push-roster": await cmdPushRoster(a); break;
     case "assign-authors": await cmdAssignAuthors(a); break;
+    case "sync-identity": await cmdSyncIdentity(a); break;
+    case "identity-status": await cmdIdentityStatus(a); break;
     case "apply": await cmdApply(a); break;
     case "gap-report": await cmdGapReport(a); break;
     default: console.log(USAGE);
