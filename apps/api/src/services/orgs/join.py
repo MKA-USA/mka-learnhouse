@@ -15,6 +15,7 @@ from src.services.orgs.invites import get_invite_code
 from src.services.orgs.join_notifications import notify_user_joined_org
 from src.services.orgs.orgs import get_org_join_mechanism
 from src.services.users.usergroups import add_users_to_usergroup
+from src.services.users.mka_profile import sync_member_groups_after_save  # MKA fork
 
 
 class JoinOrg(BaseModel):
@@ -118,6 +119,7 @@ async def join_org(
 
             db_session.add(user_organization)
             await db_session.commit()
+            await sync_member_groups_after_save(db_session, user.id)  # MKA fork
 
             await increase_feature_usage("members", org.id, db_session)
 
@@ -157,6 +159,7 @@ async def join_org(
 
             db_session.add(user_organization)
             await db_session.commit()
+            await sync_member_groups_after_save(db_session, user.id)  # MKA fork
 
             from src.routers.users import _invalidate_session_cache
             _invalidate_session_cache(user.id)

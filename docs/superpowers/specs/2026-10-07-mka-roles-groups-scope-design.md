@@ -87,3 +87,15 @@ These supersede the earlier sections where they differ.
 - **(f) Remind cooldown:** the manual-remind cooldown is keyed per course plus scope unit for filtered viewers.
 - **(g) Naib rules:** `identity_rules` 2026.4 adds the `naib_mohtamim` title and `naibqaid.<region>` for regional Naib Qaids.
 - **(h) Atfal:** the Atfal Mohtamim keeps the role. Only the department group is excluded.
+
+## 8. Member Majlis groups (2026-10-08)
+
+Job: when a member signs up and picks their Majlis, they are automatically in `Majlis: <X>` and `Region: <Y>` managed groups. Nobody is added by hand.
+
+1. **One desired-groups function** (`identity_sync.desired_groups`), used by login, profile save and backfill:
+   - Proven, current officeholder: the mailbox-derived set (department, level, region, majlis) with gaps filled from the profile field by field. A mailbox with no Majlis (regional, national) gets the profile Majlis; one with no Region (national) gets the profile Region. A value the mailbox gives always wins (local `qaid.albany@` keeps `majlis:albany`, a differing profile Majlis is ignored; regional `qaid.northeast@` keeps `region:northeast` and adds the profile Majlis even if it sits in another region).
+   - Everyone else with a `mka_user_profile` row: `majlis:<slug>` and `region:<slug>` from the profile only (no department or level).
+   - No profile and proven: empty set. No profile and untrusted: groups left alone (as before).
+2. **Roles**: a profile save runs the full per-user sync, so it may set or revert the Mohtamim role, but only from proven attributes. The profile never contributes to the role decision. An untrusted (unproven or stale) officeholder with a profile has only its `majlis:` / `region:` groups managed from the profile; its department and level groups are left as they are.
+3. **Muqami**: `region:muqami` ("Region: Muqami") joins the catalogue (86 managed groups). `region_slugs()` derives every region from `MAJLIS_TO_REGION` values, so the profile and the catalogue cannot drift. The rules file is unchanged (its `regions` map still omits Muqami; the parser is unaffected).
+4. **Triggers**: after every successful `upsert_profile` (signup, self edit, admin edit) `sync_member_groups` re-syncs the user in each allowlisted org they belong to (own session, never raises, flag off = zero writes). Signup saves the profile BEFORE the org link exists, so `create_user` calls the hook again after the join (one `# MKA fork` line). The org-join paths in `services/orgs/join.py` (invite and open join) call the same hook after the `UserOrganization` row is created, so an existing member who joins a second org is placed too. Google login keeps using `identity_sync_user`. `backfill_org` visits org users that have an attribute row OR a profile row; response keys are unchanged.
