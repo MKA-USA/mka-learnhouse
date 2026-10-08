@@ -16,7 +16,7 @@ from src.security.features_utils.usage import (
 from src.core.deployment_mode import get_deployment_mode
 from src.services.users.usergroups import add_users_to_usergroup
 from src.services.auth.mka_google_only import block_email_change, block_non_google_auth  # MKA fork
-from src.services.users.mka_profile import save_signup_profile, validate_signup_profile  # MKA fork
+from src.services.users.mka_profile import save_signup_profile, sync_member_groups_after_save, validate_signup_profile  # MKA fork
 from src.services.users.emails import (
     send_account_creation_email,
 )
@@ -294,6 +294,7 @@ async def create_user(
     db_session.add(user_organization)
     await db_session.commit()
     await db_session.refresh(user_organization)
+    await sync_member_groups_after_save(db_session, user_organization.user_id)  # MKA fork
 
     user_read = UserRead.model_validate(user)
 

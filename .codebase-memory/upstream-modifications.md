@@ -1752,3 +1752,17 @@ index 8deab550..b3c95d8f 100644
 ```
 
 - **Re-apply**: `grep -n "MKA fork" apps/api/src/routers/users.py apps/web/app/api/signup/route.ts` (4 lines in users.py: 1 import + 3 route params; in route.ts this change owns the `mka-signup-proxy` import, the "API verifies" comment, the `mkaSignupFetch(...)` call line, the fetch `headers` line and the final `NextResponse.json(..., { headers: mkaSignupResponseHeaders(...) })` line that passes the API's `Retry-After` through; the other `MKA fork` lines there are the `mka_profile` hooks from section A).
+
+## Member Majlis groups: signup hook (`apps/api/src/services/users/users.py`, 2026-10-08)
+
+Why: `create_user` saves the MKA profile before the `UserOrganization` row exists, so the profile-save hook finds no org at signup. One call after the org join re-runs the (fail-open, flag-gated) group sync. No extension point exists after the join.
+
+```diff
+-from src.services.users.mka_profile import save_signup_profile, validate_signup_profile  # MKA fork
++from src.services.users.mka_profile import save_signup_profile, sync_member_groups_after_save, validate_signup_profile  # MKA fork
+@@ create_user
+     await db_session.refresh(user_organization)
++    await sync_member_groups_after_save(db_session, user_organization.user_id)  # MKA fork
+```
+
+Re-apply: `grep -n "sync_member_groups_after_save" apps/api/src/services/users/users.py` (2 lines).

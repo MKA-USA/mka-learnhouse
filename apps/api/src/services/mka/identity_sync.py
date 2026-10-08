@@ -33,12 +33,13 @@ from types import SimpleNamespace
 from typing import Any, Callable, Optional
 from uuid import uuid4
 
-from sqlalchemy import delete, text
+from sqlalchemy import delete, or_, text
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.db.mka_identity import MkaIdentitySyncState, MkaManagedGroup, MkaManagedRole
 from src.db.mka_user_attributes import MkaUserAttributes
+from src.db.mka_user_profile import MkaUserProfile
 from src.db.roles import (
     DashboardPermission,
     Permission,
@@ -148,6 +149,15 @@ def mohtamim_rights() -> dict:
 # group catalogue
 # ---------------------------------------------------------------------------------------------------------------
 
+def region_slugs(rules: IdentityRules) -> dict[str, str]:
+    """Region display name -> group slug for EVERY region value of ``MAJLIS_TO_REGION`` (the source the profile writes
+    ``region`` from), so the two cannot drift. The rules file's slugs win; a region it omits (Muqami) gets its slugified name."""
+    out = {name: slug for slug, name in rules.regions.items()}
+    for name in set(rules.majlis_to_region.values()):
+        out.setdefault(name, slugify_majlis(name))
+    return out
+
+
 def catalogue(rules: Optional[IdentityRules] = None) -> dict[str, str]:
     """Managed group key -> display name. Majlis come from ``MAJLIS_TO_REGION`` (via the rules object), regions and
     departments from the identity rules file: one source each, nothing hardcoded here."""
@@ -155,7 +165,7 @@ def catalogue(rules: Optional[IdentityRules] = None) -> dict[str, str]:
     out: dict[str, str] = {}
     for name in sorted(rules.majlis_to_region):
         out[f"majlis:{slugify_majlis(name)}"] = f"Majlis: {name}"
-    for slug, name in sorted(rules.regions.items(), key=lambda kv: kv[1]):
+    for name, slug in sorted(region_slugs(rules).items()):  # incl. regions the rules file omits (Muqami)
         out[f"region:{slug}"] = f"Region: {name}"
     no_course = {d["key"] for d in rules.raw.get("departments", []) if d.get("has_course") is False}
     for key, name in rules.department_names.items():
@@ -174,8 +184,7 @@ def desired_group_keys(effective: dict, cat: dict[str, str], rules: Optional[Ide
     if effective.get("majlis"):
         keys.add(f"majlis:{slugify_majlis(str(effective['majlis']))}")
     if effective.get("region"):
-        by_name = {name: slug for slug, name in rules.regions.items()}
-        slug = by_name.get(str(effective["region"]))
+        slug = region_slugs(rules).get(str(effective["region"]))
         if slug:
             keys.add(f"region:{slug}")
     if effective.get("department"):
@@ -183,6 +192,33 @@ def desired_group_keys(effective: dict, cat: dict[str, str], rules: Optional[Ide
     if effective.get("is_officeholder") is True and effective.get("level") in LEVEL_GROUPS:
         keys.add(f"level:{effective['level']}")
     return {k for k in keys if k in cat}
+
+
+def profile_group_keys(profile: Any, cat: dict[str, str], rules: Optional[IdentityRules] = None) -> set[str]:
+    """Managed groups a member's profile implies: its Majlis and Region only (no department / level)."""
+    return desired_group_keys({"majlis": profile.majlis, "region": profile.region}, cat, rules)
+
+
+def desired_groups(trust: Optional["Trust"], profile: Any, cat: dict[str, str], rules: Optional[IdentityRules] = None) -> Optional[set[str]]:
+    """THE rule for a user's managed groups, used by every path (login, profile save, backfill):
+
+    * trusted (proven, current) officeholder -> the mailbox-derived set, with gaps filled from the profile field by field:
+      a mailbox that gives no Majlis (regional / national) gets the profile's Majlis, one that gives no Region (national)
+      gets the profile's Region. A value the mailbox DOES give always wins;
+    * otherwise a profile row -> its Majlis + Region groups;
+    * otherwise a trusted non-officeholder -> empty (nothing implies a group);
+    * an untrusted identity with no profile -> ``None``: leave the groups alone (nothing to base a decision on)."""
+    if trust is not None and trust.effective.get("is_officeholder") is True:
+        eff = dict(trust.effective)
+        if profile is not None:
+            if not eff.get("majlis"):
+                eff["majlis"] = profile.majlis
+            if not eff.get("region"):
+                eff["region"] = profile.region
+        return desired_group_keys(eff, cat, rules)
+    if profile is not None:
+        return profile_group_keys(profile, cat, rules)
+    return set() if trust is not None else None
 
 
 def qualifies_for_mohtamim_role(effective: dict) -> bool:
@@ -411,14 +447,24 @@ async def _gate(db: AsyncSession, user: Any) -> tuple[Optional[Trust], Optional[
     return Trust(effective=trusted, role_attrs=trusted), None
 
 
-async def _sync_one(db: AsyncSession, ctx: OrgCtx, user: Any, trust: Trust, *, dry_run: bool) -> UserPlan:
+async def load_profile(db: AsyncSession, user_id: int) -> Optional[SimpleNamespace]:
+    """A plain COPY of the member's profile (majlis, region) or None. Reads only."""
+    row = (
+        await db.execute(select(MkaUserProfile.majlis, MkaUserProfile.region).where(MkaUserProfile.user_id == user_id))
+    ).first()
+    return SimpleNamespace(majlis=row[0], region=row[1]) if row is not None else None
+
+
+async def _sync_one(db: AsyncSession, ctx: OrgCtx, user: Any, trust: Optional[Trust], *, dry_run: bool,
+                    profile: Any = None) -> UserPlan:
+    """``trust`` None = untrusted identity: it never wins the role (a held managed role is taken back) and its groups come
+    from the profile alone (the caller only gets here when there is one)."""
     if not dry_run and not org_allowed(ctx.org_id):
         raise OrgNotAllowed(ctx.org_id)
-    effective = trust.effective
     plan = UserPlan(user_id=user.id)
     cat_keys = set(ctx.groups)
-    desired = desired_group_keys(effective, {k: k for k in cat_keys})
-    wants_role = qualifies_for_mohtamim_role(trust.role_attrs)
+    desired = desired_groups(trust, profile, {k: k for k in cat_keys})
+    wants_role = trust is not None and qualifies_for_mohtamim_role(trust.role_attrs)
 
     async def compute() -> UserPlan:
         p = UserPlan(user_id=user.id)
@@ -446,8 +492,9 @@ async def _sync_one(db: AsyncSession, ctx: OrgCtx, user: Any, trust: Trust, *, d
                 ).scalars().all()
             )
         current = {key_by_gid[g] for g in current_ids}
-        p.add = sorted(desired - current)
-        p.remove = sorted(current - desired)
+        if desired is not None:
+            p.add = sorted(desired - current)
+            p.remove = sorted(current - desired)
         if wants_role and membership.role_id == DEFAULT_ROLE_ID:
             p.role = "set"
         elif ctx.role_id is not None and membership.role_id == ctx.role_id and not wants_role:
@@ -549,12 +596,13 @@ async def sync_user_identity(db: AsyncSession, org_id: int, user: Any) -> UserPl
     if not org_allowed(org_id):
         return UserPlan(user_id=user.id, skipped="org_not_allowed")
     trust, reason = await _gate(db, user)
-    if trust is None:
+    profile = await load_profile(db, user.id)
+    if trust is None and profile is None:
         plan = await _revert_only(db, await _peek_ctx(db, org_id), user.id)
         plan.skipped = reason
         return plan
     ctx = await ensure_org(db, org_id)
-    return await _sync_one(db, ctx, user, trust, dry_run=False)
+    return await _sync_one(db, ctx, user, trust, dry_run=False, profile=profile)
 
 
 async def identity_sync_user(db_factory: Callable[[], AsyncSession], user: Any) -> None:
@@ -567,6 +615,21 @@ async def identity_sync_user(db_factory: Callable[[], AsyncSession], user: Any) 
         logger.error("MKA identity sync failed (login unaffected): %s", type(exc).__name__)  # no traceback: SQL params can hold PII
 
 
+async def sync_member_groups(db_factory: Callable[[], AsyncSession], user_id: int) -> None:
+    """Profile-save entry point (signup, self edit, admin edit): re-sync the user's managed groups in every allowlisted org
+    they belong to, through the same ``_run`` as login. Own session, NEVER raises, flag off = zero writes."""
+    try:
+        if not enabled():
+            return
+        async with db_factory() as s:
+            email = (await s.execute(select(User.email).where(User.id == user_id))).scalar()
+        if email is None:
+            return
+        await asyncio.wait_for(_run(db_factory, SimpleNamespace(id=user_id, email=email)), timeout=TIMEOUT_SECONDS)
+    except Exception as exc:  # noqa: BLE001 - fail-open: a profile save never fails because of group sync
+        logger.error("MKA member group sync failed (profile save unaffected): %s", type(exc).__name__)
+
+
 async def _run(db_factory: Callable[[], AsyncSession], user: Any) -> None:
     async with db_factory() as s:
         org_ids = sorted(
@@ -576,13 +639,14 @@ async def _run(db_factory: Callable[[], AsyncSession], user: Any) -> None:
         if not org_ids:
             return
         trust, _reason = await _gate(s, user)
+        profile = await load_profile(s, user.id)
         for org_id in org_ids:
             try:
-                if trust is None:
+                if trust is None and profile is None:
                     await _revert_only(s, await _peek_ctx(s, org_id), user.id)
                     continue
                 ctx = await ensure_org(s, org_id)
-                plan = await _sync_one(s, ctx, user, trust, dry_run=False)
+                plan = await _sync_one(s, ctx, user, trust, dry_run=False, profile=profile)
                 if plan.changed:
                     logger.info("MKA identity sync: org %s user %s +%d -%d role=%s", org_id, user.id,
                                 len(plan.add), len(plan.remove), plan.role)
@@ -599,7 +663,7 @@ async def _run(db_factory: Callable[[], AsyncSession], user: Any) -> None:
 # ---------------------------------------------------------------------------------------------------------------
 
 async def backfill_org(db: AsyncSession, org_id: int, *, dry_run: bool = True) -> dict:
-    """Ensure the role and groups, then sync every org member that has an attribute row. In ``dry_run`` nothing is
+    """Ensure the role and groups, then sync every org member that has an attribute row OR a profile row. In ``dry_run`` nothing is
     written and ``planned`` lists the changes (user ids only, capped). Per-user failures are counted, not raised."""
     counts = {
         "users_seen": 0, "groups_created": 0, "groups_recreated": 0, "memberships_added": 0, "memberships_removed": 0,
@@ -622,8 +686,10 @@ async def backfill_org(db: AsyncSession, org_id: int, *, dry_run: bool = True) -
             await db.execute(
                 select(User.id, User.email)
                 .join(UserOrganization, UserOrganization.user_id == User.id)  # type: ignore[arg-type]
-                .join(MkaUserAttributes, MkaUserAttributes.user_id == User.id)  # type: ignore[arg-type]
+                .outerjoin(MkaUserAttributes, MkaUserAttributes.user_id == User.id)  # type: ignore[arg-type]
+                .outerjoin(MkaUserProfile, MkaUserProfile.user_id == User.id)  # type: ignore[arg-type]
                 .where(UserOrganization.org_id == org_id, User.id > last_id)  # type: ignore[arg-type]
+                .where(or_(MkaUserAttributes.user_id.is_not(None), MkaUserProfile.user_id.is_not(None)))  # type: ignore[union-attr]
                 .order_by(User.id)  # type: ignore[arg-type]
                 .limit(BATCH)
             )
@@ -636,14 +702,15 @@ async def backfill_org(db: AsyncSession, org_id: int, *, dry_run: bool = True) -
             user = SimpleNamespace(id=uid, email=email)
             try:
                 trust, reason = await _gate(db, user)
-                if trust is None:  # cannot be trusted: never grant, but a held managed role is taken back
+                profile = await load_profile(db, uid)
+                if trust is None and profile is None:  # cannot be trusted: never grant, but a held managed role is taken back
                     skipped[reason or "skipped"] = skipped.get(reason or "skipped", 0) + 1
                     reverted = await _revert_only(db, ctx, uid, dry_run=dry_run)
                     counts["roles_reverted"] += reverted.role == "revert"
                     if dry_run and reverted.changed and len(planned) < PLAN_ROWS_CAP:
                         planned.append(reverted.row())
                     continue
-                plan = await _sync_one(db, ctx, user, trust, dry_run=dry_run)
+                plan = await _sync_one(db, ctx, user, trust, dry_run=dry_run, profile=profile)
             except Exception as exc:  # noqa: BLE001
                 counts["errors"] += 1
                 logger.error("MKA identity backfill failed for one user: %s", type(exc).__name__)
@@ -665,6 +732,7 @@ async def backfill_org(db: AsyncSession, org_id: int, *, dry_run: bool = True) -
                 select(UserOrganization.user_id).where(
                     UserOrganization.org_id == org_id, UserOrganization.role_id == ctx.role_id,
                     UserOrganization.user_id.notin_(select(MkaUserAttributes.user_id)),  # type: ignore[attr-defined]
+                    UserOrganization.user_id.notin_(select(MkaUserProfile.user_id)),  # type: ignore[attr-defined]  (profile users ran above)
                 )
             )
         ).scalars().all()
@@ -724,5 +792,5 @@ async def status(db: AsyncSession, org_id: int) -> dict:
 
 __all__ = [
     "OrgNotAllowed", "allowed_org_ids", "backfill_org", "catalogue", "org_allowed", "desired_group_keys", "enabled", "ensure_org", "identity_sync_user",
-    "mohtamim_rights", "qualifies_for_mohtamim_role", "status", "sync_user_identity",
+    "mohtamim_rights", "qualifies_for_mohtamim_role", "status", "sync_member_groups", "sync_user_identity",
 ]

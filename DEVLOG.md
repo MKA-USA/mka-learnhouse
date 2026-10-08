@@ -4,6 +4,20 @@ MKA USA's learning platform, a fork of the open-source LearnHouse (Next.js web, 
 Stack: Next.js + Turbopack, Bun, FastAPI/SQLModel, Postgres, GitHub Actions, Coolify.
 Started: 2026-10 (fork customisation)
 
+## 2026-10-08 — Members land in their Majlis and Region groups automatically
+
+**Goal:** When a member picks their Majlis at signup they are in `Majlis: X` and `Region: Y` without anyone adding them.
+
+**Did:**
+- One `desired_groups` rule for login, profile save and backfill; profile saves trigger a fail-open per-user sync; `region:muqami` added; backfill covers profile-only users.
+
+**Decisions (why):**
+- Officeholders: mailbox wins per field, the profile only fills gaps (regional and national accounts have no Majlis), so a national Mohtamim who is also a member shows up in their own Majlis.
+- Signup saves the profile before the org link, so one tagged line in `create_user` re-runs the sync after the join rather than reordering upstream code.
+- Muqami derived from `MAJLIS_TO_REGION` instead of editing the identity rules file, which would change parser behaviour.
+
+**Status/Next:** PR open against dev. After deploy, run the identity backfill once to place existing members.
+
 ## 2026-10-07 — Mohtamim role, overlapping user groups, reporting scope by Majlis/region/department
 
 **Goal:** Give every Mohtamim a user type that can create and run courses, put each officeholder in all the groups they belong to (Majlis, region, department, level) without anyone adding them by hand, and let Qaids, Naib Qaids, Mohtamims and Naib Mohtamims see completion reports for exactly their own people.
