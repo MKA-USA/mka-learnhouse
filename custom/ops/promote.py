@@ -230,7 +230,7 @@ def is_passthrough(line):
     if m2 is None:
         return False
     default = m2.group(2)
-    if default is not None and (secret_name(var) or "ilm-dev" in default):
+    if default and (secret_name(var) or "ilm-dev" in default):
         return False  # a baked-in default for a secret / dev host must be reviewed by hand
     return True
 
