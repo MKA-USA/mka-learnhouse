@@ -9,7 +9,21 @@ One command that promotes dev to prod: code, env, compose, org settings, backfil
     python3 custom/ops/promote.py --apply --urgent   # deploy even if PROD_FREEZE is on
 
 Requires `gh` (authenticated), macOS `security`, and keychain item `MKA_Coolify_API_Key`.
-Python 3 stdlib only. Secret values are never printed (key names and set/changed only).
+Python 3 stdlib only.
+
+## Security notes
+
+- Secrets are never copied dev -> prod. `PER_ENV_KEYS` plus a generic rule (`SECRET|PASSWORD|PRIVATE|_KEY$|TOKEN|DSN`,
+  or credentials inside a URL value) block them; only keys in `SHARED_SECRET_KEYS` (third-party keys shared by
+  design) are copied. A blocked secret that is missing on prod is reported as MANUAL.
+- Secrets are written to the keychain via `security -i` on stdin, never argv. Backups in `~/.mka-promote/backups`
+  (dir 0700, files 0600) have literal secret values redacted, with a warning.
+- The Coolify API defaults to cleartext `http://82.29.153.52:8000` (Coolify has no TLS FQDN configured). Override with
+  `MKA_COOLIFY_URL`; the script warns on every run when it is plain http to a non-local host. Use a tunnel:
+
+      ssh -L 8000:localhost:8000 root@82.29.153.52
+      MKA_COOLIFY_URL=http://localhost:8000/api/v1 python3 custom/ops/promote.py
+ Secret values are never printed (key names and set/changed only).
 
 ## Execution order
 

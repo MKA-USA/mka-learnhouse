@@ -65,6 +65,26 @@ class EnvPlan(unittest.TestCase):
         self.assertEqual(p.rewrite_host(5), 5)
 
 
+class Secrets(unittest.TestCase):
+    def test_secrets_not_copied(self):
+        dev = [{"key": k, "value": "v"} for k in (
+            "NEXTAUTH_SECRET", "POSTGRES_PASSWORD", "LEARNHOUSE_AUTH_JWT_SECRET_KEY", "SOME_API_TOKEN",
+            "MY_DSN", "LEARNHOUSE_GOOGLE_CLIENT_SECRET", "NEXT_PUBLIC_TURNSTILE_SITE_KEY", "PLAIN")]
+        dev.append({"key": "REDIS_X", "value": "redis://u:pw@h:6379/0"})
+        r = p.plan_env(dev, [{"key": "SOME_API_TOKEN", "value": "p"}])
+        copied = {a["key"] for a in r["actions"]}
+        self.assertEqual(copied, {"LEARNHOUSE_GOOGLE_CLIENT_SECRET", "NEXT_PUBLIC_TURNSTILE_SITE_KEY", "PLAIN"})
+        self.assertIn("NEXTAUTH_SECRET", r["manual"])
+        self.assertIn("REDIS_X", r["manual"])
+        self.assertNotIn("SOME_API_TOKEN", r["manual"])  # exists on prod: left alone
+
+    def test_redact(self):
+        out, names = p.redact_compose("      - 'A_SECRET=abc'\n      - 'B_SECRET=${B_SECRET:-}'\n      - 'C=1'")
+        self.assertEqual(names, ["A_SECRET"])
+        self.assertNotIn("abc", out)
+        self.assertIn("${B_SECRET:-}", out)
+
+
 class Compose(unittest.TestCase):
     def test_insert_positions(self):
         new, added = p.compose_insert(DEV, PROD)

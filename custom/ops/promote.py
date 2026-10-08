@@ -27,7 +27,7 @@ import urllib.request
 import uuid as uuidlib
 
 REPO = "MKA-USA/mka-learnhouse"
-COOLIFY = "http://82.29.153.52:8000/api/v1"
+COOLIFY = os.environ.get("MKA_COOLIFY_URL", "http://82.29.153.52:8000/api/v1").rstrip("/")
 DEV_SERVICE = "wu1nbkd5gklumfdukk2xwykl"
 PROD_SERVICE = "7plsfizuqdvykh5oathbuefi"
 DEV_HOST = "ilm-dev.mkausa.org"
@@ -51,7 +51,20 @@ ALL_STEPS = ["env", "compose", "code", "org", "backfill"]
 # and do not need to be listed.
 # ---------------------------------------------------------------------------
 PER_ENV_SECRET_KEYS = ("MKA_AUTOMATION_CRON_SECRET", "MKA_AUTOMATION_WEBHOOK_SECRET")
-PER_ENV_KEYS = ()  # e.g. ("MKA_AUTOMATION_TEST_RECIPIENT",)
+PER_ENV_KEYS = (  # never copied; reported as MANUAL when missing on prod
+    "NEXTAUTH_SECRET", "LEARNHOUSE_AUTH_JWT_SECRET_KEY", "COLLAB_INTERNAL_KEY",
+    "POSTGRES_PASSWORD", "POSTGRES_USER", "POSTGRES_DB", "LEARNHOUSE_INITIAL_ADMIN_PASSWORD",
+    "LEARNHOUSE_SQL_CONNECTION_STRING", "LEARNHOUSE_REDIS_CONNECTION_STRING", "LEARNHOUSE_REDIS_URL",
+)  # e.g. add "MKA_AUTOMATION_TEST_RECIPIENT" if prod needs its own value
+# Any key matching this is treated as a secret and NOT copied unless allowlisted below.
+SECRET_RE = re.compile(r"(SECRET|PASSWORD|PRIVATE|_KEY$|TOKEN|DSN)", re.I)
+# Credentials embedded in a URL/DSN value (scheme://user:pass@host) also count as secret.
+CRED_URL_RE = re.compile(r"://[^/\s:@]+:[^@\s]+@")
+# Third-party keys shared dev<->prod by design. Add a key here only after deciding that.
+SHARED_SECRET_KEYS = (
+    "LEARNHOUSE_GOOGLE_CLIENT_SECRET", "LEARNHOUSE_SMTP_PASSWORD", "LEARNHOUSE_AI_API_KEY",
+    "TYPESAFE_API_KEY", "TURNSTILE_SECRET_KEY", "NEXT_PUBLIC_TURNSTILE_SITE_KEY",
+)
 # Coolify generates these per service (SERVICE_PASSWORD_*, SERVICE_FQDN_*...).
 PER_ENV_PREFIXES = ("SERVICE_",)
 
@@ -92,23 +105,35 @@ def rewrite_host(value, dev=DEV_HOST, prod=PROD_HOST):
     return value
 
 
+def is_secret(key, value, shared=SHARED_SECRET_KEYS):
+    """True if this env var must not be copied dev -> prod."""
+    if key in shared:
+        return False
+    return bool(SECRET_RE.search(key) or CRED_URL_RE.search(value or ""))
+
+
 def plan_env(dev_envs, prod_envs, secret_keys=PER_ENV_SECRET_KEYS, per_env_keys=PER_ENV_KEYS,
-             prefixes=PER_ENV_PREFIXES):
+             prefixes=PER_ENV_PREFIXES, shared=SHARED_SECRET_KEYS):
     """Plan env changes. dev_envs/prod_envs: lists of {"key","value"}.
 
     Returns dict(actions=[{key, op: create|update, value, reason}], gen=[keys to generate],
     prod_only=[keys], skipped=[keys], unchanged=int).
     """
     prod = {e["key"]: (e.get("value") or "") for e in prod_envs}
-    actions, gen, skipped, unchanged = [], [], [], 0
+    actions, gen, skipped, unchanged, manual = [], [], [], 0, []
     for e in dev_envs:
         key, dv = e["key"], e.get("value") or ""
         if key in secret_keys:
             if key not in prod:
                 gen.append(key)
             continue
-        if key in per_env_keys or any(key.startswith(p) for p in prefixes):
+        if any(key.startswith(p) for p in prefixes):
             skipped.append(key)
+            continue
+        if key in per_env_keys or is_secret(key, dv, shared):
+            skipped.append(key)
+            if key not in prod:
+                manual.append(key)  # secret missing on prod: operator must set it
             continue
         want, reason = dv, "copy"
         if DEV_HOST in dv:
@@ -121,7 +146,8 @@ def plan_env(dev_envs, prod_envs, secret_keys=PER_ENV_SECRET_KEYS, per_env_keys=
             unchanged += 1
     dev_keys = {e["key"] for e in dev_envs}
     prod_only = sorted(k for k in prod if k not in dev_keys)
-    return {"actions": actions, "gen": gen, "prod_only": prod_only, "skipped": skipped, "unchanged": unchanged}
+    return {"actions": actions, "gen": gen, "prod_only": prod_only, "skipped": skipped, "unchanged": unchanged,
+            "manual": manual}
 
 
 _SVC_RE = re.compile(r"^  ([A-Za-z0-9_.-]+):\s*$")
@@ -148,6 +174,23 @@ def parse_env_lines(raw):
             elif line.strip() and not line.startswith("      "):
                 in_env = False
     return out
+
+
+def redact_compose(raw):
+    """Redact literal values of secret-looking env lines (those not a ${VAR} ref).
+
+    Returns (text, [var names redacted]).
+    """
+    out, names = [], []
+    for line in raw.split("\n"):
+        m = _ITEM_RE.match(line)
+        if m and SECRET_RE.search(m.group(2)):
+            val = line[m.end():].rstrip("'\" ")
+            if val and not val.startswith("${"):
+                names.append(m.group(2))
+                line = line[:m.end()] + "<redacted>'"
+        out.append(line)
+    return "\n".join(out), names
 
 
 def compose_insert(dev_raw, prod_raw):
@@ -365,7 +408,8 @@ def keychain_get(service):
 
 
 def keychain_set(service, value):
-    run(["security", "add-generic-password", "-U", "-s", service, "-a", "mka", "-w", value])
+    # value goes via stdin (security -i), never argv, so it is not visible in `ps`
+    run(["security", "-i"], input_=f"add-generic-password -U -s {service} -a mka -w {value}\n")
 
 
 def http(method, url, headers=None, body=None, timeout=60, raw=False):
@@ -390,6 +434,8 @@ def _maybe_json(data):
 
 class Coolify:
     def __init__(self):
+        if COOLIFY.startswith("http://") and not re.match(r"http://(localhost|127\.0\.0\.1)[:/]", COOLIFY):
+            say("WARNING: Coolify URL is cleartext http; the API token is sent unencrypted. Use an SSH tunnel (see README).")
         tok = keychain_get("MKA_Coolify_API_Key")
         if not tok:
             raise RuntimeError("keychain item MKA_Coolify_API_Key not found")
@@ -446,6 +492,8 @@ def step_env(ctx):
     for k in plan["gen"]:
         have = keychain_get(k + "_PROD")
         say(f"  CREATE {k}  (per-env secret; {'reuse keychain ' + k + '_PROD' if have else 'generate + store in keychain ' + k + '_PROD'}; value set)")
+    for k in plan["manual"]:
+        say(f"  MANUAL {k}: secret missing on prod, not copied; set it in Coolify yourself")
     for k in plan["prod_only"]:
         say(f"  prod-only key (not deleted): {k}")
     if not plan["actions"] and not plan["gen"]:
@@ -481,12 +529,16 @@ def step_compose(ctx):
         say(f"  ADD {svc}: {var}")
     if not ctx.apply:
         return
-    os.makedirs(BACKUP_DIR, exist_ok=True)
+    os.makedirs(BACKUP_DIR, mode=0o700, exist_ok=True)
+    os.chmod(BACKUP_DIR, 0o700)
+    prod_backup, leaked = redact_compose(prod_raw)
+    if leaked:
+        say(f"  WARNING: prod compose has literal secret value(s) for {leaked}; redacted in the backup (original stays in Coolify)")
     ts = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     bpath = os.path.join(BACKUP_DIR, f"prod-compose-{ts}.yml")
-    with open(bpath, "w") as f:
-        f.write(prod_raw)
-    os.chmod(bpath, 0o600)
+    fd = os.open(bpath, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(prod_backup)
     say(f"  backup: {bpath}")
     cf.call("PATCH", f"/services/{PROD_SERVICE}", {"docker_compose_raw": base64.b64encode(new_raw.encode()).decode()})
     after = cf.service(PROD_SERVICE)["docker_compose_raw"]
