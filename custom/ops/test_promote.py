@@ -65,6 +65,38 @@ class EnvPlan(unittest.TestCase):
         self.assertEqual(p.rewrite_host(5), 5)
 
 
+class Gates(unittest.TestCase):
+    def test_passthrough_only(self):
+        dev = DEV.replace("- 'NEW1=${NEW1:-}'", "- 'NEW1=literal'").replace("- 'NEW2=${NEW2:-}'", "- NEW2=${OTHER}")
+        new, added, manual = p.compose_insert(dev, PROD)
+        self.assertEqual(added, [])
+        self.assertEqual(manual, [("app", "NEW1"), ("app", "NEW2")])
+        self.assertEqual(new, PROD)
+        self.assertTrue(p.is_passthrough("      - NEW=${NEW}"))
+        self.assertTrue(p.is_passthrough('      - "NEW=${NEW:-x}"'))
+        self.assertFalse(p.is_passthrough("      - NEW=${NEW}suffix"))
+
+    def test_flags_and_diff_display(self):
+        r = p.plan_env([{"key": "MKA_X_ENABLED", "value": "true"}, {"key": "LEARNHOUSE_DEVELOPMENT_MODE", "value": "true"},
+                        {"key": "LEARNHOUSE_AI_API_KEY", "value": "sk-abc"}],
+                       [{"key": "MKA_X_ENABLED", "value": "false"}, {"key": "LEARNHOUSE_AI_API_KEY", "value": "old"}])
+        keys = {a["key"]: a for a in r["actions"]}
+        self.assertNotIn("LEARNHOUSE_DEVELOPMENT_MODE", keys)
+        self.assertTrue(p.is_flag("MKA_X_ENABLED") and p.is_flag("LEARNHOUSE_JEV_MODEL") and p.is_flag("A_ORG_IDS"))
+        self.assertIn("false \u2192 true", p.show_change(keys["MKA_X_ENABLED"]))
+        self.assertNotIn("sk-abc", p.show_change(keys["LEARNHOUSE_AI_API_KEY"]))
+
+    def test_wider_secret_re(self):
+        for k in ("DB_PASS", "X_CREDENTIAL", "MY_AUTH_X", "PW_SALT", "AWS_KEY_ID", "TLS_CERT", "SIGNING_X"):
+            self.assertTrue(p.is_secret(k, ""), k)
+
+    def test_sync_gate_and_url(self):
+        self.assertEqual(p.sync_gate({"memberships_removed": 0, "roles_reverted": 0, "errors": 0}), (True, []))
+        self.assertFalse(p.sync_gate({"memberships_removed": 2})[0])
+        self.assertTrue(p.coolify_url_ok("https://x") and p.coolify_url_ok("http://127.0.0.1:18000/api/v1"))
+        self.assertFalse(p.coolify_url_ok("http://82.29.153.52:8000/api/v1"))
+
+
 class Secrets(unittest.TestCase):
     def test_secrets_not_copied(self):
         dev = [{"key": k, "value": "v"} for k in (
@@ -87,7 +119,7 @@ class Secrets(unittest.TestCase):
 
 class Compose(unittest.TestCase):
     def test_insert_positions(self):
-        new, added = p.compose_insert(DEV, PROD)
+        new, added, manual = p.compose_insert(DEV, PROD)
         self.assertEqual(added, [("app", "NEW1"), ("app", "NEW2")])
         env = [v for v, _ in p.parse_env_lines(new)["app"]]
         self.assertEqual(env, ["A", "B", "NEW1", "C", "NEW2"])
@@ -95,13 +127,13 @@ class Compose(unittest.TestCase):
         self.assertNotIn("#dev", new)
 
     def test_only_added_lines_differ(self):
-        new, _ = p.compose_insert(DEV, PROD)
+        new, _, _m = p.compose_insert(DEV, PROD)
         self.assertEqual(set(PROD.splitlines()) - set(new.splitlines()), set())
         self.assertEqual(len(new.splitlines()) - len(PROD.splitlines()), 2)
 
     def test_idempotent(self):
-        new, _ = p.compose_insert(DEV, PROD)
-        again, added = p.compose_insert(DEV, new)
+        new, _, _m = p.compose_insert(DEV, PROD)
+        again, added, _m = p.compose_insert(DEV, new)
         self.assertEqual(added, [])
         self.assertEqual(again, new)
 

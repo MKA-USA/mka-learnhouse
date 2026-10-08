@@ -18,7 +18,13 @@ Python 3 stdlib only.
   design) are copied. A blocked secret that is missing on prod is reported as MANUAL.
 - Secrets are written to the keychain via `security -i` on stdin, never argv. Backups in `~/.mka-promote/backups`
   (dir 0700, files 0600) have literal secret values redacted, with a warning.
-- The Coolify API defaults to cleartext `http://82.29.153.52:8000` (Coolify has no TLS FQDN configured). Override with
+- The script REFUSES to run env/compose/code unless the Coolify URL is https:// or localhost/127.0.0.1. Use `--tunnel`
+  (opens `ssh -N -L 18000:localhost:8000 root@82.29.153.52` for the run; needs SSH key access), or `--insecure`
+  (loud warning, token sent in cleartext). Gated actions in `--apply` need `--yes`: flag changes (`*_ENABLED`,
+  `*_ORG_IDS`, `JEV_*`), merging dev into prod (commit list printed), and an identity sync that would remove
+  memberships, revert roles or has errors. Gates trip before anything is written. After deploy the script verifies
+  the `prod-deployed` tag equals prod HEAD (fails if prod is frozen; use `--urgent`).
+- (older note) The Coolify API defaults to cleartext `http://82.29.153.52:8000` (Coolify has no TLS FQDN configured). Override with
   `MKA_COOLIFY_URL`; the script warns on every run when it is plain http to a non-local host. Use a tunnel:
 
       ssh -L 8000:localhost:8000 root@82.29.153.52

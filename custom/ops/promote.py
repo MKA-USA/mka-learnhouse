@@ -55,9 +55,12 @@ PER_ENV_KEYS = (  # never copied; reported as MANUAL when missing on prod
     "NEXTAUTH_SECRET", "LEARNHOUSE_AUTH_JWT_SECRET_KEY", "COLLAB_INTERNAL_KEY",
     "POSTGRES_PASSWORD", "POSTGRES_USER", "POSTGRES_DB", "LEARNHOUSE_INITIAL_ADMIN_PASSWORD",
     "LEARNHOUSE_SQL_CONNECTION_STRING", "LEARNHOUSE_REDIS_CONNECTION_STRING", "LEARNHOUSE_REDIS_URL",
+    "LEARNHOUSE_DEVELOPMENT_MODE",
 )  # e.g. add "MKA_AUTOMATION_TEST_RECIPIENT" if prod needs its own value
 # Any key matching this is treated as a secret and NOT copied unless allowlisted below.
-SECRET_RE = re.compile(r"(SECRET|PASSWORD|PRIVATE|_KEY$|TOKEN|DSN)", re.I)
+SECRET_RE = re.compile(r"(SECRET|PASS|CREDENTIAL|AUTH|SALT|KEY_ID|CERT|PRIVATE|SIGNING|_KEY$|TOKEN|DSN)", re.I)
+# Flags whose change in --apply needs --yes (promotion flips behaviour on prod).
+FLAG_RE = re.compile(r"(_ENABLED|_ORG_IDS|JEV_)", re.I)
 # Credentials embedded in a URL/DSN value (scheme://user:pass@host) also count as secret.
 CRED_URL_RE = re.compile(r"://[^/\s:@]+:[^@\s]+@")
 # Third-party keys shared dev<->prod by design. Add a key here only after deciding that.
@@ -112,6 +115,18 @@ def is_secret(key, value, shared=SHARED_SECRET_KEYS):
     return bool(SECRET_RE.search(key) or CRED_URL_RE.search(value or ""))
 
 
+def is_flag(key):
+    return bool(FLAG_RE.search(key))
+
+
+def show_change(a):
+    """`KEY: <old> -> <new>` for non-secrets; secrets (shared allowlist) are masked."""
+    if SECRET_RE.search(a["key"]):
+        return f"{a['key']}: {'(unset)' if a['old'] is None else 'set'} -> changed (value hidden)"
+    old = "(unset)" if a["old"] is None else a["old"]
+    return f"{a['key']}: {old} \u2192 {a['value']}"
+
+
 def plan_env(dev_envs, prod_envs, secret_keys=PER_ENV_SECRET_KEYS, per_env_keys=PER_ENV_KEYS,
              prefixes=PER_ENV_PREFIXES, shared=SHARED_SECRET_KEYS):
     """Plan env changes. dev_envs/prod_envs: lists of {"key","value"}.
@@ -139,9 +154,9 @@ def plan_env(dev_envs, prod_envs, secret_keys=PER_ENV_SECRET_KEYS, per_env_keys=
         if DEV_HOST in dv:
             want, reason = rewrite_host(dv), "copy+host"
         if key not in prod:
-            actions.append({"key": key, "op": "create", "value": want, "reason": reason})
+            actions.append({"key": key, "op": "create", "value": want, "old": None, "reason": reason})
         elif prod[key] != want:
-            actions.append({"key": key, "op": "update", "value": want, "reason": reason})
+            actions.append({"key": key, "op": "update", "value": want, "old": prod[key], "reason": reason})
         else:
             unchanged += 1
     dev_keys = {e["key"] for e in dev_envs}
@@ -193,16 +208,27 @@ def redact_compose(raw):
     return "\n".join(out), names
 
 
+def is_passthrough(line):
+    """True only for `- VAR=${VAR}` / `- 'VAR=${VAR:-default}'` (quoted or not), same VAR."""
+    m = _ITEM_RE.match(line)
+    if not m:
+        return False
+    var = m.group(2)
+    rest = line[m.end():].strip().strip("'\"")
+    return re.fullmatch(r"\$\{" + re.escape(var) + r"(:?-[^}$]*)?\}", rest) is not None
+
+
 def compose_insert(dev_raw, prod_raw):
     """Insert env pass-through lines present in dev but missing in prod.
 
     Position: right after the nearest preceding dev neighbour that exists in prod,
     else right before the nearest following one, else at the end of the block.
-    Returns (new_prod_raw, [(service, var)]). Never touches anything else.
+    Only pure pass-through lines are inserted. Other missing lines are returned as manual.
+    Returns (new_prod_raw, [(service, var)], [(service, var)] manual). Never touches anything else.
     """
     dev, prod = parse_env_lines(dev_raw), parse_env_lines(prod_raw)
     lines = prod_raw.split("\n")
-    added = []
+    added, manual = [], []
     for svc, items in dev.items():
         if svc not in prod:
             continue
@@ -210,13 +236,16 @@ def compose_insert(dev_raw, prod_raw):
         for idx, (var, line) in enumerate(items):
             if var in have:
                 continue
+            if not is_passthrough(line):
+                manual.append((svc, var))
+                continue
             pos = _find_insert_pos(lines, svc, items, idx, have)
             if pos is None:
                 continue
             lines.insert(pos, line)
             have.add(var)
             added.append((svc, var))
-    return "\n".join(lines), added
+    return "\n".join(lines), added, manual
 
 
 def _find_insert_pos(lines, svc, items, idx, have):
@@ -434,8 +463,6 @@ def _maybe_json(data):
 
 class Coolify:
     def __init__(self):
-        if COOLIFY.startswith("http://") and not re.match(r"http://(localhost|127\.0\.0\.1)[:/]", COOLIFY):
-            say("WARNING: Coolify URL is cleartext http; the API token is sent unencrypted. Use an SSH tunnel (see README).")
         tok = keychain_get("MKA_Coolify_API_Key")
         if not tok:
             raise RuntimeError("keychain item MKA_Coolify_API_Key not found")
@@ -466,7 +493,8 @@ def say(msg=""):
 # Steps
 # ---------------------------------------------------------------------------
 class Ctx:
-    def __init__(self, apply, urgent):
+    def __init__(self, apply, urgent, yes=False):
+        self.yes = yes
         self.apply = apply
         self.urgent = urgent
         self.coolify = None
@@ -488,7 +516,7 @@ def step_env(ctx):
     plan = plan_env(dev, prod)
     say(f"unchanged: {plan['unchanged']}   skipped per-env: {len(plan['skipped'])}")
     for a in plan["actions"]:
-        say(f"  {a['op'].upper():6} {a['key']}  ({a['reason']}; value {'set' if a['op']=='create' else 'changed'})")
+        say(f"  {a['op'].upper():6} {show_change(a)}  ({a['reason']}{'; FLAG' if is_flag(a['key']) else ''})")
     for k in plan["gen"]:
         have = keychain_get(k + "_PROD")
         say(f"  CREATE {k}  (per-env secret; {'reuse keychain ' + k + '_PROD' if have else 'generate + store in keychain ' + k + '_PROD'}; value set)")
@@ -500,6 +528,9 @@ def step_env(ctx):
         say("  nothing to do")
     if not ctx.apply:
         return
+    flags = [a["key"] for a in plan["actions"] if is_flag(a["key"])]
+    if flags and not ctx.yes:
+        raise RuntimeError(f"flag change(s) {flags} need --yes; nothing was written")
     for a in plan["actions"]:
         if a["op"] == "create":
             cf.call("POST", f"/services/{PROD_SERVICE}/envs", {"key": a["key"], "value": a["value"]})
@@ -521,7 +552,9 @@ def step_compose(ctx):
     cf = ctx.cf()
     dev_raw = cf.service(DEV_SERVICE)["docker_compose_raw"]
     prod_raw = cf.service(PROD_SERVICE)["docker_compose_raw"]
-    new_raw, added = compose_insert(dev_raw, prod_raw)
+    new_raw, added, manual = compose_insert(dev_raw, prod_raw)
+    for svc, var in manual:
+        say(f"  MANUAL {svc}: {var} (not a pure pass-through line; not copied)")
     if not added:
         say("  nothing to do (prod has every dev env pass-through line)")
         return
@@ -579,6 +612,15 @@ def health_report():
     return ok
 
 
+def print_commits(cmp_):
+    for c in cmp_.get("commits", [])[:100]:
+        say(f"    {c['sha'][:8]} {c['commit']['message'].splitlines()[0][:100]}")
+
+
+def gh_api_sha(path):
+    return run(["gh", "api", f"repos/{REPO}/{path}", "--jq", ".sha"]).stdout.strip()
+
+
 def step_code(ctx, skip_code):
     say("== code ==")
     if skip_code:
@@ -596,6 +638,9 @@ def step_code(ctx, skip_code):
         say(f"  WOULD {'use PR #' + str(prs[0]['number']) if prs else 'create PR dev->prod'}, merge with a MERGE commit, "
             f"run {DEPLOY_WORKFLOW} --ref dev, wait (<=25 min), health check")
         return
+    print_commits(cmp_)
+    if not ctx.yes:
+        raise RuntimeError("merging dev into prod needs --yes (commit list printed above)")
     if prs:
         num = str(prs[0]["number"])
     else:
@@ -614,10 +659,11 @@ def step_code(ctx, skip_code):
     run_id = None
     for _ in range(12):
         runs = json.loads(gh(["run", "list", "--workflow", DEPLOY_WORKFLOW, "--event", "workflow_dispatch",
-                              "--limit", "5", "--json", "databaseId,createdAt"]).stdout or "[]")
+                              "--limit", "10", "--json", "databaseId,createdAt"]).stdout or "[]")
+        runs.sort(key=lambda r: r["createdAt"], reverse=True)  # newest first
         for r in runs:
             created = datetime.datetime.fromisoformat(r["createdAt"].replace("Z", "+00:00"))
-            if created >= started - datetime.timedelta(seconds=30):
+            if created >= started - datetime.timedelta(seconds=10):  # small clock-skew allowance
                 run_id = r["databaseId"]
                 break
         if run_id:
@@ -637,6 +683,15 @@ def step_code(ctx, skip_code):
         time.sleep(30)
     else:
         raise RuntimeError("deploy timed out after 25 min")
+    head, deployed = gh_api_sha("commits/prod"), None
+    try:
+        deployed = gh_api_sha("commits/prod-deployed")
+    except RuntimeError:
+        pass
+    if deployed != head:
+        raise RuntimeError(f"deploy ran but prod-deployed tag ({(deployed or 'missing')[:8]}) != prod HEAD ({head[:8]}); "
+                           "prod may be frozen (PROD_FREEZE) - rerun with --urgent")
+    say(f"  verified: prod-deployed == prod HEAD ({head[:8]})")
     if not health_report():
         raise RuntimeError("prod health check failed")
 
@@ -730,7 +785,7 @@ def step_org(ctx):
         say(f"  upload {ep}: {st}")
         failures += st >= 400 or st == 0
     if failures:
-        say(f"  {failures} org write(s) failed (check token has Full Access)")
+        raise RuntimeError(f"{failures} org write(s) failed (check token has Full Access)")
 
 
 # --- backfill --------------------------------------------------------------
@@ -754,11 +809,32 @@ def step_backfill(ctx):
         say("  WOULD POST /mka/attributes/recompute {dry_run:false}")
     st, d = http("POST", f"{api}/identity/sync?{q}&dry_run=true", h, b"")
     say(f"  identity sync (dry-run): {st} {summarize(d)}")
-    if ctx.apply and st == 200:
+    if st != 200 or not isinstance(d, dict):
+        raise RuntimeError(f"identity sync dry-run failed: {st}")
+    if ctx.apply:
+        ok, reasons = sync_gate(d)
+        if not ok:
+            for r in reasons:
+                say(f"  GATE: {r}")
+            planned = d.get("planned") or []
+            say(f"  planned changes (user ids, first 50 of {len(planned)}):")
+            for row in planned[:50]:
+                say("    " + json.dumps(row, default=str)[:200])
+            if not ctx.yes:
+                raise RuntimeError("identity sync would remove memberships/revert roles or has errors; rerun with --yes to proceed")
+            say("  --yes given: proceeding despite the gate")
         st, d = http("POST", f"{api}/identity/sync?{q}&dry_run=false", h, b"")
         say(f"  identity sync (real): {st} {summarize(d)}")
+        if st != 200:
+            raise RuntimeError(f"identity sync failed: {st}")
     st, d = http("GET", f"{api}/identity/status?{q}", h)
     say(f"  identity status: {st} {summarize(d)}")
+
+
+def sync_gate(d):
+    """(ok, reasons): apply only when nothing is removed/reverted and there are no errors."""
+    reasons = [f"{k}={d.get(k)}" for k in ("memberships_removed", "roles_reverted", "errors") if d.get(k, 0)]
+    return (not reasons), reasons
 
 
 def summarize(d, limit=300):
@@ -771,6 +847,53 @@ def summarize(d, limit=300):
     return s[:limit]
 
 
+COOLIFY_HOST = "root@82.29.153.52"
+TUNNEL_PORT = 18000
+
+
+def coolify_url_ok(url):
+    return url.startswith("https://") or re.match(r"http://(localhost|127\.0\.0\.1)([:/]|$)", url) is not None
+
+
+def open_tunnel():
+    """Open an SSH tunnel to Coolify; returns the Popen. Raises with instructions on failure."""
+    probe = run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", COOLIFY_HOST, "true"], check=False)
+    if probe.returncode != 0:
+        raise RuntimeError(f"ssh key access to {COOLIFY_HOST} does not work here ({probe.stderr.strip()[:80]}). "
+                           "Add your key to the server or open the tunnel yourself, then set MKA_COOLIFY_URL.")
+    proc = subprocess.Popen(["ssh", "-N", "-o", "BatchMode=yes", "-o", "ExitOnForwardFailure=yes",
+                             "-L", f"{TUNNEL_PORT}:localhost:8000", COOLIFY_HOST])
+    for _ in range(20):
+        time.sleep(0.5)
+        if proc.poll() is not None:
+            raise RuntimeError("ssh tunnel exited early")
+        st, _d = http("GET", f"http://127.0.0.1:{TUNNEL_PORT}/api/health", raw=True, timeout=3)
+        if st:
+            return proc
+    proc.terminate()
+    raise RuntimeError("ssh tunnel did not come up")
+
+
+def preflight(ctx, only, skip_code):
+    """Gates that must trip before ANY write happens (apply only)."""
+    if not ctx.apply or ctx.yes:
+        return
+    if "env" in only:
+        cf = ctx.cf()
+        plan = plan_env(cf.envs(DEV_SERVICE), cf.envs(PROD_SERVICE))
+        flags = [a for a in plan["actions"] if is_flag(a["key"])]
+        if flags:
+            for a in flags:
+                say("  FLAG " + show_change(a))
+            raise RuntimeError("flag change(s) above need --yes; nothing was written")
+    if "code" in only and not skip_code:
+        cmp_ = json.loads(run(["gh", "api", f"repos/{REPO}/compare/prod...dev"]).stdout)
+        if cmp_.get("ahead_by", 0):
+            say(f"  dev is {cmp_['ahead_by']} commit(s) ahead of prod:")
+            print_commits(cmp_)
+            raise RuntimeError("merging dev into prod needs --yes; nothing was written")
+
+
 # ---------------------------------------------------------------------------
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Promote dev to prod (dry-run unless --apply).")
@@ -778,28 +901,57 @@ def main(argv=None):
     ap.add_argument("--skip-code", action="store_true", help="do not merge/deploy code")
     ap.add_argument("--only", default="", help="comma list of: " + ",".join(ALL_STEPS))
     ap.add_argument("--urgent", action="store_true", help="pass urgent=true to the deploy workflow (ignores PROD_FREEZE)")
+    ap.add_argument("--yes", action="store_true", help="confirm gated actions (flag changes, code merge, risky identity sync)")
+    ap.add_argument("--tunnel", action="store_true", help=f"open an ssh tunnel to Coolify on 127.0.0.1:{TUNNEL_PORT} for this run")
+    ap.add_argument("--insecure", action="store_true", help="allow cleartext http to Coolify (token sent unencrypted)")
     a = ap.parse_args(argv)
     only = [s for s in a.only.split(",") if s] or ALL_STEPS
     bad = [s for s in only if s not in ALL_STEPS]
     if bad:
         ap.error(f"unknown step(s): {bad}")
-    ctx = Ctx(a.apply, a.urgent)
+    global COOLIFY
+    ctx = Ctx(a.apply, a.urgent, a.yes)
     say(f"promote dev -> prod  [{'APPLY' if a.apply else 'DRY-RUN'}]  steps: {','.join(s for s in ALL_STEPS if s in only)}")
-    fns = {"env": lambda: step_env(ctx), "compose": lambda: step_compose(ctx),
-           "code": lambda: step_code(ctx, a.skip_code), "org": lambda: step_org(ctx),
-           "backfill": lambda: step_backfill(ctx)}
+    tunnel = None
     rc = 0
-    for s in ALL_STEPS:
-        if s not in only:
-            continue
+    try:
+        if any(s in only for s in ("env", "compose", "code")):
+            if a.tunnel:
+                tunnel = open_tunnel()
+                COOLIFY = f"http://127.0.0.1:{TUNNEL_PORT}/api/v1"
+                say(f"  using ssh tunnel -> {COOLIFY}")
+            elif not coolify_url_ok(COOLIFY):
+                if not a.insecure:
+                    say(f"REFUSING to run: Coolify URL {COOLIFY} is cleartext http (API token would be sent unencrypted).")
+                    say("  Use --tunnel, or set MKA_COOLIFY_URL to an https:// URL or an existing tunnel (http://127.0.0.1:PORT/api/v1),")
+                    say("  or pass --insecure to accept the risk. See custom/ops/README.md.")
+                    return 2
+                say("!!! WARNING: --insecure: the Coolify API token and env values travel UNENCRYPTED over http !!!")
         try:
-            fns[s]()
+            preflight(ctx, only, a.skip_code)
         except Exception as e:
-            say(f"  STEP {s} FAILED: {e}")
-            rc = 1
-            if s in ("env", "compose", "code"):
-                say("  stopping: later steps depend on this one")
-                break
+            say(f"  PREFLIGHT BLOCKED: {e}")
+            return 2
+        fns = {"env": lambda: step_env(ctx), "compose": lambda: step_compose(ctx),
+               "code": lambda: step_code(ctx, a.skip_code), "org": lambda: step_org(ctx),
+               "backfill": lambda: step_backfill(ctx)}
+        for s in ALL_STEPS:
+            if s not in only:
+                continue
+            try:
+                fns[s]()
+            except Exception as e:
+                say(f"  STEP {s} FAILED: {e}")
+                rc = 1
+                if s in ("env", "compose", "code"):
+                    say("  stopping: later steps depend on this one")
+                    break
+    except Exception as e:
+        say(f"ERROR: {e}")
+        rc = 1
+    finally:
+        if tunnel:
+            tunnel.terminate()
     return rc
 
 
