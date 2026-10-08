@@ -61,6 +61,13 @@ PER_ENV_KEYS = (  # never copied; reported as MANUAL when missing on prod
 SECRET_RE = re.compile(r"(SECRET|PASS|CREDENTIAL|AUTH|SALT|KEY_ID|CERT|PRIVATE|SIGNING|_KEY$|TOKEN|DSN)", re.I)
 # Flags whose change in --apply needs --yes (promotion flips behaviour on prod).
 FLAG_RE = re.compile(r"(_ENABLED|_ORG_IDS|JEV_)", re.I)
+# Other behaviour-changing keys that also need --yes and a visible old -> new.
+GATED_KEYS = ("MKA_GOOGLE_ONLY_DOMAINS", "APP_IMAGE_TAG", "NEXT_PUBLIC_LEARNHOUSE_MULTI_ORG",
+              "MKA_AUTOMATION_TEST_RECIPIENT")
+GATED_PREFIXES = ("LEARNHOUSE_AI_",)
+# Names that look secret but are plain config (checked before SECRET_RE). Host rewrite still applies.
+NON_SECRET_KEYS = ("NEXTAUTH_URL",)
+ALLOW_INSECURE = False
 # Credentials embedded in a URL/DSN value (scheme://user:pass@host) also count as secret.
 CRED_URL_RE = re.compile(r"://[^/\s:@]+:[^@\s]+@")
 # Third-party keys shared dev<->prod by design. Add a key here only after deciding that.
@@ -110,18 +117,22 @@ def rewrite_host(value, dev=DEV_HOST, prod=PROD_HOST):
 
 def is_secret(key, value, shared=SHARED_SECRET_KEYS):
     """True if this env var must not be copied dev -> prod."""
-    if key in shared:
+    if key in NON_SECRET_KEYS or key in shared:
         return False
     return bool(SECRET_RE.search(key) or CRED_URL_RE.search(value or ""))
 
 
 def is_flag(key):
-    return bool(FLAG_RE.search(key))
+    return bool(FLAG_RE.search(key)) or key in GATED_KEYS or key.startswith(GATED_PREFIXES)
+
+
+def secret_name(key):
+    return key not in NON_SECRET_KEYS and bool(SECRET_RE.search(key))
 
 
 def show_change(a):
     """`KEY: <old> -> <new>` for non-secrets; secrets (shared allowlist) are masked."""
-    if SECRET_RE.search(a["key"]):
+    if secret_name(a["key"]):
         return f"{a['key']}: {'(unset)' if a['old'] is None else 'set'} -> changed (value hidden)"
     old = "(unset)" if a["old"] is None else a["old"]
     return f"{a['key']}: {old} \u2192 {a['value']}"
@@ -215,7 +226,13 @@ def is_passthrough(line):
         return False
     var = m.group(2)
     rest = line[m.end():].strip().strip("'\"")
-    return re.fullmatch(r"\$\{" + re.escape(var) + r"(:?-[^}$]*)?\}", rest) is not None
+    m2 = re.fullmatch(r"\$\{" + re.escape(var) + r"(:?-([^}$]*))?\}", rest)
+    if m2 is None:
+        return False
+    default = m2.group(2)
+    if default is not None and (secret_name(var) or "ilm-dev" in default):
+        return False  # a baked-in default for a secret / dev host must be reviewed by hand
+    return True
 
 
 def compose_insert(dev_raw, prod_raw):
@@ -461,8 +478,14 @@ def _maybe_json(data):
         return data.decode("utf-8", "replace")[:300]
 
 
+def guard_coolify_url():
+    if not coolify_url_ok(COOLIFY) and not ALLOW_INSECURE:
+        raise RuntimeError(f"refusing cleartext Coolify URL {COOLIFY}; use --tunnel, https, or --insecure")
+
+
 class Coolify:
     def __init__(self):
+        guard_coolify_url()
         tok = keychain_get("MKA_Coolify_API_Key")
         if not tok:
             raise RuntimeError("keychain item MKA_Coolify_API_Key not found")
@@ -909,7 +932,8 @@ def main(argv=None):
     bad = [s for s in only if s not in ALL_STEPS]
     if bad:
         ap.error(f"unknown step(s): {bad}")
-    global COOLIFY
+    global COOLIFY, ALLOW_INSECURE
+    ALLOW_INSECURE = a.insecure
     ctx = Ctx(a.apply, a.urgent, a.yes)
     say(f"promote dev -> prod  [{'APPLY' if a.apply else 'DRY-RUN'}]  steps: {','.join(s for s in ALL_STEPS if s in only)}")
     tunnel = None

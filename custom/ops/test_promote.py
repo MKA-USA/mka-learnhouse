@@ -97,6 +97,36 @@ class Gates(unittest.TestCase):
         self.assertFalse(p.coolify_url_ok("http://82.29.153.52:8000/api/v1"))
 
 
+class ReviewNits(unittest.TestCase):
+    def test_guard_in_coolify_ctor(self):
+        old, p.COOLIFY = p.COOLIFY, "http://82.29.153.52:8000/api/v1"
+        try:
+            with self.assertRaises(RuntimeError):
+                p.Coolify()  # raises before touching the keychain
+            p.ALLOW_INSECURE = True
+            p.guard_coolify_url()
+        finally:
+            p.COOLIFY, p.ALLOW_INSECURE = old, False
+
+    def test_gated_keys(self):
+        for k in ("MKA_GOOGLE_ONLY_DOMAINS", "APP_IMAGE_TAG", "NEXT_PUBLIC_LEARNHOUSE_MULTI_ORG",
+                  "MKA_AUTOMATION_TEST_RECIPIENT", "LEARNHOUSE_AI_MODEL_FAST", "MKA_X_ENABLED"):
+            self.assertTrue(p.is_flag(k), k)
+        self.assertFalse(p.is_flag("PLAIN"))
+
+    def test_passthrough_defaults(self):
+        self.assertFalse(p.is_passthrough("      - 'X_SECRET=${X_SECRET:-abc}'"))
+        self.assertTrue(p.is_passthrough("      - 'X_SECRET=${X_SECRET:-}'"))
+        self.assertFalse(p.is_passthrough("      - 'U=${U:-https://ilm-dev.mkausa.org}'"))
+        self.assertTrue(p.is_passthrough("      - 'U=${U:-https://ok}'"))
+
+    def test_non_secret_allowlist(self):
+        self.assertFalse(p.is_secret("NEXTAUTH_URL", "https://ilm-dev.mkausa.org"))
+        r = p.plan_env([{"key": "NEXTAUTH_URL", "value": "https://ilm-dev.mkausa.org"}], [{"key": "NEXTAUTH_URL", "value": "x"}])
+        self.assertEqual(r["actions"][0]["value"], "https://ilm.mkausa.org")
+        self.assertIn("\u2192 https://ilm.mkausa.org", p.show_change(r["actions"][0]))
+
+
 class Secrets(unittest.TestCase):
     def test_secrets_not_copied(self):
         dev = [{"key": k, "value": "v"} for k in (
