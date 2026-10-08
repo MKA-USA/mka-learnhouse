@@ -1766,3 +1766,19 @@ Why: `create_user` saves the MKA profile before the `UserOrganization` row exist
 ```
 
 Re-apply: `grep -n "sync_member_groups_after_save" apps/api/src/services/users/users.py` (2 lines).
+
+### Org join hooks (`apps/api/src/services/orgs/join.py`, 2026-10-08)
+
+Why: a member who already has a profile and joins another org (invite or open join) must land in that org's Majlis/Region groups. Fail-open: the helper never raises.
+
+```diff
++from src.services.users.mka_profile import sync_member_groups_after_save  # MKA fork
+@@ invite join, after the UserOrganization commit
+     await db_session.commit()
++    await sync_member_groups_after_save(db_session, user.id)  # MKA fork
+@@ open join, after the UserOrganization commit
+     await db_session.commit()
++    await sync_member_groups_after_save(db_session, user.id)  # MKA fork
+```
+
+Re-apply: `grep -n "MKA fork" apps/api/src/services/orgs/join.py` (3 lines).

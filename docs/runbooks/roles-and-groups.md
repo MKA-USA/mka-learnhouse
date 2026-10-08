@@ -12,6 +12,8 @@ Spec: `docs/superpowers/specs/2026-10-07-mka-roles-groups-scope-design.md` (sect
 - **Officeholders** (proven mkausa role mailbox): groups from the mailbox. A gap in the mailbox is filled from the profile: regional and national accounts get the profile Majlis, national accounts also the profile Region. The mailbox always wins where it gives a value.
 - No profile and not proven: no managed groups.
 
+**Majlis: and Region: groups are self-selected by members. Never use them alone to restrict officeholder-only material; use Department or Level groups.**
+
 ## When groups are recomputed
 - Profile saved (signup, own edit, admin edit): immediately, for each allowlisted org the user belongs to. Failures are logged and never fail the save.
 - Google login: as before.

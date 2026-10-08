@@ -640,7 +640,8 @@ async def test_national_officeholder_gets_profile_majlis_and_region(db, org, fac
     await put_profile(db, 113, "Albany")
     await sync.sync_member_groups(factory, u.id)
     assert await group_keys(db, org.id, 113) == ["department:tabligh", "level:national", "majlis:albany", "region:northeast"]
-    assert await role_of(db, org.id, 113) != 4  # Mohtamim role logic unchanged
+    role_id = (await db.execute(select(MkaManagedRole.role_id).where(MkaManagedRole.org_id == org.id))).scalar_one()
+    assert await role_of(db, org.id, 113) == role_id != 4  # Mohtamim role logic unchanged
 
 
 async def test_google_login_of_proven_non_officeholder_keeps_profile_groups(db, org, factory):
@@ -729,3 +730,51 @@ async def test_profile_save_runs_the_sync_and_a_raising_sync_still_returns_succe
     monkeypatch.setattr(sync, "sync_member_groups", boom)
     row = await upsert_profile(db, 111, MkaProfileIn(majlis="Seattle"))
     assert row.majlis == "Seattle"
+
+
+async def test_stale_officeholder_with_profile_keeps_department_and_level_groups(db, org, factory):
+    u = await make(db, org, 114, "tabligh@example.invalid", is_officeholder=True, **NATIONAL_TABLIGH)
+    await sync.sync_user_identity(db, org.id, u)
+    assert await group_keys(db, org.id, 114) == ["department:tabligh", "level:national"]
+    await mutate(db, 114, stale=True)
+    await put_profile(db, 114, "Albany")
+    await sync.sync_member_groups(factory, u.id)  # profile save
+    assert await group_keys(db, org.id, 114) == ["department:tabligh", "level:national", "majlis:albany", "region:northeast"]
+    await put_profile(db, 114, "Seattle")
+    await sync.backfill_org(db, org.id, dry_run=False)
+    assert await group_keys(db, org.id, 114) == ["department:tabligh", "level:national", "majlis:seattle", "region:northwest"]
+    assert await role_of(db, org.id, 114) == 4  # untrusted: the managed role is taken back
+
+
+async def test_unproven_google_user_with_officeholder_looking_address_gets_profile_groups_only(db, org, factory):
+    u = await make(db, org, 115, "tabligh@example.invalid", is_officeholder=True, **NATIONAL_TABLIGH)
+    await mutate(db, 115, verified_hd=None)
+    await put_profile(db, 115, "Albany")
+    await sync.sync_member_groups(factory, u.id)
+    assert await group_keys(db, org.id, 115) == ["majlis:albany", "region:northeast"]
+    assert await role_of(db, org.id, 115) == 4
+
+
+async def test_open_join_runs_the_member_group_sync(db, org, mock_request=None):
+    from datetime import datetime
+    from unittest.mock import AsyncMock, patch
+
+    from src.db.organization_config import OrganizationConfig
+    from src.db.users import User
+    from src.services.orgs.join import JoinOrg, join_org
+
+    db.add(User(id=116, username="u116", first_name="F", last_name="L", email="m116@example.invalid", password="x",
+                user_uuid="user_116", signup_method="google", email_verified=True, creation_date=str(datetime.now()), update_date=str(datetime.now())))
+    await db.commit()
+    await put_profile(db, 116, "Albany")
+    db.add(OrganizationConfig(org_id=org.id, config={"config_version": "1.0", "general": {"signup_mode": "open"}},
+                              creation_date=str(datetime.now()), update_date=str(datetime.now())))
+    await db.commit()
+    user = await db.get(User, 116)
+    with patch("src.services.orgs.join.check_limits_with_usage"), \
+         patch("src.services.orgs.join.get_org_join_mechanism", new=AsyncMock(return_value="open")), \
+         patch("src.services.orgs.join.increase_feature_usage"), \
+         patch("src.services.orgs.join.notify_user_joined_org", new=AsyncMock()), \
+         patch("src.routers.users._invalidate_session_cache"):
+        await join_org(None, JoinOrg(org_id=org.id, user_id=116), user, db)
+    assert await group_keys(db, org.id, 116) == ["majlis:albany", "region:northeast"]

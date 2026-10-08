@@ -205,7 +205,8 @@ def desired_groups(trust: Optional["Trust"], profile: Any, cat: dict[str, str], 
     * trusted (proven, current) officeholder -> the mailbox-derived set, with gaps filled from the profile field by field:
       a mailbox that gives no Majlis (regional / national) gets the profile's Majlis, one that gives no Region (national)
       gets the profile's Region. A value the mailbox DOES give always wins;
-    * otherwise a profile row -> its Majlis + Region groups;
+    * otherwise a profile row -> its Majlis + Region groups (when ``trust`` is None the caller manages ONLY ``majlis:`` /
+      ``region:`` keys, so a stale or unproven officeholder keeps the department / level groups it already has);
     * otherwise a trusted non-officeholder -> empty (nothing implies a group);
     * an untrusted identity with no profile -> ``None``: leave the groups alone (nothing to base a decision on)."""
     if trust is not None and trust.effective.get("is_officeholder") is True:
@@ -492,6 +493,8 @@ async def _sync_one(db: AsyncSession, ctx: OrgCtx, user: Any, trust: Optional[Tr
                 ).scalars().all()
             )
         current = {key_by_gid[g] for g in current_ids}
+        if trust is None:  # untrusted (unproven / stale): only the self-selected majlis/region follow the profile; department/level stay as they are
+            current = {k for k in current if k.startswith(("majlis:", "region:"))}
         if desired is not None:
             p.add = sorted(desired - current)
             p.remove = sorted(current - desired)
