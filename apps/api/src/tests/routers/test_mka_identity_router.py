@@ -60,7 +60,7 @@ async def test_dry_run_is_the_default_and_works_with_the_flag_off(db, org, peopl
     body = r.json()
     assert body["dry_run"] is True and body["users_seen"] == 1 and body["roles_set"] == 1
     assert [p["user_id"] for p in body["planned"]] == [50]
-    assert "email" not in str(body) and body["groups_created"] == 85 and body["groups_recreated"] == 0
+    assert "email" not in str(body) and body["groups_created"] == 86 and body["groups_recreated"] == 0
     async with session_client(db, 1) as c:
         assert (await c.get(STATUS, params={"org_slug": org.slug})).json()["groups"] == 0  # nothing written
 
@@ -72,9 +72,9 @@ async def test_apply_needs_the_flag(db, org, people, monkeypatch):
         assert denied.json() == {"detail": "identity sync is disabled"}
         monkeypatch.setenv("MKA_IDENTITY_SYNC_ENABLED", "true")
         r = await c.post(SYNC, params={"org_slug": org.slug, "dry_run": "false"})
-        assert r.status_code == 200 and r.json()["roles_set"] == 1 and r.json()["groups_created"] == 85
+        assert r.status_code == 200 and r.json()["roles_set"] == 1 and r.json()["groups_created"] == 86
         status = (await c.get(STATUS, params={"org_slug": org.slug})).json()
-    assert status["enabled"] and status["groups"] == 85 and status["role_id"] and status["last_sync_at"]
+    assert status["enabled"] and status["groups"] == 86 and status["role_id"] and status["last_sync_at"]
 
 
 async def test_token_rights_and_org_boundary(db, org, other_org, people, monkeypatch):

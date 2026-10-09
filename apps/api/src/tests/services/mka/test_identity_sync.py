@@ -66,7 +66,7 @@ async def snapshot(db):
 def test_catalogue_shape():
     cat = sync.catalogue()
     kinds = [k.split(":")[0] for k in cat]
-    assert kinds.count("majlis") == 52 and kinds.count("region") == 10 and kinds.count("department") == 20
+    assert kinds.count("majlis") == 52 and kinds.count("region") == 11 and kinds.count("department") == 20
     assert [k for k in cat if k.startswith("level:")] == ["level:national", "level:regional", "level:local"]
     assert cat["majlis:albany"] == "Majlis: Albany" and cat["region:northeast"] == "Region: Northeast"
     assert cat["department:maal"] == "Department: Maal" and cat["level:local"] == "Local Amila"
@@ -86,7 +86,7 @@ def test_desired_groups_unknown_values_are_ignored():
 async def test_role_is_created_once_and_rights_are_what_the_spec_says(db, org):
     c1 = await sync.ensure_org(db, org.id)
     c2 = await sync.ensure_org(db, org.id)
-    assert c1.role_created and c1.groups_created == 85 and c1.role_id == c2.role_id
+    assert c1.role_created and c1.groups_created == 86 and c1.role_id == c2.role_id
     assert not c2.role_created and c2.groups_created == 0
     roles = (await db.execute(select(Role).where(Role.org_id == org.id, Role.name == "Mohtamim"))).scalars().all()
     assert len(roles) == 1 and roles[0].role_type == RoleTypeEnum.TYPE_ORGANIZATION
@@ -337,14 +337,14 @@ async def test_backfill_dry_run_writes_nothing_and_apply_is_idempotent(db, org, 
     before = await snapshot(db)
     dry = await sync.backfill_org(db, org.id, dry_run=True)
     assert await snapshot(db) == before
-    assert dry["dry_run"] and dry["users_seen"] == 2 and dry["groups_created"] == 85 and dry["role_created"]
+    assert dry["dry_run"] and dry["users_seen"] == 2 and dry["groups_created"] == 86 and dry["role_created"]
     assert dry["memberships_added"] == 6 and dry["roles_set"] == 1 and dry["errors"] == 0
     assert {p["user_id"] for p in dry["planned"]} == {30, 31}
 
     applied = await sync.backfill_org(db, org.id, dry_run=False)
     assert {k: applied[k] for k in ("users_seen", "groups_created", "memberships_added", "memberships_removed",
                                     "roles_set", "roles_reverted", "errors")} == {
-        "users_seen": 2, "groups_created": 85, "memberships_added": 6, "memberships_removed": 0,
+        "users_seen": 2, "groups_created": 86, "memberships_added": 6, "memberships_removed": 0,
         "roles_set": 1, "roles_reverted": 0, "errors": 0}
     assert await group_keys(db, org.id, 30) == ["department:maal", "level:local", "majlis:albany", "region:northeast"]
     assert await group_keys(db, other_org.id, 33) == []  # other org untouched
@@ -361,7 +361,7 @@ async def test_status_reports_flag_role_groups_and_last_sync(db, org):
     await make(db, org, 40, "tabligh@example.invalid", is_officeholder=True, **NATIONAL_TABLIGH)
     await sync.backfill_org(db, org.id, dry_run=False)
     after = await sync.status(db, org.id)
-    assert after["role_id"] and after["groups"] == 85 == after["groups_expected"] and after["last_sync_at"]
+    assert after["role_id"] and after["groups"] == 86 == after["groups_expected"] and after["last_sync_at"]
 
 
 async def test_an_existing_role_at_the_old_rights_version_is_narrowed(db, org):
@@ -567,3 +567,214 @@ async def test_dry_run_rows_are_members_of_the_target_org_only_and_use_derived_f
     assert ids == {90} and 91 not in ids and 92 not in ids  # org-2-only user absent; the shared account plans nothing
     assert set(dry["planned"][0]) == {"user_id", "add", "remove", "role"}
     assert shared.id == 92
+
+
+# --- member Majlis / Region groups from the profile (spec section 8) -----------------------------------------------------
+
+from src.db.mka_user_profile import MkaUserProfile  # noqa: E402
+from src.services.users import mka_profile as profile_svc  # noqa: E402
+
+
+async def put_profile(db, uid, majlis):
+    row = await db.get(MkaUserProfile, uid)
+    if row is None:
+        row = MkaUserProfile(user_id=uid, majlis=majlis, region="x", created_at="t")
+    row.majlis, row.region, row.updated_at = majlis, profile_svc.region_for(majlis), "t"
+    db.add(row)
+    await db.commit()
+
+
+async def member(db, org, uid, majlis=None, email=None):
+    email = email or f"member{uid}@example.invalid"
+    await add_user(db, org.id, uid, email)
+    if majlis:
+        await put_profile(db, uid, majlis)
+    return SimpleNamespace(id=uid, email=email)
+
+
+def test_every_profile_region_has_a_group():
+    cat = sync.catalogue()
+    for region in set(profile_svc.MAJLIS_TO_REGION.values()):
+        assert any(v == f"Region: {region}" for v in cat.values()), region
+    assert cat["region:muqami"] == "Region: Muqami"
+
+
+async def test_member_profile_puts_them_in_majlis_and_region(db, org, factory):
+    u = await member(db, org, 100, "Albany")
+    await sync.sync_member_groups(factory, u.id)
+    assert await group_keys(db, org.id, 100) == ["majlis:albany", "region:northeast"]
+
+
+async def test_profile_edit_moves_both_groups(db, org, factory):
+    u = await member(db, org, 101, "Albany")
+    await sync.sync_member_groups(factory, u.id)
+    await put_profile(db, 101, "Seattle")
+    await sync.sync_member_groups(factory, u.id)
+    assert await group_keys(db, org.id, 101) == ["majlis:seattle", "region:northwest"]
+
+
+async def test_muqami_member_gets_region_muqami(db, org, factory):
+    u = await member(db, org, 102, "Muqami")
+    await sync.sync_member_groups(factory, u.id)
+    assert await group_keys(db, org.id, 102) == ["majlis:muqami", "region:muqami"]
+
+
+async def test_local_officeholder_mailbox_majlis_wins_over_a_differing_profile(db, org, factory):
+    u = await make(db, org, 103, "nazim@example.invalid", is_officeholder=True, **NAZIM_MAAL_ALBANY)
+    await put_profile(db, 103, "Seattle")
+    await sync.sync_member_groups(factory, u.id)
+    await sync.identity_sync_user(factory, u)
+    assert await group_keys(db, org.id, 103) == ["department:maal", "level:local", "majlis:albany", "region:northeast"]
+
+
+async def test_regional_officeholder_gets_profile_majlis_and_keeps_mailbox_region(db, org, factory):
+    u = await make(db, org, 112, "qaid.northeast@example.invalid", is_officeholder=True, level="regional", department=None,
+                   role="qaid", region="Northeast")
+    await put_profile(db, 112, "Seattle")  # a Majlis in another region: mailbox region still wins
+    await sync.sync_member_groups(factory, u.id)
+    assert await group_keys(db, org.id, 112) == ["level:regional", "majlis:seattle", "region:northeast"]
+
+
+async def test_national_officeholder_gets_profile_majlis_and_region(db, org, factory):
+    u = await make(db, org, 113, "tabligh@example.invalid", is_officeholder=True, **NATIONAL_TABLIGH)
+    await put_profile(db, 113, "Albany")
+    await sync.sync_member_groups(factory, u.id)
+    assert await group_keys(db, org.id, 113) == ["department:tabligh", "level:national", "majlis:albany", "region:northeast"]
+    role_id = (await db.execute(select(MkaManagedRole.role_id).where(MkaManagedRole.org_id == org.id))).scalar_one()
+    assert await role_of(db, org.id, 113) == role_id != 4  # Mohtamim role logic unchanged
+
+
+async def test_google_login_of_proven_non_officeholder_keeps_profile_groups(db, org, factory):
+    u = await make(db, org, 104, "member104@example.invalid", is_officeholder=False, majlis="Zion", region="Midwest")
+    await put_profile(db, 104, "Albany")
+    await sync.sync_member_groups(factory, u.id)
+    await sync.identity_sync_user(factory, u)
+    assert await group_keys(db, org.id, 104) == ["majlis:albany", "region:northeast"]
+    assert await role_of(db, org.id, 104) == 4
+
+
+async def test_untrusted_identity_with_profile_gets_profile_groups_and_never_the_role(db, org, factory):
+    u = await make(db, org, 105, "x@example.invalid", is_officeholder=True, **NATIONAL_TABLIGH)
+    await mutate(db, 105, stale=True)
+    await put_profile(db, 105, "Albany")
+    await sync.sync_member_groups(factory, u.id)
+    assert await group_keys(db, org.id, 105) == ["majlis:albany", "region:northeast"]
+    assert await role_of(db, org.id, 105) == 4
+
+
+async def test_member_sync_flag_off_means_zero_writes(db, org, factory, monkeypatch):
+    u = await member(db, org, 106, "Albany")
+    monkeypatch.setenv("MKA_IDENTITY_SYNC_ENABLED", "false")
+    before = await snapshot(db)
+    await sync.sync_member_groups(factory, u.id)
+    await profile_svc.sync_member_groups_after_save(db, u.id)
+    assert await snapshot(db) == before
+
+
+async def test_member_second_run_performs_zero_writes(db, org, engine, factory):
+    u = await member(db, org, 107, "Albany")
+    await sync.sync_member_groups(factory, u.id)
+    writes = []
+
+    def spy(conn, cursor, statement, params, context, executemany):
+        if statement.lstrip().split(" ", 1)[0].upper() in {"INSERT", "UPDATE", "DELETE"}:
+            writes.append(statement[:60])
+
+    event.listen(engine.sync_engine, "before_cursor_execute", spy)
+    try:
+        await sync.sync_member_groups(factory, u.id)
+    finally:
+        event.remove(engine.sync_engine, "before_cursor_execute", spy)
+    assert writes == []
+
+
+async def test_member_sync_never_touches_unmanaged_groups(db, org, factory):
+    u = await member(db, org, 108, "Albany")
+    await sync.sync_member_groups(factory, u.id)
+    db.add(UserGroup(id=9001, org_id=org.id, name="Book club", description="x", usergroup_uuid="ug_9001",
+                     creation_date="t", update_date="t"))
+    await db.commit()
+    db.add(UserGroupUser(usergroup_id=9001, user_id=108, org_id=org.id, creation_date="t", update_date="t"))
+    await db.commit()
+    await put_profile(db, 108, "Seattle")
+    await sync.sync_member_groups(factory, u.id)
+    in_groups = (await db.execute(select(UserGroupUser.usergroup_id).where(UserGroupUser.user_id == 108))).scalars().all()
+    assert 9001 in in_groups
+    assert await group_keys(db, org.id, 108) == ["majlis:seattle", "region:northwest"]
+
+
+async def test_backfill_includes_profile_only_users(db, org):
+    await member(db, org, 109, "Albany")
+    await member(db, org, 110)  # no profile, no attributes: not touched
+    dry = await sync.backfill_org(db, org.id, dry_run=True)
+    assert dry["users_seen"] == 1 and any(r["user_id"] == 109 for r in dry["planned"])
+    done = await sync.backfill_org(db, org.id, dry_run=False)
+    assert done["memberships_added"] == 2 and done["errors"] == 0
+    assert await group_keys(db, org.id, 109) == ["majlis:albany", "region:northeast"]
+    assert await group_keys(db, org.id, 110) == []
+    again = await sync.backfill_org(db, org.id, dry_run=False)
+    assert again["memberships_added"] == 0 and again["memberships_removed"] == 0
+
+
+async def test_profile_save_runs_the_sync_and_a_raising_sync_still_returns_success(db, org, monkeypatch):
+    from src.services.users.mka_profile import MkaProfileIn, upsert_profile
+
+    await add_user(db, org.id, 111, "member111@example.invalid")
+    row = await upsert_profile(db, 111, MkaProfileIn(majlis="Albany"))
+    assert row.majlis == "Albany"
+    assert await group_keys(db, org.id, 111) == ["majlis:albany", "region:northeast"]
+
+    async def boom(*a, **k):
+        raise RuntimeError("sync down")
+
+    monkeypatch.setattr(sync, "sync_member_groups", boom)
+    row = await upsert_profile(db, 111, MkaProfileIn(majlis="Seattle"))
+    assert row.majlis == "Seattle"
+
+
+async def test_stale_officeholder_with_profile_keeps_department_and_level_groups(db, org, factory):
+    u = await make(db, org, 114, "tabligh@example.invalid", is_officeholder=True, **NATIONAL_TABLIGH)
+    await sync.sync_user_identity(db, org.id, u)
+    assert await group_keys(db, org.id, 114) == ["department:tabligh", "level:national"]
+    await mutate(db, 114, stale=True)
+    await put_profile(db, 114, "Albany")
+    await sync.sync_member_groups(factory, u.id)  # profile save
+    assert await group_keys(db, org.id, 114) == ["department:tabligh", "level:national", "majlis:albany", "region:northeast"]
+    await put_profile(db, 114, "Seattle")
+    await sync.backfill_org(db, org.id, dry_run=False)
+    assert await group_keys(db, org.id, 114) == ["department:tabligh", "level:national", "majlis:seattle", "region:northwest"]
+    assert await role_of(db, org.id, 114) == 4  # untrusted: the managed role is taken back
+
+
+async def test_unproven_google_user_with_officeholder_looking_address_gets_profile_groups_only(db, org, factory):
+    u = await make(db, org, 115, "tabligh@example.invalid", is_officeholder=True, **NATIONAL_TABLIGH)
+    await mutate(db, 115, verified_hd=None)
+    await put_profile(db, 115, "Albany")
+    await sync.sync_member_groups(factory, u.id)
+    assert await group_keys(db, org.id, 115) == ["majlis:albany", "region:northeast"]
+    assert await role_of(db, org.id, 115) == 4
+
+
+async def test_open_join_runs_the_member_group_sync(db, org, mock_request=None):
+    from datetime import datetime
+    from unittest.mock import AsyncMock, patch
+
+    from src.db.organization_config import OrganizationConfig
+    from src.db.users import User
+    from src.services.orgs.join import JoinOrg, join_org
+
+    db.add(User(id=116, username="u116", first_name="F", last_name="L", email="m116@example.invalid", password="x",
+                user_uuid="user_116", signup_method="google", email_verified=True, creation_date=str(datetime.now()), update_date=str(datetime.now())))
+    await db.commit()
+    await put_profile(db, 116, "Albany")
+    db.add(OrganizationConfig(org_id=org.id, config={"config_version": "1.0", "general": {"signup_mode": "open"}},
+                              creation_date=str(datetime.now()), update_date=str(datetime.now())))
+    await db.commit()
+    user = await db.get(User, 116)
+    with patch("src.services.orgs.join.check_limits_with_usage"), \
+         patch("src.services.orgs.join.get_org_join_mechanism", new=AsyncMock(return_value="open")), \
+         patch("src.services.orgs.join.increase_feature_usage"), \
+         patch("src.services.orgs.join.notify_user_joined_org", new=AsyncMock()), \
+         patch("src.routers.users._invalidate_session_cache"):
+        await join_org(None, JoinOrg(org_id=org.id, user_id=116), user, db)
+    assert await group_keys(db, org.id, 116) == ["majlis:albany", "region:northeast"]

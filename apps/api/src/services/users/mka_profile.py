@@ -285,7 +285,23 @@ async def upsert_profile(
             raise HTTPException(status_code=409, detail=_AMC_TAKEN)
         raise
     await db_session.refresh(row)
+    await sync_member_groups_after_save(db_session, user_id)
     return row
+
+
+async def sync_member_groups_after_save(db_session: AsyncSession, user_id: int) -> None:
+    """Majlis/Region managed groups follow the profile (spec 2026-10-07 section 8). Flag-gated, own session, never
+    raises. On signup the org link does not exist yet when the profile is saved, so ``create_user`` calls this again
+    after the join (one ``# MKA fork`` line)."""
+    try:
+        from src.services.mka import identity_sync as _isync  # lazy: avoids an import cycle
+
+        if not _isync.enabled():
+            return
+        bind = db_session.bind
+        await _isync.sync_member_groups(lambda: AsyncSession(bind=bind, expire_on_commit=False), user_id)
+    except Exception:  # noqa: BLE001
+        logger.exception("MKA member group sync hook failed (ignored)")
 
 
 async def validate_signup_profile(
