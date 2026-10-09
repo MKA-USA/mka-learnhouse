@@ -17,6 +17,7 @@ from src.routers import mka_attributes as mka_attributes_router_module  # MKA fo
 from src.routers import mka_compliance as mka_compliance_router_module  # MKA fork
 from src.routers import mka_automation as mka_automation_router_module  # MKA fork
 from src.routers import mka_identity as mka_identity_router_module  # MKA fork
+from src.routers import mka_course_audience as mka_course_audience_router_module  # MKA fork
 from src.routers import monitoring
 from src.routers import nudges as nudges_router_module
 from src.routers import stream
@@ -104,6 +105,12 @@ v1_router.include_router(  # MKA fork: identity sync (role + groups); admin sess
     mka_identity_router_module.router,
     prefix="/mka/identity",
     tags=["mka-identity"],
+    dependencies=[Depends(require_authenticated_user_or_api_token)],
+)
+v1_router.include_router(  # MKA fork: course audience; session (author/admin of the course) or org API token, gated per handler
+    mka_course_audience_router_module.router,
+    prefix="/mka/courses",
+    tags=["mka-course-audience"],
     dependencies=[Depends(require_authenticated_user_or_api_token)],
 )
 v1_router.include_router(
