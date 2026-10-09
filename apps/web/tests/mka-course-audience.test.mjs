@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
   DEFAULT_DRAFT, buildPayload, confirmText, draftFromState, draftsEqual, needsEnrollConfirm,
-  normalizeOptions, previewText, resultText, sampleText, toggleValue, validateDraft,
+  normalizeOptions, previewText, canSave, manualGroupsText, resultText, sampleText, toggleValue, validateDraft,
 } from "../components/mka/course-audience/logic.ts";
+import { detailText } from "../services/mka/courseAudience.ts";
 import { mkaCourseAudienceEnabled } from "../services/mka/courseAudienceFlag.ts";
 
 const rule = (o = {}) => ({ departments: [], levels: [], roles: [], ...o });
@@ -62,8 +63,8 @@ describe("preview text", () => {
   test("confirm only for required with people to enroll", () => {
     expect(needsEnrollConfirm(draft({ mode: "required" }), p)).toBe(true);
     expect(needsEnrollConfirm(draft({ mode: "optin" }), p)).toBe(false);
-    expect(needsEnrollConfirm(draft({ mode: "required" }), { ...p, would_enroll: 0 })).toBe(false);
-    expect(needsEnrollConfirm(draft({ mode: "required" }), null)).toBe(false);
+    expect(needsEnrollConfirm(draft({ mode: "required" }), { ...p, would_enroll: 0 })).toBe(true);
+    expect(needsEnrollConfirm(draft({ mode: "required" }), null)).toBe(true);
     expect(confirmText(p)).toBe("Enroll 5 people now?");
     expect(confirmText({ ...p, would_enroll: 1 })).toBe("Enroll 1 person now?");
   });
@@ -107,5 +108,26 @@ describe("mkaCourseAudienceEnabled", () => {
     expect(mkaCourseAudienceEnabled()).toBe(true);
     process.env[VAR] = "1"; window.__RUNTIME_CONFIG__ = { [VAR]: "0" };
     expect(mkaCourseAudienceEnabled()).toBe(false);
+  });
+});
+
+describe("canSave / errors / new fields", () => {
+  test("required needs a loaded preview; optin does not; invalid or clean never", () => {
+    expect(canSave(draft({ mode: "required" }), false, true)).toBe(false);
+    expect(canSave(draft({ mode: "required" }), true, true)).toBe(true);
+    expect(canSave(draft({ mode: "optin" }), false, true)).toBe(true);
+    expect(canSave(draft({ mode: "optin" }), true, false)).toBe(false);
+    expect(canSave(draft({ audience: "custom" }), true, true)).toBe(false);
+  });
+  test("detailText handles string, 422 list, junk", () => {
+    expect(detailText("nope")).toBe("nope");
+    expect(detailText([{ msg: "a", loc: [] }, { msg: "b" }, {}])).toBe("a; b");
+    expect(detailText(undefined)).toBe("");
+  });
+  test("manual groups warning and queued enrollments", () => {
+    expect(manualGroupsText(0)).toBe("");
+    expect(manualGroupsText(1)).toBe("1 manually linked group also restricts access");
+    expect(manualGroupsText(3)).toBe("3 manually linked groups also restrict access");
+    expect(resultText({ enrolled: 0, enroll_queued: 7, memberships_added: 0, memberships_removed: 0, matched_count: 7 })).toContain("7 enrollments queued");
   });
 });

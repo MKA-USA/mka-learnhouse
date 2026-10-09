@@ -1,7 +1,7 @@
 'use client'
 // MKA fork — per-course Audience panel for the course Access tab. Renders nothing unless
 // NEXT_PUBLIC_MKA_COURSE_AUDIENCE_ENABLED=1. API contract: services/mka/courseAudience.ts.
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import toast from 'react-hot-toast'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCourse } from '@components/Contexts/CourseContext'
@@ -25,9 +25,11 @@ import {
 import {
   DEFAULT_DRAFT,
   buildPayload,
+  canSave,
   confirmText,
   draftFromState,
   draftsEqual,
+  manualGroupsText,
   needsEnrollConfirm,
   normalizeOptions,
   previewText,
@@ -54,10 +56,12 @@ function Panel() {
   const courseUuid: string | undefined = course?.courseStructure?.course_uuid
   const qc = useQueryClient()
   const stateKey = ['mka-course-audience', courseUuid] as const
+  const orgId: number | undefined = course?.courseStructure?.org_id
   const ready = !!(courseUuid && token)
+  const rootRef = useRef<HTMLElement>(null)
 
   const stateQ = useQuery({ queryKey: stateKey, queryFn: () => fetchCourseAudience(courseUuid!, token), enabled: ready, staleTime: 30_000 })
-  const optionsQ = useQuery({ queryKey: ['mka-course-audience-options'], queryFn: () => fetchCourseAudienceOptions(token), enabled: !!token, staleTime: 5 * 60_000 })
+  const optionsQ = useQuery({ queryKey: ['mka-course-audience-options', orgId], queryFn: () => fetchCourseAudienceOptions(orgId!, token), enabled: !!token && !!orgId, staleTime: 5 * 60_000 })
   const options = useMemo(() => normalizeOptions(optionsQ.data), [optionsQ.data])
 
   const saved = useMemo(() => draftFromState(stateQ.data), [stateQ.data])
@@ -112,17 +116,34 @@ function Panel() {
     onError: (e) => toast.error(errMsg(e)),
   })
 
+  const hasAudience = !!saved
+  // While an audience is set, the upstream Public / Users-only cards (next sibling) must not be usable: clicking
+  // Public would bypass the audience. Done from here so no further upstream edit is needed.
+  useEffect(() => {
+    const el = rootRef.current?.nextElementSibling as HTMLElement | null
+    if (!hasAudience || !el) return
+    el.setAttribute('inert', '')
+    el.style.opacity = '0.5'
+    el.style.pointerEvents = 'none'
+    return () => {
+      el.removeAttribute('inert')
+      el.style.opacity = ''
+      el.style.pointerEvents = ''
+    }
+  }, [hasAudience])
+
   if (!courseUuid) return null
   const busy = saveM.isPending || removeM.isPending
   const dirty = !draftsEqual(draft, saved)
+  const saveAllowed = canSave(draft, !!preview, dirty || !saved)
   const onSave = () => {
-    if (error) return
+    if (!saveAllowed) return
     if (needsEnrollConfirm(draft, preview)) setConfirmOpen(true)
     else saveM.mutate()
   }
 
   return (
-    <section className="px-6 py-5 border-b border-gray-100" aria-labelledby="mka-aud-title">
+    <section ref={rootRef} className="px-6 py-5 border-b border-gray-100" aria-labelledby="mka-aud-title">
       <h2 id="mka-aud-title" className="font-bold text-base text-gray-800">Audience</h2>
       <p className="text-sm text-gray-500 mt-0.5">Say once who this course is for. Matching people are enrolled or given access automatically.</p>
 
@@ -185,14 +206,19 @@ function Panel() {
             ) : previewQ.isError ? 'Preview unavailable.' : 'Counting...'}
           </div>
 
+          {saved && !!manualGroupsText(stateQ.data && 'manual_group_count' in stateQ.data ? stateQ.data.manual_group_count : 0) && (
+            <p role="status" className="text-xs text-amber-700">
+              {manualGroupsText(stateQ.data && 'manual_group_count' in stateQ.data ? stateQ.data.manual_group_count : 0)}.
+            </p>
+          )}
           {saved && (
             <p className="text-xs text-gray-500">
-              This audience manages the course access settings below (public / user groups). Anyone who stops matching keeps their progress but loses access, unless the audience is Everyone.
+              This audience manages the public / users-only setting below, which is locked while it is set (remove the audience to change it). Anyone who stops matching keeps their progress but loses access, unless the audience is Everyone.
             </p>
           )}
 
           <div className="flex flex-wrap gap-2">
-            <Button onClick={onSave} disabled={busy || !!error || (!dirty && !!saved)}>
+            <Button onClick={onSave} disabled={busy || !saveAllowed}>
               {saveM.isPending ? 'Saving...' : saved ? 'Save audience' : 'Set audience'}
             </Button>
             {saved && (

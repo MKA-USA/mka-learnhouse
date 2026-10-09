@@ -73,18 +73,31 @@ export function sampleText(p: AudiencePreview): string {
   return extra > 0 ? `${names.join(', ')} and ${extra} more` : names.join(', ')
 }
 
+export function manualGroupsText(n: number | undefined): string {
+  if (!n) return ''
+  return `${n} manually linked ${n === 1 ? 'group also restricts' : 'groups also restrict'} access`
+}
+
+/** Required saves are blocked until the preview loaded, so the confirm always shows a real count. */
+export function canSave(d: Draft, previewLoaded: boolean, dirtyOrNew: boolean): boolean {
+  if (validateDraft(d)) return false
+  if (!dirtyOrNew) return false
+  return d.mode === 'required' ? previewLoaded : true
+}
+
 /** Confirmation is only needed when saving will enroll people right now. */
-export function needsEnrollConfirm(d: Draft, p: AudiencePreview | null): boolean {
-  return d.mode === 'required' && (p?.would_enroll ?? 0) > 0
+export function needsEnrollConfirm(d: Draft, _p?: AudiencePreview | null): boolean {
+  return d.mode === 'required'
 }
 
 export function confirmText(p: AudiencePreview): string {
   return `Enroll ${plural(p.would_enroll, 'person', 'people')} now?`
 }
 
-export function resultText(r: { enrolled: number; memberships_added: number; memberships_removed: number; matched_count: number }): string {
+export function resultText(r: { enrolled: number; memberships_added: number; memberships_removed: number; matched_count: number; enroll_queued?: number }): string {
   const parts = [`${r.matched_count} matched`]
   if (r.enrolled) parts.push(`${r.enrolled} enrolled`)
+  if (r.enroll_queued) parts.push(`${r.enroll_queued} enrollments queued`)
   if (r.memberships_added) parts.push(`${r.memberships_added} given access`)
   if (r.memberships_removed) parts.push(`${r.memberships_removed} access removed`)
   return `Audience saved: ${parts.join(', ')}.`

@@ -11,7 +11,7 @@ export type CourseAudienceBody = { audience: CourseAudienceKind; mode: CourseAud
 
 export type CourseAudienceState =
   | { audience: null }
-  | { audience: CourseAudienceKind; mode: CourseAudienceMode; rule: Partial<CustomRule> | null; usergroup_id: number | null; matched_count: number }
+  | { audience: CourseAudienceKind; mode: CourseAudienceMode; rule: Partial<CustomRule> | null; usergroup_id: number | null; matched_count: number; manual_group_count?: number }
 
 export type AudiencePreview = {
   matched_count: number
@@ -19,7 +19,7 @@ export type AudiencePreview = {
   sample: { user_id: number; name: string; email: string }[]
 }
 
-export type AudienceApplyResult = { memberships_added: number; memberships_removed: number; enrolled: number; matched_count: number }
+export type AudienceApplyResult = { memberships_added: number; memberships_removed: number; enrolled: number; matched_count: number; enroll_queued?: number }
 
 export type RawOptions = { departments?: unknown[]; levels?: unknown[]; roles?: unknown[] }
 
@@ -32,13 +32,25 @@ export class CourseAudienceError extends Error {
   }
 }
 
+/** FastAPI `detail` is a string, or (422) a list of {msg, ...}. */
+export function detailText(d: unknown): string {
+  if (typeof d === 'string') return d
+  if (Array.isArray(d)) {
+    return d
+      .map((x) => (typeof x === 'string' ? x : x && typeof x === 'object' && typeof (x as { msg?: unknown }).msg === 'string' ? (x as { msg: string }).msg : ''))
+      .filter(Boolean)
+      .join('; ')
+  }
+  return ''
+}
+
 async function request<T>(method: 'GET' | 'POST' | 'PUT' | 'DELETE', path: string, body: unknown, token?: string): Promise<T> {
   const res = await fetch(`${getAPIUrl()}mka/courses/${path}`, RequestBodyWithAuthHeader(method, body, { revalidate: 0 }, token))
   if (!res.ok) {
     let detail = ''
     try {
       const j = await res.json()
-      detail = typeof j?.detail === 'string' ? j.detail : ''
+      detail = detailText(j?.detail)
     } catch {
       /* non-JSON error body */
     }
@@ -61,4 +73,5 @@ export const saveCourseAudience = (courseUuid: string, body: CourseAudienceBody,
 export const removeCourseAudience = (courseUuid: string, token?: string) =>
   request<unknown>('DELETE', `${enc(courseUuid)}/audience`, null, token)
 
-export const fetchCourseAudienceOptions = (token?: string) => request<RawOptions>('GET', 'audience/options', null, token)
+export const fetchCourseAudienceOptions = (orgId: number, token?: string) =>
+  request<RawOptions>('GET', `audience/options?org_id=${enc(String(orgId))}`, null, token)
