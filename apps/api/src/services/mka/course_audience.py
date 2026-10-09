@@ -25,8 +25,11 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import weakref
+from types import SimpleNamespace
+from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import Any
+from typing import Any, Optional
 from uuid import uuid4
 
 from sqlalchemy import delete, event, func
@@ -40,7 +43,8 @@ from src.db.courses.courses import Course
 from src.db.mka_course_audience import MkaCourseAudience
 from src.db.mka_identity import MkaManagedGroup
 from src.db.mka_user_attributes import MkaUserAttributes
-from src.db.trail_runs import TrailRun
+from src.db.trail_runs import StatusEnum, TrailRun
+from src.db.trails import Trail
 from src.db.user_organizations import UserOrganization
 from src.db.usergroup_resources import UserGroupResource
 from src.db.usergroup_user import UserGroupUser
@@ -263,22 +267,76 @@ async def _set_members(db: AsyncSession, group: UserGroup, org_id: int, want: se
 # enrolment
 # ---------------------------------------------------------------------------------------------------------------
 
-async def _enroll(db: AsyncSession, course: Course, user_ids: list[int]) -> int:
-    """Enrol users who have no trail run for the course yet. Returns the number of NEW enrolments. Per-user failures
-    are logged and skipped (one bad account never blocks the rest)."""
-    if not course.published or not user_ids:
-        return 0
-    done = await _enrolled_ids(db, course.id)  # type: ignore[arg-type]
+INLINE_ENROLL_MAX = 300  # above this many NEW enrolments the PUT queues a background task instead of enrolling inline
+ENROLL_CHUNK = 200  # enrolments per commit
+_LOCKS: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, dict[int, asyncio.Lock]]" = weakref.WeakKeyDictionary()
+_BG: set = set()  # strong refs to in-flight enrolment tasks (tests await them)
+
+
+@asynccontextmanager
+async def _course_lock(db: AsyncSession, course_id: int):
+    """ONE lock per course (in-process, per event loop) plus the Postgres advisory lock: apply, publish reconcile,
+    drift repair and the background enrolment all take it."""
+    lock = _LOCKS.setdefault(asyncio.get_running_loop(), {}).setdefault(course_id, asyncio.Lock())
+    async with lock:
+        await isync._pg_lock(db, f"mka-course-audience:{course_id}")
+        yield
+
+
+async def _enroll(db: AsyncSession, course_id: int, org_id: int, course_uuid: str, user_ids: list[int]) -> dict:
+    """Enrol users who have no trail run for the course yet, ``ENROLL_CHUNK`` per commit. Takes plain values, never the ORM
+    ``course`` (a rollback would expire it). A failed chunk is retried user by user; one bad account is counted in
+    ``failed`` and never aborts the batch. Returns ``{"created": n, "failed": n}``."""
+    done = await _enrolled_ids(db, course_id)
+    todo = [u for u in user_ids if u not in done]
+    created = failed = 0
+    for i in range(0, len(todo), ENROLL_CHUNK):
+        chunk = todo[i : i + ENROLL_CHUNK]
+        try:
+            created += await _enrol_chunk(db, course_id, org_id, chunk)
+        except Exception as exc:  # noqa: BLE001
+            logger.error("MKA course audience: enrolment chunk failed, retrying per user: %s", type(exc).__name__)
+            await db.rollback()
+            for uid in chunk:
+                try:
+                    created += await _enrol_org(db, uid, OrgPlan(org_id=org_id, cycle_id=0, enroll=[(course_id, course_uuid)]))
+                except Exception as exc2:  # noqa: BLE001
+                    failed += 1
+                    logger.error("MKA course audience: enrolment failed for one user (rolled back): %s", type(exc2).__name__)
+                    await db.rollback()
+    return {"created": created, "failed": failed}
+
+
+async def _enrol_chunk(db: AsyncSession, course_id: int, org_id: int, user_ids: list[int]) -> int:
+    """Trail + TrailRun for a chunk of users in ONE transaction (same rows ``automation_enroll`` writes)."""
+    now = _now()
+    trails = {
+        t.user_id: t.id
+        for t in (await db.execute(select(Trail).where(Trail.org_id == org_id, Trail.user_id.in_(user_ids)).order_by(Trail.id))).scalars().all()  # type: ignore[attr-defined]
+    }
     created = 0
     for uid in user_ids:
-        if uid in done:
-            continue
-        try:
-            created += await _enrol_org(db, uid, OrgPlan(org_id=course.org_id, cycle_id=0, enroll=[(course.id, course.course_uuid)]))  # type: ignore[list-item]
-        except Exception as exc:  # noqa: BLE001
-            logger.error("MKA course audience: enrolment failed for one user (rolled back): %s", type(exc).__name__)
-            await db.rollback()
+        tid = trails.get(uid)
+        if tid is None:
+            trail = Trail(org_id=org_id, user_id=uid, trail_uuid=f"trail_{uuid4()}", creation_date=now, update_date=now)
+            db.add(trail)
+            await db.flush()
+            tid = trails[uid] = trail.id
+        db.add(TrailRun(trail_id=tid, course_id=course_id, org_id=org_id, user_id=uid, status=StatusEnum.STATUS_IN_PROGRESS,  # type: ignore[arg-type]
+                        data={}, creation_date=now, update_date=now))
+        created += 1
+    await db.commit()
     return created
+
+
+async def _bg_enroll(engine: AsyncEngine, course_id: int, org_id: int, course_uuid: str, user_ids: list[int]) -> None:
+    try:
+        async with AsyncSession(bind=engine, expire_on_commit=False) as s:
+            async with _course_lock(s, course_id):
+                res = await _enroll(s, course_id, org_id, course_uuid, user_ids)
+            logger.info("MKA course audience: background enrolment course=%s created=%d failed=%d", course_id, res["created"], res["failed"])
+    except Exception as exc:  # noqa: BLE001
+        logger.error("MKA course audience: background enrolment failed: %s", type(exc).__name__)
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -290,7 +348,9 @@ def _custom_of(row: MkaCourseAudience) -> dict | None:
 
 
 async def _converge(db: AsyncSession, course: Course, row: MkaCourseAudience) -> dict:
-    """Make the course access and enrolment match its audience row. Commits. Idempotent."""
+    """Make the course access and enrolment match its audience row. Commits. Idempotent. The caller holds the course lock.
+    Response fields: ``enrolled`` (done inline), ``enroll_queued`` (more than ``INLINE_ENROLL_MAX`` new enrolments: run in a
+    background task, ``enrolled`` is 0), ``enroll_failed`` (accounts that could not be enrolled)."""
     people = await matching(db, course.org_id, row.audience, _custom_of(row))
     ids = [p[0] for p in people]
     added = removed = 0
@@ -307,8 +367,31 @@ async def _converge(db: AsyncSession, course: Course, row: MkaCourseAudience) ->
         db.add(course)
     db.add(row)
     await db.commit()
-    enrolled = await _enroll(db, course, ids) if row.mode == "required" else 0
-    return {"memberships_added": added, "memberships_removed": removed, "enrolled": enrolled, "matched_count": len(ids)}
+    course_id, org_id, course_uuid, published = course.id, course.org_id, course.course_uuid, course.published  # plain values: rollbacks expire ORM objects
+    enrolled = queued = failed = 0
+    if row.mode == "required" and published:
+        done = await _enrolled_ids(db, course_id)  # type: ignore[arg-type]
+        todo = [u for u in ids if u not in done]
+        if len(todo) > INLINE_ENROLL_MAX:
+            queued = len(todo)
+            engine = AsyncEngine(getattr(db.get_bind(), "engine", db.get_bind()))
+            task = asyncio.get_running_loop().create_task(_bg_enroll(engine, course_id, org_id, course_uuid, todo))  # type: ignore[arg-type]
+            _BG.add(task)
+            task.add_done_callback(_BG.discard)
+        elif todo:
+            res = await _enroll(db, course_id, org_id, course_uuid, todo)  # type: ignore[arg-type]
+            enrolled, failed = res["created"], res["failed"]
+    return {"memberships_added": added, "memberships_removed": removed, "enrolled": enrolled, "enroll_queued": queued,
+            "enroll_failed": failed, "matched_count": len(ids)}
+
+
+async def _converge_locked(db: AsyncSession, course_id: int) -> Optional[dict]:
+    async with _course_lock(db, course_id):
+        row = await db.get(MkaCourseAudience, course_id, populate_existing=True)
+        course = await db.get(Course, course_id, populate_existing=True)
+        if row is None or course is None:
+            return None
+        return await _converge(db, course, row)
 
 
 async def get(db: AsyncSession, course: Course) -> dict:
@@ -316,8 +399,17 @@ async def get(db: AsyncSession, course: Course) -> dict:
     if row is None:
         return {"audience": None}
     matched = await matching(db, course.org_id, row.audience, _custom_of(row))
+    managed = select(MkaManagedGroup.usergroup_id).where(MkaManagedGroup.org_id == course.org_id)
+    manual = (
+        await db.execute(
+            select(func.count()).select_from(UserGroupResource).where(
+                UserGroupResource.resource_uuid == course.course_uuid, UserGroupResource.org_id == course.org_id,
+                UserGroupResource.usergroup_id.not_in(managed),  # type: ignore[attr-defined]
+            )
+        )
+    ).scalar() or 0
     return {"audience": row.audience, "mode": row.mode, "rule": _custom_of(row), "usergroup_id": row.usergroup_id,
-            "matched_count": len(matched)}
+            "matched_count": len(matched), "manual_group_count": int(manual)}
 
 
 async def preview(db: AsyncSession, course: Course, audience: str, mode: str, custom: dict | None) -> dict:
@@ -334,14 +426,15 @@ async def preview(db: AsyncSession, course: Course, audience: str, mode: str, cu
     }
 
 
-async def apply(db: AsyncSession, course: Course, audience: str, mode: str, custom: dict | None, actor_uid: int | None) -> dict:
-    await isync._pg_lock(db, f"mka-course-audience:{course.id}")
-    row = await db.get(MkaCourseAudience, course.id)
-    if row is None:
-        row = MkaCourseAudience(course_id=course.id, org_id=course.org_id, audience=audience, mode=mode)  # type: ignore[arg-type]
-    row.audience, row.mode, row.rule = audience, mode, custom
-    row.updated_by, row.updated_at = actor_uid, datetime.now()
-    return await _converge(db, course, row)
+async def apply(db: AsyncSession, course: Course, audience: str, mode: str, custom: Optional[dict], actor_uid: Optional[int]) -> dict:
+    course_id = course.id
+    async with _course_lock(db, course_id):  # type: ignore[arg-type]
+        row = await db.get(MkaCourseAudience, course_id)
+        if row is None:
+            row = MkaCourseAudience(course_id=course_id, org_id=course.org_id, audience=audience, mode=mode)  # type: ignore[arg-type]
+        row.audience, row.mode, row.rule = audience, mode, custom
+        row.updated_by, row.updated_at = actor_uid, datetime.now()
+        return await _converge(db, course, row)
 
 
 async def remove(db: AsyncSession, course: Course) -> dict:
@@ -359,15 +452,11 @@ async def remove(db: AsyncSession, course: Course) -> dict:
     return {"removed": True, "memberships_removed": gone}
 
 
-async def reconcile_course(db: AsyncSession, course_id: int) -> dict | None:
-    """Re-converge one course (publish hook / backfill). No-op when the flag is off or the course has no audience."""
+async def reconcile_course(db: AsyncSession, course_id: int) -> Optional[dict]:
+    """Re-converge one course (publish hook / backfill / drift repair). No-op when the flag is off or there is no audience."""
     if not enabled():
         return None
-    row = await db.get(MkaCourseAudience, course_id)
-    course = await db.get(Course, course_id)
-    if row is None or course is None:
-        return None
-    return await _converge(db, course, row)
+    return await _converge_locked(db, course_id)
 
 
 async def reconcile_org(db: AsyncSession, org_id: int) -> dict:
@@ -407,11 +496,17 @@ async def sync_user(db: AsyncSession, user_id: int, org_ids: list[int]) -> None:
     n_orgs = len(set((await db.execute(select(UserOrganization.org_id).where(UserOrganization.user_id == user_id))).scalars().all()))
     viewer = _trusted_viewer(row, user, n_orgs)
     for org_id in org_ids:
-        rows = (await db.execute(select(MkaCourseAudience).where(MkaCourseAudience.org_id == org_id))).scalars().all()
+        rows = [  # plain snapshot: a drift repair commits and would expire ORM rows
+            SimpleNamespace(course_id=r.course_id, audience=r.audience, mode=r.mode, rule=r.rule, usergroup_id=r.usergroup_id)
+            for r in (await db.execute(select(MkaCourseAudience).where(MkaCourseAudience.org_id == org_id))).scalars().all()
+        ]
         to_enroll: list[tuple[int, str]] = []
         for aud in rows:
             course = await db.get(Course, aud.course_id)
             if course is None:
+                continue
+            if course.public:  # access drift (someone re-publicised the course): restore public=false, re-converge
+                await _converge_locked(db, aud.course_id)
                 continue
             rule = eval_rule(aud.audience, _custom_of(aud))
             hit = _matches(aud.audience, compile_rule(rule) if rule else None, viewer)

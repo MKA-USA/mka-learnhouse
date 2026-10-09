@@ -293,3 +293,66 @@ async def test_identity_run_calls_course_sync(db, engine, world):
     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     await identity_sync.identity_sync_user(factory, SimpleNamespace(id=31, email="late.maal@example.invalid"))
     assert 31 in await enrolled(db, c)
+
+
+# --- review fixes ------------------------------------------------------------------------------------------------
+
+
+async def test_large_enrolment_is_queued_to_background(db, world, monkeypatch):
+    monkeypatch.setattr(ca, "INLINE_ENROLL_MAX", 2)
+    c = await make_course(db)
+    res = await ca.apply(db, c, "officeholders", "required", None, 1)
+    assert res["enrolled"] == 0 and res["enroll_queued"] == 4
+    while ca._BG:
+        await asyncio.gather(*list(ca._BG))
+    assert await enrolled(db, c) == {10, 11, 12, 13}
+
+
+async def test_chunked_enrolment_inline(db, world, monkeypatch):
+    monkeypatch.setattr(ca, "ENROLL_CHUNK", 2)
+    c = await make_course(db)
+    res = await ca.apply(db, c, "everyone", "required", None, 1)
+    assert res["enrolled"] == 7 and res["enroll_failed"] == 0
+    assert len((await db.execute(select(TrailRun).where(TrailRun.course_id == c.id))).scalars().all()) == 7
+
+
+async def test_enrol_failure_does_not_abort_batch_or_expire_course(db, world, monkeypatch):
+    async def boom(*a, **k):
+        raise RuntimeError("chunk down")
+
+    real = ca._enrol_org
+
+    async def flaky(d, uid, plan):
+        if uid == 11:
+            raise RuntimeError("bad account")
+        return await real(d, uid, plan)
+
+    monkeypatch.setattr(ca, "_enrol_chunk", boom)
+    monkeypatch.setattr(ca, "_enrol_org", flaky)
+    c = await make_course(db)
+    cid = c.id
+    res = await ca.apply(db, c, "officeholders", "required", None, 1)
+    assert res["enroll_failed"] == 1 and res["enrolled"] == 3
+    got = set((await db.execute(select(TrailRun.user_id).where(TrailRun.course_id == cid))).scalars().all())
+    assert got == {10, 12, 13}
+
+
+async def test_sync_user_repairs_public_drift(db, world):
+    c = await make_course(db)
+    await ca.apply(db, c, "officeholders", "optin", None, 1)
+    c.public = True
+    db.add(c)
+    await db.commit()
+    await ca.sync_user(db, 10, [1])
+    assert (await db.get(Course, c.id, populate_existing=True)).public is False
+
+
+async def test_manual_group_count(db, world):
+    c = await make_course(db)
+    manual = UserGroup(name="Manual", description="x", org_id=1, usergroup_uuid="usergroup_m", creation_date=NOW, update_date=NOW)
+    db.add(manual)
+    await db.commit()
+    db.add(UserGroupResource(usergroup_id=manual.id, resource_uuid=c.course_uuid, org_id=1, creation_date=NOW, update_date=NOW))
+    await db.commit()
+    await ca.apply(db, c, "officeholders", "optin", None, 1)
+    assert (await ca.get(db, c))["manual_group_count"] == 1

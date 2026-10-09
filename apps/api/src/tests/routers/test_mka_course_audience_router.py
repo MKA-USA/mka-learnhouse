@@ -71,7 +71,7 @@ async def test_preview_put_get_delete_roundtrip(db, world):
         assert p.status_code == 200
         assert p.json() == {"matched_count": 1, "sample": [{"user_id": 10, "name": "F L", "email": "maal@example.invalid"}], "would_enroll": 1}
         put = await c.put(f"{BASE}/course_1/audience", json=BODY)
-        assert put.json() == {"memberships_added": 1, "memberships_removed": 0, "enrolled": 1, "matched_count": 1}
+        assert put.json() == {"memberships_added": 1, "memberships_removed": 0, "enrolled": 1, "enroll_queued": 0, "enroll_failed": 0, "matched_count": 1}
         g = (await c.get(f"{BASE}/course_1/audience")).json()
         assert g["audience"] == "custom" and g["mode"] == "required" and g["matched_count"] == 1
         assert g["rule"] == {"departments": ["maal"], "levels": [], "roles": []} and isinstance(g["usergroup_id"], int)
