@@ -6,6 +6,7 @@ import toast from 'react-hot-toast'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCourse } from '@components/Contexts/CourseContext'
 import { useLHSession } from '@components/Contexts/LHSessionContext'
+import { useOrg } from '@components/Contexts/OrgContext'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
@@ -52,11 +53,12 @@ export default function CourseAudiencePanel() {
 function Panel() {
   const course = useCourse() as any
   const session = useLHSession() as any
+  const org = useOrg() as any
   const token: string | undefined = session?.data?.tokens?.access_token
   const courseUuid: string | undefined = course?.courseStructure?.course_uuid
   const qc = useQueryClient()
   const stateKey = ['mka-course-audience', courseUuid] as const
-  const orgId: number | undefined = course?.courseStructure?.org_id
+  const orgId: number | undefined = org?.id
   const ready = !!(courseUuid && token)
   const rootRef = useRef<HTMLElement>(null)
 
