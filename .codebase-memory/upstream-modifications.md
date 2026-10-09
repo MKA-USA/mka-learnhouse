@@ -1799,3 +1799,17 @@ Why: the new fork router `routers/mka_course_audience.py` (`/mka/courses/{course
 ```
 
 Re-apply: `grep -n "mka_course_audience" apps/api/src/router.py` (2 lines + the include block). No other upstream file is touched: the publish-triggered enrolment is a SQLAlchemy `after_commit` listener in the fork file `services/mka/course_audience.py`; the sign-in / profile-save / backfill hooks live in the fork file `services/mka/identity_sync.py`.
+
+### Course Audience panel mount (`apps/web/components/Dashboard/Pages/Course/EditCourseAccess/EditCourseAccess.tsx`, 2026-10-08)
+
+Why: the per-course Audience panel must sit on the course Access tab; EditCourseAccess has no slot/extension point. The panel is flag-gated (`NEXT_PUBLIC_MKA_COURSE_AUDIENCE_ENABLED=1`) and renders nothing when off. All logic lives in `apps/web/components/mka/course-audience/` and `apps/web/services/mka/courseAudience*.ts`.
+
+```diff
+ import { useLHAnalytics, AnalyticsEvent } from '@services/analytics'
++import CourseAudiencePanel from '@components/mka/course-audience/CourseAudiencePanel' // MKA fork
+@@ EditCourseAccess return, directly above the "Access type cards" block
++                <CourseAudiencePanel /> {/* MKA fork */}
+                 {/* Access type cards */}
+```
+
+Re-apply: `grep -n "MKA fork" apps/web/components/Dashboard/Pages/Course/EditCourseAccess/EditCourseAccess.tsx` (2 lines).

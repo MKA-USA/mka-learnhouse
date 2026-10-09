@@ -14,6 +14,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { queryKeys } from '@/lib/query/keys'
 import { useTranslation } from 'react-i18next'
 import { useLHAnalytics, AnalyticsEvent } from '@services/analytics'
+import CourseAudiencePanel from '@components/mka/course-audience/CourseAudiencePanel' // MKA fork
 
 type EditCourseAccessProps = {
     orgslug: string
@@ -160,6 +161,7 @@ function EditCourseAccess(_props: EditCourseAccessProps) {
                     </p>
                 </div>
 
+                <CourseAudiencePanel /> {/* MKA fork */}
                 {/* Access type cards */}
                 <div className="px-6 py-5 border-b border-gray-100">
                     <div className={`flex flex-col sm:flex-row gap-3 transition-opacity duration-200 ${isSaving ? 'opacity-50 pointer-events-none' : ''}`}>
