@@ -1782,3 +1782,17 @@ Why: a member who already has a profile and joins another org (invite or open jo
 ```
 
 Re-apply: `grep -n "MKA fork" apps/api/src/services/orgs/join.py` (3 lines).
+
+## Course Audience panel mount (`apps/web/components/Dashboard/Pages/Course/EditCourseAccess/EditCourseAccess.tsx`, 2026-10-08)
+
+Why: the per-course Audience panel must sit on the course Access tab; EditCourseAccess has no slot/extension point. The panel is flag-gated (`NEXT_PUBLIC_MKA_COURSE_AUDIENCE_ENABLED=1`) and renders nothing when off. All logic lives in `apps/web/components/mka/course-audience/` and `apps/web/services/mka/courseAudience*.ts`.
+
+```diff
+ import { useLHAnalytics, AnalyticsEvent } from '@services/analytics'
++import CourseAudiencePanel from '@components/mka/course-audience/CourseAudiencePanel' // MKA fork
+@@ EditCourseAccess return, directly above the "Access type cards" block
++                <CourseAudiencePanel /> {/* MKA fork */}
+                 {/* Access type cards */}
+```
+
+Re-apply: `grep -n "MKA fork" apps/web/components/Dashboard/Pages/Course/EditCourseAccess/EditCourseAccess.tsx` (2 lines).
