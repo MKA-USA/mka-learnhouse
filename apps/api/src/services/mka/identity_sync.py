@@ -659,6 +659,23 @@ async def _run(db_factory: Callable[[], AsyncSession], user: Any) -> None:
                     await s.rollback()
                 except Exception:  # noqa: BLE001
                     pass
+        await _course_audience_sync(s, user.id, org_ids)
+
+
+async def _course_audience_sync(s: AsyncSession, user_id: int, org_ids: list[int]) -> None:
+    """Course audiences (spec 2026-10-08): re-sync this user's ``course:*`` group memberships and required enrolments.
+    Its own flag (``MKA_COURSE_AUDIENCE_ENABLED``), fail-open, never raises into login / profile save."""
+    try:
+        from src.services.mka import course_audience as _ca
+
+        if _ca.enabled():
+            await _ca.sync_user(s, user_id, org_ids)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("MKA course audience sync failed (ignored): %s", type(exc).__name__)
+        try:
+            await s.rollback()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -762,6 +779,14 @@ async def backfill_org(db: AsyncSession, org_id: int, *, dry_run: bool = True) -
                                        + counts["roles_set"] + counts["roles_reverted"]) > 0 and len(planned) >= PLAN_ROWS_CAP
     else:
         await _record_sync(db, org_id, {k: counts[k] for k in counts} | {"skipped": skipped})
+        try:  # course audiences (spec 2026-10-08): only when their own flag is on; additive key
+            from src.services.mka import course_audience as _ca
+
+            if _ca.enabled():
+                result["course_audience"] = await _ca.reconcile_org(db, org_id)
+        except Exception as exc:  # noqa: BLE001
+            logger.error("MKA course audience backfill failed (ignored): %s", type(exc).__name__)
+            await db.rollback()
     return result
 
 

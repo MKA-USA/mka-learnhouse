@@ -1783,6 +1783,23 @@ Why: a member who already has a profile and joins another org (invite or open jo
 
 Re-apply: `grep -n "MKA fork" apps/api/src/services/orgs/join.py` (3 lines).
 
+### Course audience router registration (`apps/api/src/router.py`, 2026-10-08)
+
+Why: the new fork router `routers/mka_course_audience.py` (`/mka/courses/{course_uuid}/audience`) must be mounted; same registration point as every other `mka_*` router.
+
+```diff
++from src.routers import mka_course_audience as mka_course_audience_router_module  # MKA fork
+@@ after the mka_identity include_router
++v1_router.include_router(  # MKA fork: course audience; session (author/admin of the course) or org API token, gated per handler
++    mka_course_audience_router_module.router,
++    prefix="/mka/courses",
++    tags=["mka-course-audience"],
++    dependencies=[Depends(require_authenticated_user_or_api_token)],
++)
+```
+
+Re-apply: `grep -n "mka_course_audience" apps/api/src/router.py` (2 lines + the include block). No other upstream file is touched: the publish-triggered enrolment is a SQLAlchemy `after_commit` listener in the fork file `services/mka/course_audience.py`; the sign-in / profile-save / backfill hooks live in the fork file `services/mka/identity_sync.py`.
+
 ### Course Audience panel mount (`apps/web/components/Dashboard/Pages/Course/EditCourseAccess/EditCourseAccess.tsx`, 2026-10-08)
 
 Why: the per-course Audience panel must sit on the course Access tab; EditCourseAccess has no slot/extension point. The panel is flag-gated (`NEXT_PUBLIC_MKA_COURSE_AUDIENCE_ENABLED=1`) and renders nothing when off. All logic lives in `apps/web/components/mka/course-audience/` and `apps/web/services/mka/courseAudience*.ts`.
