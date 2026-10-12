@@ -304,6 +304,10 @@ jobs:
       contents: read
       issues: read
       pull-requests: read
+    env:
+      GIT_ATTR_NOSYSTEM: "1"
+      GIT_CONFIG_NOSYSTEM: "1"
+      GIT_TERMINAL_PROMPT: "0"
     steps:
       # Trusted code only: the commit of THIS workflow run (dev). NEVER the merged tree.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -333,7 +337,13 @@ jobs:
           set -euo pipefail
           out() { echo "$1=$2" >> "$GITHUB_OUTPUT"; }
           fail() { echo "::error::$1"; exit 1; }
+          # Nothing repo-controlled may run: no hooks, no attribute-selected drivers/filters, no fsmonitor,
+          # no submodule recursion. The candidate is never checked out (plumbing + object fetches only).
           git config core.hooksPath /dev/null
+          git config core.attributesFile /dev/null
+          git config core.fsmonitor false
+          git config fetch.recurseSubmodules false
+          git config submodule.recurse false
           git config user.name "mka-upstream-sync[bot]"
           git config user.email "mka-upstream-sync[bot]@users.noreply.github.com"
           git remote add upstream "https://github.com/${UPSTREAM_REPO}.git"
@@ -409,53 +419,17 @@ jobs:
           args=("$cand" "^$base_sha" "^$up_sha"); [ -n "$remote_tip" ] && args+=("^$remote_tip")
           [ "$(git rev-list "${args[@]}" | sort -u)" = "$(printf '%s\n' "$want" | sort -u)" ] || fail "candidate contains unexpected extra commits"
 
-          # ---- trusted recomputation of the merge ----
-          set +e
-          mt=$(git merge-tree --write-tree --name-only --no-messages "$p1" "$up_sha")
-          rc=$?
-          set -e
-          [ "$rc" -le 1 ] || fail "merge-tree failed"
-          pure_tree=$(printf '%s\n' "$mt" | head -n1)
-          printf '%s\n' "$mt" | tail -n +2 | sed '/^$/d' | sort -u > "$RUNNER_TEMP/conflicts.trusted"
+          # ---- trusted recomputation of the merge + path policy (NUL-delimited parsing, python, trusted checkout) ----
           cand_tree=$(git rev-parse "$cand^{tree}")
-
-          # Paths that execute in CI with repo secrets on push/pull_request (a PR runs the workflow files of
-          # its own merge ref): .github/** (incl. NEW workflows), scripts/** (lockfiles.yaml runs
-          # scripts/lockfiles.sh with LOCKFILE_SYNC_TOKEN), Docker/compose, bun/npm config.
-          prot='^(\.github/|scripts/|\.bun-version$|(.*/)?\.npmrc$|(.*/)?bunfig\.toml$|(.*/)?Dockerfile[^/]*$|(.*/)?docker-compose[^/]*$)'
-
-          if [ "$state" = "clean" ]; then
-            [ "$cand" = "$m" ] && [ "$rc" -eq 0 ] && [ "$cand_tree" = "$pure_tree" ] \
-              || fail "clean candidate is not exactly the pure merge"
-          else
-            if grep -Eq "$prot" "$RUNNER_TEMP/conflicts.trusted"; then
-              cp "$RUNNER_TEMP/conflicts.trusted" "$RUNNER_TEMP/conflicts.safe"
-              out state blocked; out reason "conflicts in CI-sensitive paths (.github/, scripts/, Docker, bun config) need a human; not pushing AI output"
-              exit 0
-            fi
-            bad=""
-            while IFS=$'\t' read -r st path; do
-              [ -z "$path" ] && continue
-              ok=no
-              if grep -Fxq -- "$path" "$RUNNER_TEMP/conflicts.trusted"; then ok=yes
-              elif [ "$path" = ".codebase-memory/upstream-modifications.md" ]; then ok=yes
-              elif [ "$st" = "A" ] && [[ "$path" =~ ^apps/api/migrations/versions/[A-Za-z0-9_]+\.py$ ]]; then ok=yes
-              else
-                dir=$(dirname "$path")
-                case "$(basename "$path")" in
-                  uv.lock) grep -Fxq -- "$dir/pyproject.toml" "$RUNNER_TEMP/conflicts.trusted" && ok=yes ;;
-                  bun.lock) grep -Fxq -- "$dir/package.json" "$RUNNER_TEMP/conflicts.trusted" && ok=yes ;;
-                esac
-              fi
-              if printf '%s\n' "$path" | grep -Eq "$prot"; then ok=no; fi
-              [ "$ok" = yes ] || bad="$bad $path"
-            done < <(git diff --name-status --no-renames "$pure_tree" "$cand_tree")
-            if [ -n "$bad" ]; then
-              cp "$RUNNER_TEMP/conflicts.trusted" "$RUNNER_TEMP/conflicts.safe"
-              out state blocked; out reason "AI changed files outside the conflicted set (rejected, not pushed): $(printf '%s' "$bad" | tr -cd '[:print:]' | head -c 150)"
-              exit 0
-            fi
-          fi
+          python3 scripts/mka/upstream-sync-verify-diff.py --p1 "$p1" --up "$up_sha" --cand-tree "$cand_tree" \
+            --mode "$state" --out-dir "$RUNNER_TEMP" > "$RUNNER_TEMP/diffcheck.out" || fail "candidate tree does not match the trusted merge"
+          verdict=$(sed -n 's/^verdict=//p' "$RUNNER_TEMP/diffcheck.out" | head -1)
+          dreason=$(sed -n 's/^reason=//p' "$RUNNER_TEMP/diffcheck.out" | head -1 | tr -cd '[:print:]' | head -c 200)
+          case "$verdict" in
+            ok) ;;
+            blocked) out state blocked; out reason "$dreason"; exit 0 ;;
+            *) fail "bad verifier verdict" ;;
+          esac
 
           # ---- sticky-review input: is everything already on the reused branch a verified pure merge? ----
           dirty=false
@@ -466,7 +440,24 @@ jobs:
               [ "$t" = "$(git rev-parse "$c^{tree}")" ] || { dirty=true; break; }
             done < <(git rev-list --parents "$remote_tip" "^$base_sha" "^$up_sha")
           fi
+          [ "$state" != "clean" ] || [ "$cand" = "$m" ] || fail "clean candidate must be the merge commit itself"
           out dirty "$dirty"; out candidate "$cand"; out branch "$branch"
+
+      - name: Build report and review gate (no App token in this step)
+        if: steps.verify.outputs.state == 'clean' || steps.verify.outputs.state == 'ai-resolved'
+        env:
+          UP_SHA: ${{ steps.verify.outputs.up_sha }}
+          CAND: ${{ steps.verify.outputs.candidate }}
+        run: |
+          set -uo pipefail
+          # Gate on the CUMULATIVE diff (origin/dev...candidate = everything the PR would land, including
+          # earlier commits on a reused branch, AI edits, both sides of renames, modes and symlinks).
+          # Commit list = upstream range only. Trusted checkout; fails safe (needs_review=true) on any error.
+          if ! python3 scripts/mka/upstream-sync-report.py --base origin/dev --head "$UP_SHA" --gate-head "$CAND" \
+                 --upstream-repo "$UPSTREAM_REPO" --github-output "$RUNNER_TEMP/gate.txt" > "$RUNNER_TEMP/report.md"; then
+            printf '## Upstream sync\n\n**Report script crashed; full review required.**\n' > "$RUNNER_TEMP/report.md"
+            printf 'needs_review=true\ncommit_count=0\n' > "$RUNNER_TEMP/gate.txt"
+          fi
 
       - name: Create GitHub App token
         id: app
@@ -485,7 +476,6 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
           BRANCH: ${{ steps.verify.outputs.branch }}
-          UP_SHA: ${{ steps.verify.outputs.up_sha }}
           CAND: ${{ steps.verify.outputs.candidate }}
           DIRTY: ${{ steps.verify.outputs.dirty }}
           AI_RESOLVED: ${{ steps.verify.outputs.state == 'ai-resolved' }}
@@ -493,14 +483,7 @@ jobs:
           set -euo pipefail
           res="$RUNNER_TEMP/result"
 
-          # Gate on the CUMULATIVE diff (origin/dev...candidate = everything the PR would land, including
-          # earlier commits on a reused branch and any AI edits). Commit list = upstream range only.
-          # Run from the TRUSTED checkout. The script fails safe (needs_review=true) on any error.
-          if ! python3 scripts/mka/upstream-sync-report.py --base origin/dev --head "$UP_SHA" --gate-head "$CAND" \
-                 --upstream-repo "$UPSTREAM_REPO" --github-output "$RUNNER_TEMP/gate.txt" > "$RUNNER_TEMP/report.md"; then
-            printf '## Upstream sync\n\n**Report script crashed; full review required.**\n' > "$RUNNER_TEMP/report.md"
-            printf 'needs_review=true\ncommit_count=0\n' > "$RUNNER_TEMP/gate.txt"
-          fi
+          # Gate result comes from the "Build report" step (computed without the App token in the environment).
           needs_review=$(grep -h '^needs_review=' "$RUNNER_TEMP/gate.txt" | tail -1 | cut -d= -f2)
           commit_count=$(grep -h '^commit_count=' "$RUNNER_TEMP/gate.txt" | tail -1 | cut -d= -f2)
           [[ "$commit_count" =~ ^-?[0-9]+$ ]] || commit_count=0
@@ -534,7 +517,7 @@ jobs:
               fi
               echo
               echo "## Conflicted files (recomputed by the publish job)"
-              sed 's/^/- `/; s/$/`/' "$RUNNER_TEMP/conflicts.trusted"
+              cat "$RUNNER_TEMP/conflicts.md"
               echo
               echo "---"
               echo
@@ -550,7 +533,7 @@ jobs:
 
           # Push the verified candidate object (plain push: no force). Hooks disabled; token only in this header.
           basic=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
-          git -c core.hooksPath=/dev/null -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $basic" \
+          git -c core.hooksPath=/dev/null -c core.attributesFile=/dev/null -c core.fsmonitor=false -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $basic" \
             push "https://github.com/${GITHUB_REPOSITORY}.git" "refs/mka/candidate:refs/heads/${BRANCH}"
 
           gh label create upstream-sync --color 0e8a16 --description "Automated upstream (learnhouse/learnhouse) sync" --force

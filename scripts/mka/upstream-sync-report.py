@@ -1,23 +1,26 @@
 #!/usr/bin/env python3
 """Fork-only: build the PR body for an upstream sync and decide the review gate.
 
-Usage: upstream-sync-report.py [--base origin/dev] [--head upstream/dev]
-                               [--upstream-repo learnhouse/learnhouse]
-                               [--github-output FILE]
+Usage: upstream-sync-report.py [--base origin/dev] [--head upstream/dev] [--gate-head REF]
+                               [--upstream-repo learnhouse/learnhouse] [--github-output FILE]
 
 Prints the Markdown PR body on stdout. With --github-output, also appends
 `needs_review=true|false`, `commit_count=N` and `reasons=...` lines.
-Only reads git; never writes to the repo. Upstream commit text is untrusted:
-it is only ever emitted into Markdown, never executed or interpolated in shell.
+Only reads git; never writes to the repo. All paths are parsed from NUL-delimited git output
+(mka_gitpaths), matched on a Unicode-NFC/case-folded key, and BOTH sides of renames are checked.
+Commit text and paths are untrusted: only emitted into Markdown code spans.
 
-Fail-safe: on ANY error the gate defaults to needs_review=true (no auto-merge).
-Must be run from a TRUSTED checkout (origin/dev), never from the merged tree.
+Fail-safe: on ANY error (including an unparseable diff entry) the gate defaults to
+needs_review=true. Run it from a TRUSTED checkout (origin/dev), never from the merged tree.
 """
 import argparse
+import os
 import posixpath
 import re
-import subprocess
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from mka_gitpaths import dec, disp, git, mode_changed, norm, parse_raw_z, special, weird  # noqa: E402
 
 MIGRATIONS_DIR = "apps/api/migrations/versions/"
 MODS_FILE = ".codebase-memory/upstream-modifications.md"
@@ -28,74 +31,86 @@ MAX_DIFF_LINES = 40
 MAX_LIST = 60
 
 CONFIG_EXACT = {"apps/api/config/config.yaml", "apps/api/config/config.py"}
-ENV_BASENAME_RE = re.compile(r"^\.env(\..*)?$|^.+\.env(\..*)?$|^env\.(ts|js|mjs|cjs)$", re.I)
-ENV_DOC_RE = re.compile(r"^docs/.*(^|/)[^/]*env[^/]*\.(md|mdx)$", re.I)
+ENV_BASENAME_RE = re.compile(r"^\.env(\..*)?$|^.+\.env(\..*)?$|^env\.(ts|js|mjs|cjs)$")
+ENV_DOC_RE = re.compile(r"^docs/.*[^/]*env[^/]*\.(md|mdx)$")
 DEP_BASENAMES = {
     "package.json", "bun.lock", "bun.lockb", "package-lock.json", "pnpm-lock.yaml", "yarn.lock",
     "pyproject.toml", "uv.lock", "poetry.lock", "pipfile", "pipfile.lock",
 }
-DEP_RE = re.compile(r"^requirements[^/]*\.txt$", re.I)
-DEPLOY_BASENAME_RE = re.compile(r"^(dockerfile.*|.*\.dockerfile|docker-compose.*|compose(\..*)?\.ya?ml|\.dockerignore|caddyfile|nginx.*\.conf)$", re.I)
-DEPLOY_DIR_RE = re.compile(r"(^|/)(\.?coolify|deploy|deployment|deployments|infra|infrastructure)(/|$)", re.I)
-AUTH_RE = re.compile(r"auth|security|permission|rbac|session|oauth|sso", re.I)
+DEP_RE = re.compile(r"^requirements[^/]*\.txt$")
+DEPLOY_BASENAME_RE = re.compile(r"^(dockerfile.*|.*\.dockerfile|docker-compose.*|compose(\..*)?\.ya?ml|\.dockerignore|caddyfile|nginx.*\.conf)$")
+DEPLOY_DIR_RE = re.compile(r"(^|/)(\.?coolify|deploy|deployment|deployments|infra|infrastructure)(/|$)")
+GITCFG_RE = re.compile(r"(^|/)(\.gitattributes|\.gitmodules)$")
+AUTH_RE = re.compile(r"auth|security|permission|rbac|session|oauth|sso")
 NEXT_CFG_RE = re.compile(r"^(next\.config\.[^/]+|middleware\.(ts|js|mjs)|proxy\.(ts|js|mjs))$")
-
-
-def git(*args):
-    r = subprocess.run(["git", *args], capture_output=True, text=True)
-    if r.returncode != 0:
-        raise RuntimeError(f"git {' '.join(args)} failed: {r.stderr.strip()[:300]}")
-    return r.stdout
 
 
 def base(p):
     return posixpath.basename(p)
 
 
-def is_config(p):
-    return p in CONFIG_EXACT or bool(ENV_BASENAME_RE.match(base(p))) or bool(ENV_DOC_RE.match(p))
+# All predicates take the NORMALISED key (NFC + lowercase).
+def is_config(n):
+    return n in CONFIG_EXACT or bool(ENV_BASENAME_RE.match(base(n))) or bool(ENV_DOC_RE.match(n))
 
 
-def is_auth(p):
-    return p.startswith(("apps/api/src/", "apps/web/")) and bool(AUTH_RE.search(p))
+def is_auth(n):
+    return n.startswith(("apps/api/src/", "apps/web/")) and bool(AUTH_RE.search(n))
 
 
 def build(a):
     commits = []
-    for line in git("log", "--no-merges", "--format=%h%x09%s", f"{a.base}..{a.head}").splitlines():
-        sha, _, subj = line.partition("\t")
-        commits.append((sha, subj))
-    total = int(git("rev-list", "--count", f"{a.base}..{a.head}").strip())
+    _, raw = git("log", "-z", "--no-merges", "--format=%h%x1f%s", f"{a.base}..{a.head}")
+    for rec in raw.split(b"\0"):
+        if rec:
+            sha, _, subj = dec(rec).partition("\x1f")
+            commits.append((sha, subj))
+    total = int(dec(git("rev-list", "--count", f"{a.base}..{a.head}")[1]).strip())
 
-    changed = {}
-    for line in git("diff", "--name-status", "--no-renames", f"{a.base}...{a.gate_head}").splitlines():
-        status, _, path = line.partition("\t")
-        changed[path] = status
+    _, rawdiff = git("diff", "--raw", "-z", "-M", "--no-ext-diff", "--no-textconv", f"{a.base}...{a.gate_head}")
+    entries = parse_raw_z(rawdiff)
+
+    # Every path on either side of a rename/copy counts; the old side of a rename counts as a deletion.
+    touched, deleted, added = {}, set(), set()
+    for e in entries:
+        for p in e["paths"]:
+            touched[norm(p)] = p
+        if e["status"] == "D":
+            deleted.add(norm(e["paths"][0]))
+        elif e["status"] == "R":
+            deleted.add(norm(e["paths"][0]))
+            added.add(norm(e["paths"][1]))
+        elif e["status"] in "AC":
+            added.add(norm(e["paths"][-1]))
+    keys = sorted(touched)
 
     try:
-        mods = git("show", f"{a.base}:{MODS_FILE}")
+        mods = dec(git("show", f"{a.base}:{MODS_FILE}")[1])
     except RuntimeError:
         mods = ""
-    hook_paths = set(PATH_RE.findall(mods))
+    hook_keys = {norm(p) for p in PATH_RE.findall(mods)}
 
-    def fork_only(p):
-        b = base(p)
-        return b.startswith(("mka-", "mka_")) or p.startswith("custom/") or p in hook_paths
+    def fork_only(n):
+        b = base(n)
+        return b.startswith(("mka-", "mka_")) or n.startswith("custom/") or n in hook_keys
 
-    paths = sorted(changed)
+    special_entries = sorted({touched[norm(e["paths"][-1])] for e in entries if special(e) or mode_changed(e)}, key=norm)
     categories = [
         ("New alembic migrations",
-         [p for p in paths if p.startswith(MIGRATIONS_DIR) and changed[p] == "A" and p.endswith(".py")]),
-        ("Config / env changes (config.yaml/py, .env*, env.ts, env docs)", [p for p in paths if is_config(p)]),
-        ("Dependency manifests and lockfiles", [p for p in paths if base(p).lower() in DEP_BASENAMES or DEP_RE.match(base(p))]),
-        ("Docker / compose / deploy files", [p for p in paths if DEPLOY_BASENAME_RE.match(base(p)) or DEPLOY_DIR_RE.search(p)]),
-        ("GitHub config (.github/**: workflows, actions, CODEOWNERS, mka/)", [p for p in paths if p.startswith(".github/")]),
-        ("Scripts (scripts/**)", [p for p in paths if p.startswith("scripts/")]),
-        ("Auth / security / permission / session code", [p for p in paths if is_auth(p)]),
-        ("Next.js config / middleware / proxy", [p for p in paths if NEXT_CFG_RE.match(base(p))]),
-        ("Deleted fork-only or fork-hooked files (mka-*, custom/, upstream-modifications.md)",
-         [p for p in paths if changed[p] == "D" and fork_only(p)]),
-        ("Touches fork hook sites (see upstream-modifications.md)", [p for p in paths if p in hook_paths]),
+         [touched[n] for n in keys if n in added and n.startswith(MIGRATIONS_DIR) and n.endswith(".py")]),
+        ("Config / env changes (config.yaml/py, .env*, env.ts, env docs)", [touched[n] for n in keys if is_config(n)]),
+        ("Dependency manifests and lockfiles", [touched[n] for n in keys if base(n) in DEP_BASENAMES or DEP_RE.match(base(n))]),
+        ("Docker / compose / deploy files", [touched[n] for n in keys if DEPLOY_BASENAME_RE.match(base(n)) or DEPLOY_DIR_RE.search(n)]),
+        ("GitHub config (.github/**: workflows, actions, CODEOWNERS, mka/)", [touched[n] for n in keys if n.startswith(".github/")]),
+        ("Scripts (scripts/**)", [touched[n] for n in keys if n.startswith("scripts/")]),
+        ("Auth / security / permission / session code", [touched[n] for n in keys if is_auth(n)]),
+        ("Next.js config / middleware / proxy", [touched[n] for n in keys if NEXT_CFG_RE.match(base(n))]),
+        ("Git behaviour files (.gitattributes, .gitmodules)", [touched[n] for n in keys if GITCFG_RE.search(n)]),
+        ("Symlinks, submodules, file-mode (exec bit) changes", special_entries),
+        ("Unusual path names (control chars, backslashes, leading/trailing space, ..)", [touched[n] for n in keys if weird(touched[n])]),
+        ("Deleted or renamed-away fork-only/hooked files (mka-*, custom/, upstream-modifications.md)",
+         [touched[n] for n in keys if n in deleted and fork_only(n)]),
+        ("Touches fork hook sites (see upstream-modifications.md)", [touched[n] for n in keys if n in hook_keys]),
     ]
 
     groups = {"feat": [], "fix": [], "other": []}
@@ -110,20 +125,22 @@ def build(a):
         pr = PR_RE.search(subj)
         subj = PR_RE.sub("", subj).strip()
         subj = "".join(ch for ch in subj if ch.isprintable())[:200].replace("`", "'")
+        sha = re.sub(r"[^0-9a-f]", "", sha)
         if pr:
             return f"- `{subj}` ([#{pr.group(1)}](https://github.com/{a.upstream_repo}/pull/{pr.group(1)}))"
         return f"- `{subj}` ([`{sha}`](https://github.com/{a.upstream_repo}/commit/{sha}))"
 
     reasons = []
     out = ["## Upstream sync\n",
-           f"Merges `{a.head}` into `dev`: **{total}** upstream commit(s) ({len(changed)} files changed). "
-           "Gate computed on the cumulative diff of everything this PR lands. Merge with a **merge commit** only (never squash/rebase) so future syncs share a merge-base.\n",
+           f"Merges `{a.head}` into `dev`: **{total}** upstream commit(s) ({len(entries)} files changed). "
+           "Gate computed on the cumulative diff of everything this PR lands (both sides of renames). "
+           "Merge with a **merge commit** only (never squash/rebase) so future syncs share a merge-base.\n",
            "### Needs human attention\n"]
     for title, items in categories:
         if items:
             reasons.append(title)
             out.append(f"**{title}** ({len(items)})\n")
-            out.extend("- `" + p.replace("`", "'") + "`" for p in items[:MAX_LIST])
+            out.extend(f"- `{disp(p)}`" for p in items[:MAX_LIST])
             if len(items) > MAX_LIST:
                 out.append(f"- ... and {len(items) - MAX_LIST} more")
             out.append("")
@@ -131,13 +148,13 @@ def build(a):
             out.append(f"- {title}: none")
     out.append("")
 
-    cfg = [p for p in paths if is_config(p)]
+    cfg = [touched[n] for n in keys if is_config(n)]
     if cfg:
         out.append("<details><summary>Config / env diffs (added or removed lines)</summary>\n")
         for p in cfg[:15]:
-            d = git("diff", "-U0", f"{a.base}...{a.gate_head}", "--", p).splitlines()
+            d = dec(git("diff", "-U0", "--no-ext-diff", "--no-textconv", f"{a.base}...{a.gate_head}", "--", p)[1]).splitlines()
             body = [l for l in d if l[:1] in "+-" and not l.startswith(("+++", "---"))]
-            out.append(f"`{p}`\n\n```diff")
+            out.append(f"`{disp(p)}`\n\n```diff")
             out.extend(l.replace("```", "'''") for l in body[:MAX_DIFF_LINES])
             if len(body) > MAX_DIFF_LINES:
                 out.append(f"... {len(body) - MAX_DIFF_LINES} more lines")
@@ -164,8 +181,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--base", default="origin/dev")
     ap.add_argument("--head", default="upstream/dev")
-    ap.add_argument("--upstream-repo", default="learnhouse/learnhouse")
     ap.add_argument("--gate-head", help="ref whose cumulative diff vs --base drives the gate (default: --head)")
+    ap.add_argument("--upstream-repo", default="learnhouse/learnhouse")
     ap.add_argument("--github-output")
     a = ap.parse_args()
     a.gate_head = a.gate_head or a.head
