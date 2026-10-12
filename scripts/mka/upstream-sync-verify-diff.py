@@ -14,7 +14,8 @@ then:
                  never in CI-sensitive paths (.github/, scripts/, Docker/compose, bun/npm config,
                  .gitattributes/.gitmodules), never symlinks/submodules, never file-mode changes.
                  A CONFLICT in a CI-sensitive path also blocks.
-Paths are NUL-delimited (-z) and matched on a NFC/case-folded key. Prints key=value lines:
+Paths are NUL-delimited (-z). DENY checks use a NFC/case-folded key; the ALLOW set is exact raw-path equality,
+and changes whose folded key collides with a different path are rejected. Prints key=value lines:
 verdict=ok|blocked, reason=..., pure_tree=.... Writes DIR/conflicts.safe and DIR/conflicts.md (display-escaped).
 Run from a TRUSTED checkout; it only reads objects.
 """
@@ -30,7 +31,7 @@ PROT = re.compile(
     r"^(\.github/|scripts/|\.bun-version$|(.*/)?\.npmrc$|(.*/)?bunfig\.toml$|(.*/)?dockerfile[^/]*$"
     r"|(.*/)?docker-compose[^/]*$|(.*/)?\.gitattributes$|(.*/)?\.gitmodules$)")
 MIGRATION = re.compile(r"^apps/api/migrations/versions/[a-z0-9_]+\.py$")
-MODS = ".codebase-memory/upstream-modifications.md"
+MODS = ".codebase-memory/upstream-modifications.md"  # compared exactly
 
 
 def parse_merge_tree(out):
@@ -55,7 +56,7 @@ def main():
 
     rc, out = git("merge-tree", "--write-tree", "--name-only", "-z", "--no-messages", a.p1, a.up, allow_rc=(0, 1))
     pure_tree, conflicts = parse_merge_tree(out)
-    cset = {norm(c): c for c in conflicts}
+    cset = set(conflicts)  # ALLOW set: exact raw paths only (never folded)
 
     with open(os.path.join(a.out_dir, "conflicts.safe"), "w") as f:
         f.writelines(disp(c) + "\n" for c in sorted(conflicts))
@@ -78,6 +79,15 @@ def main():
     if prot_conf:
         emit("blocked", "conflicts in CI-sensitive paths need a human (not pushing AI output): " + ", ".join(disp(c) for c in prot_conf[:3]))
 
+    # Folded keys of every path in either tree: a changed path that folds to a DIFFERENT raw path is a
+    # case/Unicode lookalike of another file and is rejected (folding only ever widens denial, never allowance).
+    folded = {}
+    for tree in (pure_tree, a.cand_tree):
+        _, names = git("ls-tree", "-r", "-z", "--name-only", tree)
+        for nm in names.split(b"\0"):
+            if nm:
+                folded.setdefault(norm(dec(nm)), set()).add(dec(nm))
+
     _, raw = git("diff", "--raw", "-z", "--no-renames", "--no-ext-diff", "--no-textconv", pure_tree, a.cand_tree)
     bad = []
     for e in parse_raw_z(raw):
@@ -89,12 +99,14 @@ def main():
             bad.append(f"{disp(p)} (file mode change)")
         elif PROT.match(n):
             bad.append(f"{disp(p)} (CI-sensitive path)")
-        elif n in cset or n == MODS:
+        elif folded.get(n, {p}) - {p}:
+            bad.append(f"{disp(p)} (collides with a differently-spelled path)")
+        elif p in cset or p == MODS:
             pass
-        elif e["status"] == "A" and MIGRATION.match(n):
+        elif e["status"] == "A" and MIGRATION.match(p):
             pass
         else:
-            d, b = os.path.dirname(n), os.path.basename(n)
+            d, b = os.path.dirname(p), os.path.basename(p)
             manifest = {"uv.lock": "pyproject.toml", "bun.lock": "package.json"}.get(b)
             if manifest and (f"{d}/{manifest}" if d else manifest) in cset:
                 pass
