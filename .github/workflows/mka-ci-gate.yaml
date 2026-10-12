@@ -41,25 +41,33 @@ jobs:
         run: |
           set -uo pipefail
           # The ONLY exemptions, matched on identity not just name:
-          #  - this very run's own check (GitHub Actions app, details_url of this run id)
+          #  - this very run's own check (GitHub Actions app, job id of this run)
           #  - "Dispatch to Infrastructure Repo", only when it belongs to .github/workflows/notify-infra.yaml
           #    (fails on this fork: no INFRA_REPO_PAT / vars.INFRA_REPO).
           # Every other check run, from any app, must be completed and non-failing.
           # Give path-filtered workflows time to register their check runs.
           sleep 90
           stable=0
+          # For Actions, a check run's id == its job id, so match by job id
+          # (details_url is /runs/<check_run_id>, it does not carry the workflow run id).
+          own_jobs=""
+          until own_jobs=$(gh api --paginate "repos/$REPO/actions/runs/$RUN_ID/jobs?per_page=100" --jq '.jobs[].id') \
+                && [ -n "$own_jobs" ]; do sleep 10; done
           for _ in $(seq 1 130); do
-            infra_runs=$(gh api --paginate "repos/$REPO/actions/runs?head_sha=$SHA&per_page=100" \
-              --jq '.workflow_runs[] | select(.path == ".github/workflows/notify-infra.yaml") | .id') || { sleep 30; continue; }
+            infra_jobs=""
+            for r in $(gh api --paginate "repos/$REPO/actions/runs?head_sha=$SHA&per_page=100" \
+                --jq '.workflow_runs[] | select(.path == ".github/workflows/notify-infra.yaml") | .id') ; do
+              infra_jobs="$infra_jobs $(gh api --paginate "repos/$REPO/actions/runs/$r/jobs?per_page=100" --jq '.jobs[].id')"
+            done
             runs=$(gh api --paginate "repos/$REPO/commits/$SHA/check-runs?per_page=100" \
-              --jq '.check_runs[] | [.id, .name, .status, (.conclusion // ""), (.app.slug // ""), (.details_url // "")] | @tsv') || { sleep 30; continue; }
+              --jq '.check_runs[] | [.id, .name, .status, (.conclusion // "-"), (.app.slug // "-")] | @tsv') || { sleep 30; continue; }
             pending=0; failed=""
-            while IFS=$'\t' read -r cid name status conclusion app url; do
+            # "-" placeholders: tab is IFS whitespace, so an empty field would collapse and shift columns.
+            while IFS=$'\t' read -r cid name status conclusion app; do
               [ -z "$name" ] && continue
-              run_of_check=$(printf '%s' "$url" | sed -n 's#.*/actions/runs/\([0-9][0-9]*\)/.*#\1#p')
-              if [ "$app" = "github-actions" ] && [ "$run_of_check" = "$RUN_ID" ]; then continue; fi
+              if [ "$app" = "github-actions" ] && printf '%s\n' "$own_jobs" | grep -qx "$cid"; then continue; fi
               if [ "$app" = "github-actions" ] && [ "$name" = "Dispatch to Infrastructure Repo" ] \
-                 && [ -n "$run_of_check" ] && printf '%s\n' "$infra_runs" | grep -qx "$run_of_check"; then continue; fi
+                 && echo "$infra_jobs" | tr ' ' '\n' | grep -qx "$cid"; then continue; fi
               if [ "$status" != "completed" ]; then pending=$((pending + 1)); continue; fi
               case "$conclusion" in
                 success|skipped|neutral) ;;
