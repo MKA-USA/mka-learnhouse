@@ -6,7 +6,11 @@ name: MKA CI Gate
 # every other check on the PR head commit and passes only if none failed.
 # "MKA CI gate" is the only required check in the branch rulesets.
 #
-# Plain `pull_request` trigger: no secrets, read-only token.
+# Plain `pull_request` trigger: no secrets, read-only token. The ruleset pins the required check to the
+# GitHub Actions app (integration_id 15368), so another app cannot post a passing "MKA CI gate".
+# Note: a PR runs the gate workflow file from its own merge ref, so a PR that edits this file can weaken
+# it; that is why .github/** changes are always flagged needs-review in sync PRs and should need review
+# in human PRs (add CODEOWNERS for .github/ if you want it enforced).
 
 on:
   pull_request:
@@ -16,6 +20,7 @@ on:
 permissions:
   contents: read
   checks: read
+  actions: read
 
 concurrency:
   group: mka-ci-gate-${{ github.event.pull_request.number }}
@@ -32,20 +37,29 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           SHA: ${{ github.event.pull_request.head.sha }}
-          # Checks that always fail on this fork (missing INFRA_REPO_PAT / vars.INFRA_REPO).
-          IGNORED: "MKA CI gate|Dispatch to Infrastructure Repo"
+          RUN_ID: ${{ github.run_id }}
         run: |
           set -uo pipefail
+          # The ONLY exemptions, matched on identity not just name:
+          #  - this very run's own check (GitHub Actions app, details_url of this run id)
+          #  - "Dispatch to Infrastructure Repo", only when it belongs to .github/workflows/notify-infra.yaml
+          #    (fails on this fork: no INFRA_REPO_PAT / vars.INFRA_REPO).
+          # Every other check run, from any app, must be completed and non-failing.
           # Give path-filtered workflows time to register their check runs.
           sleep 90
           stable=0
           for _ in $(seq 1 130); do
+            infra_runs=$(gh api --paginate "repos/$REPO/actions/runs?head_sha=$SHA&per_page=100" \
+              --jq '.workflow_runs[] | select(.path == ".github/workflows/notify-infra.yaml") | .id') || { sleep 30; continue; }
             runs=$(gh api --paginate "repos/$REPO/commits/$SHA/check-runs?per_page=100" \
-              --jq '.check_runs[] | [.name, .status, (.conclusion // "")] | @tsv') || { sleep 30; continue; }
+              --jq '.check_runs[] | [.name, .status, (.conclusion // ""), (.app.slug // ""), (.details_url // "")] | @tsv') || { sleep 30; continue; }
             pending=0; failed=""
-            while IFS=$'\t' read -r name status conclusion; do
+            while IFS=$'\t' read -r name status conclusion app url; do
               [ -z "$name" ] && continue
-              if printf '%s' "$name" | grep -qxE "$IGNORED"; then continue; fi
+              run_of_check=$(printf '%s' "$url" | sed -n 's#.*/actions/runs/\([0-9][0-9]*\)/.*#\1#p')
+              if [ "$app" = "github-actions" ] && [ "$run_of_check" = "$RUN_ID" ]; then continue; fi
+              if [ "$app" = "github-actions" ] && [ "$name" = "Dispatch to Infrastructure Repo" ] \
+                 && [ -n "$run_of_check" ] && printf '%s\n' "$infra_runs" | grep -qx "$run_of_check"; then continue; fi
               if [ "$status" != "completed" ]; then pending=$((pending + 1)); continue; fi
               case "$conclusion" in
                 success|skipped|neutral) ;;

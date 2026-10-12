@@ -68,9 +68,8 @@ jobs:
     env:
       HAS_AI: ${{ (secrets.ANTHROPIC_API_KEY != '' || secrets.CLAUDE_CODE_OAUTH_TOKEN != '') && 'true' || 'false' }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: dev
           fetch-depth: 0
           persist-credentials: false
 
@@ -157,17 +156,17 @@ jobs:
           out state conflicted
 
       # ---- conflict path (upstream code may execute from here on; no privileged tokens exist) ----
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         if: steps.sync.outputs.state == 'conflicted' && env.HAS_AI == 'true'
         with:
           bun-version: 1.4.2
 
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         if: steps.sync.outputs.state == 'conflicted' && env.HAS_AI == 'true'
         with:
           python-version: "3.14" # keep in sync with api-tests.yaml / apps/api/pyproject.toml
 
-      - uses: astral-sh/setup-uv@v10.1.0
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         if: steps.sync.outputs.state == 'conflicted' && env.HAS_AI == 'true'
 
       - name: Build resolver prompt
@@ -192,7 +191,7 @@ jobs:
         id: ai
         if: steps.sync.outputs.state == 'conflicted' && env.HAS_AI == 'true'
         continue-on-error: true
-        uses: anthropics/claude-code-action@v1
+        uses: anthropics/claude-code-action@1d6de8cb0c237e7c15e9e1bdf973826ebae490cc # v1.0.248
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -281,17 +280,18 @@ jobs:
           [ -s "$RUNNER_TEMP/conflicts.txt" ] && cp "$RUNNER_TEMP/conflicts.txt" out/conflicts.txt || true
           [ -s .mka-resolution-summary.md ] && head -c 30000 .mka-resolution-summary.md > out/summary.md || true
           jq -n --arg state "$state" --arg reason "$REASON" --arg branch "$BRANCH" \
-                --arg base "$BASE_SHA" --arg upstream "$UPSTREAM_SHA" \
-            '{state:$state, reason:$reason, branch:$branch, base_sha:$base, upstream_sha:$upstream}' > out/status.json
+                --arg base "$BASE_SHA" --arg upstream "$UPSTREAM_SHA" --arg tip "$REMOTE_TIP" \
+            '{state:$state, reason:$reason, branch:$branch, base_sha:$base, upstream_sha:$upstream, remote_tip:$tip}' > out/status.json
           cat out/status.json
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ !cancelled() && steps.package.outcome == 'success' }}
         with:
           name: sync-result
           path: out/
           if-no-files-found: error
           retention-days: 3
+
 
   # ===========================================================================================
   publish:
@@ -305,18 +305,26 @@ jobs:
       issues: read
       pull-requests: read
     steps:
-      # Trusted code only: the dev branch as it exists now. NEVER the merged tree.
-      - uses: actions/checkout@v7
+      # Trusted code only: the commit of THIS workflow run (dev). NEVER the merged tree.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: dev
           fetch-depth: 0
           persist-credentials: false
 
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: sync-result
           path: ${{ runner.temp }}/result
 
+      # The artifact is UNTRUSTED. Everything below recomputes what the result must look like from
+      # origin/dev + the upstream SHA and refuses (blocked issue) anything that deviates:
+      #   * bundle = exactly one ref (HEAD); commits = exactly {merge of upstream [+ one regen commit]
+      #     [+ one "merge dev into branch" commit]}, no extra history
+      #   * clean: tree == pure merge-tree result
+      #   * ai-resolved: tree may differ from the pure merge ONLY in files that conflicted in OUR OWN
+      #     merge-tree run (+ regenerated lockfiles of conflicted manifests, upstream-modifications.md,
+      #     new alembic revisions); nothing under .github/, scripts/, Docker or other files that run
+      #     in CI with secrets may be changed by the AI, and a conflict there blocks the sync.
       - name: Verify artifact (treated as untrusted data)
         id: verify
         env:
@@ -324,6 +332,7 @@ jobs:
         run: |
           set -euo pipefail
           out() { echo "$1=$2" >> "$GITHUB_OUTPUT"; }
+          fail() { echo "::error::$1"; exit 1; }
           git config core.hooksPath /dev/null
           git config user.name "mka-upstream-sync[bot]"
           git config user.email "mka-upstream-sync[bot]@users.noreply.github.com"
@@ -336,54 +345,133 @@ jobs:
           branch=$(jq -r '.branch' "$res/status.json")
           base_sha=$(jq -r '.base_sha' "$res/status.json")
           up_sha=$(jq -r '.upstream_sha' "$res/status.json")
+          remote_tip=$(jq -r '.remote_tip // ""' "$res/status.json")
           reason=$(jq -r '.reason' "$res/status.json" | tr -cd '[:print:]' | head -c 200)
 
-          case "$state" in none|nochange|clean|ai-resolved|blocked) ;; *) echo "::error::bad state"; exit 1 ;; esac
+          case "$state" in none|nochange|clean|ai-resolved|blocked) ;; *) fail "bad state" ;; esac
           out state "$state"; out reason "$reason"
           if [ "$state" = "none" ] || [ "$state" = "nochange" ]; then exit 0; fi
 
-          # Sanitize conflict list (paths only) for later markdown use.
+          # Conflict list from the artifact: display-only (sanitized). Trust decisions use our own computation below.
+          : > "$RUNNER_TEMP/conflicts.safe"
           if [ -s "$res/conflicts.txt" ]; then
             grep -E '^[][A-Za-z0-9._/@()+ -]{1,300}$' "$res/conflicts.txt" | head -200 > "$RUNNER_TEMP/conflicts.safe" || true
-          else
-            : > "$RUNNER_TEMP/conflicts.safe"
           fi
+          [[ "$up_sha" =~ ^[0-9a-f]{40}$ ]] || fail "bad upstream sha"
           out up_sha "$up_sha"
-
           if [ "$state" = "blocked" ]; then exit 0; fi
 
-          # ---- clean / ai-resolved: validate refs, then import and verify the bundle ----
-          [[ "$branch" =~ ^sync/[A-Za-z0-9._-]+$ ]] || { echo "::error::bad branch name"; exit 1; }
-          [[ "$base_sha" =~ ^[0-9a-f]{40}$ && "$up_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::bad sha"; exit 1; }
+          # ---- clean / ai-resolved ----
+          [[ "$branch" =~ ^sync/[A-Za-z0-9._-]+$ ]] || fail "bad branch name"
+          [[ "$base_sha" =~ ^[0-9a-f]{40}$ ]] || fail "bad base sha"
+          [[ -z "$remote_tip" || "$remote_tip" =~ ^[0-9a-f]{40}$ ]] || fail "bad remote tip"
           git merge-base --is-ancestor "$base_sha" origin/dev || { echo "::warning::base not in dev history; skipping"; out state skip; exit 0; }
-          git merge-base --is-ancestor "$up_sha" upstream/dev || { echo "::error::upstream sha not in upstream/dev"; exit 1; }
-          # dev moved since the merge job ran? Still fine: the PR carries its own merge; GitHub shows any new conflict.
+          git merge-base --is-ancestor "$up_sha" upstream/dev || fail "upstream sha not in upstream/dev"
 
-          if git ls-remote --exit-code --heads origin "$branch" > /dev/null 2>&1; then
-            git fetch --no-tags origin "$branch"   # prerequisites for a reused branch
+          # The branch on GitHub must be exactly what the merge job started from (nobody pushed meanwhile).
+          cur_tip=$(git ls-remote --heads origin "refs/heads/$branch" | cut -f1)
+          if [ "$cur_tip" != "$remote_tip" ]; then
+            echo "::warning::branch $branch moved since the merge job ran; skipping, next run re-evaluates"
+            out state skip; exit 0
           fi
-          git bundle verify "$res/sync.bundle"
-          git fetch --no-tags "$res/sync.bundle" '+HEAD:refs/mka/candidate'
+          if [ -n "$remote_tip" ]; then git fetch --no-tags origin "$branch"; fi
+
+          # ---- bundle shape: exactly one ref (HEAD), no tags/extra refs ----
+          bundle="$res/sync.bundle"
+          heads=$(git bundle list-heads "$bundle")
+          [ "$(printf '%s\n' "$heads" | wc -l)" -eq 1 ] && [[ "$heads" =~ ^[0-9a-f]{40}\ HEAD$ ]] || fail "bundle must contain exactly one ref (HEAD)"
+          git bundle verify "$bundle"
+          git fetch --no-tags "$bundle" '+HEAD:refs/mka/candidate'
           cand=$(git rev-parse refs/mka/candidate)
 
-          git merge-base --is-ancestor "$base_sha" "$cand" || { echo "::error::candidate does not descend from base"; exit 1; }
-          git rev-list --parents --merges "$base_sha..$cand" | grep -qE " $up_sha( |$)" \
-            || { echo "::error::candidate has no merge commit with upstream sha as parent"; exit 1; }
+          # ---- commit shape: cand = M [+R]; M = merge(P1, upstream); P1 = base | remote_tip | merge(remote_tip, base) ----
+          parent2() { git rev-parse -q --verify "$1^2" || true; }
+          nparents() { git rev-list --parents -n1 "$1" | wc -w | awk '{print $1-1}'; }
+          if [ "$(parent2 "$cand")" = "$up_sha" ]; then
+            m="$cand"
+          else
+            [ "$state" = "ai-resolved" ] && [ "$(nparents "$cand")" -eq 1 ] || fail "unexpected candidate shape"
+            m=$(git rev-parse "$cand^1")
+            [ "$(parent2 "$m")" = "$up_sha" ] || fail "no merge of the upstream sha under candidate"
+          fi
+          [ "$(nparents "$m")" -eq 2 ] || fail "merge commit must have two parents"
+          p1=$(git rev-parse "$m^1")
+          want="$cand"$'\n'"$m"
+          if [ -z "$remote_tip" ]; then
+            [ "$p1" = "$base_sha" ] || fail "fresh sync must merge upstream directly onto origin/dev"
+          elif [ "$p1" != "$remote_tip" ]; then
+            [ "$(nparents "$p1")" -eq 2 ] && [ "$(git rev-parse "$p1^1")" = "$remote_tip" ] && [ "$(parent2 "$p1")" = "$base_sha" ] \
+              || fail "unexpected first parent on reused branch"
+            t=$(git merge-tree --write-tree --no-messages "$remote_tip" "$base_sha") \
+              && [ "$t" = "$(git rev-parse "$p1^{tree}")" ] || fail "dev merge into branch is not a pure merge"
+            want="$want"$'\n'"$p1"
+          fi
+          args=("$cand" "^$base_sha" "^$up_sha"); [ -n "$remote_tip" ] && args+=("^$remote_tip")
+          [ "$(git rev-list "${args[@]}" | sort -u)" = "$(printf '%s\n' "$want" | sort -u)" ] || fail "candidate contains unexpected extra commits"
+
+          # ---- trusted recomputation of the merge ----
+          set +e
+          mt=$(git merge-tree --write-tree --name-only --no-messages "$p1" "$up_sha")
+          rc=$?
+          set -e
+          [ "$rc" -le 1 ] || fail "merge-tree failed"
+          pure_tree=$(printf '%s\n' "$mt" | head -n1)
+          printf '%s\n' "$mt" | tail -n +2 | sed '/^$/d' | sort -u > "$RUNNER_TEMP/conflicts.trusted"
+          cand_tree=$(git rev-parse "$cand^{tree}")
+
+          # Paths that execute in CI with repo secrets on push/pull_request (a PR runs the workflow files of
+          # its own merge ref): .github/** (incl. NEW workflows), scripts/** (lockfiles.yaml runs
+          # scripts/lockfiles.sh with LOCKFILE_SYNC_TOKEN), Docker/compose, bun/npm config.
+          prot='^(\.github/|scripts/|\.bun-version$|(.*/)?\.npmrc$|(.*/)?bunfig\.toml$|(.*/)?Dockerfile[^/]*$|(.*/)?docker-compose[^/]*$)'
 
           if [ "$state" = "clean" ]; then
-            # A clean sync must be EXACTLY the merge of upstream into its first parent: recompute the tree.
-            [ "$(git rev-parse "$cand^2")" = "$up_sha" ] || { echo "::error::second parent is not upstream sha"; exit 1; }
-            expected=$(git merge-tree --write-tree --no-messages "$cand^1" "$up_sha") \
-              || { echo "::error::recomputed merge conflicts"; exit 1; }
-            [ "$expected" = "$(git rev-parse "$cand^{tree}")" ] \
-              || { echo "::error::clean candidate tree differs from a pure merge"; exit 1; }
+            [ "$cand" = "$m" ] && [ "$rc" -eq 0 ] && [ "$cand_tree" = "$pure_tree" ] \
+              || fail "clean candidate is not exactly the pure merge"
+          else
+            if grep -Eq "$prot" "$RUNNER_TEMP/conflicts.trusted"; then
+              cp "$RUNNER_TEMP/conflicts.trusted" "$RUNNER_TEMP/conflicts.safe"
+              out state blocked; out reason "conflicts in CI-sensitive paths (.github/, scripts/, Docker, bun config) need a human; not pushing AI output"
+              exit 0
+            fi
+            bad=""
+            while IFS=$'\t' read -r st path; do
+              [ -z "$path" ] && continue
+              ok=no
+              if grep -Fxq -- "$path" "$RUNNER_TEMP/conflicts.trusted"; then ok=yes
+              elif [ "$path" = ".codebase-memory/upstream-modifications.md" ]; then ok=yes
+              elif [ "$st" = "A" ] && [[ "$path" =~ ^apps/api/migrations/versions/[A-Za-z0-9_]+\.py$ ]]; then ok=yes
+              else
+                dir=$(dirname "$path")
+                case "$(basename "$path")" in
+                  uv.lock) grep -Fxq -- "$dir/pyproject.toml" "$RUNNER_TEMP/conflicts.trusted" && ok=yes ;;
+                  bun.lock) grep -Fxq -- "$dir/package.json" "$RUNNER_TEMP/conflicts.trusted" && ok=yes ;;
+                esac
+              fi
+              if printf '%s\n' "$path" | grep -Eq "$prot"; then ok=no; fi
+              [ "$ok" = yes ] || bad="$bad $path"
+            done < <(git diff --name-status --no-renames "$pure_tree" "$cand_tree")
+            if [ -n "$bad" ]; then
+              cp "$RUNNER_TEMP/conflicts.trusted" "$RUNNER_TEMP/conflicts.safe"
+              out state blocked; out reason "AI changed files outside the conflicted set (rejected, not pushed): $(printf '%s' "$bad" | tr -cd '[:print:]' | head -c 150)"
+              exit 0
+            fi
           fi
-          out candidate "$cand"; out branch "$branch"
+
+          # ---- sticky-review input: is everything already on the reused branch a verified pure merge? ----
+          dirty=false
+          if [ -n "$remote_tip" ]; then
+            while read -r c p1x p2x extra; do
+              if [ -z "$p2x" ] || [ -n "$extra" ]; then dirty=true; break; fi
+              t=$(git merge-tree --write-tree --no-messages "$p1x" "$p2x") || { dirty=true; break; }
+              [ "$t" = "$(git rev-parse "$c^{tree}")" ] || { dirty=true; break; }
+            done < <(git rev-list --parents "$remote_tip" "^$base_sha" "^$up_sha")
+          fi
+          out dirty "$dirty"; out candidate "$cand"; out branch "$branch"
 
       - name: Create GitHub App token
         id: app
         if: steps.verify.outcome == 'success' && steps.verify.outputs.state != 'skip'
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
         with:
           app-id: ${{ secrets.MKA_SYNC_APP_ID }}
           private-key: ${{ secrets.MKA_SYNC_APP_PRIVATE_KEY }}
@@ -398,14 +486,17 @@ jobs:
           GH_TOKEN: ${{ steps.app.outputs.token }}
           BRANCH: ${{ steps.verify.outputs.branch }}
           UP_SHA: ${{ steps.verify.outputs.up_sha }}
+          CAND: ${{ steps.verify.outputs.candidate }}
+          DIRTY: ${{ steps.verify.outputs.dirty }}
           AI_RESOLVED: ${{ steps.verify.outputs.state == 'ai-resolved' }}
         run: |
           set -euo pipefail
           res="$RUNNER_TEMP/result"
 
-          # Report from the TRUSTED checkout (dev), against the exact upstream commit that was merged.
-          # The script fails safe (needs_review=true) on any error; the explicit fallback covers a crash.
-          if ! python3 scripts/mka/upstream-sync-report.py --base origin/dev --head "$UP_SHA" \
+          # Gate on the CUMULATIVE diff (origin/dev...candidate = everything the PR would land, including
+          # earlier commits on a reused branch and any AI edits). Commit list = upstream range only.
+          # Run from the TRUSTED checkout. The script fails safe (needs_review=true) on any error.
+          if ! python3 scripts/mka/upstream-sync-report.py --base origin/dev --head "$UP_SHA" --gate-head "$CAND" \
                  --upstream-repo "$UPSTREAM_REPO" --github-output "$RUNNER_TEMP/gate.txt" > "$RUNNER_TEMP/report.md"; then
             printf '## Upstream sync\n\n**Report script crashed; full review required.**\n' > "$RUNNER_TEMP/report.md"
             printf 'needs_review=true\ncommit_count=0\n' > "$RUNNER_TEMP/gate.txt"
@@ -415,12 +506,18 @@ jobs:
           [[ "$commit_count" =~ ^-?[0-9]+$ ]] || commit_count=0
           [ "$needs_review" = "false" ] || needs_review=true
 
-          # Existing PR for this branch (trusted lookup with the privileged token).
+          # Existing PR for this branch (trusted lookup). Review state is STICKY: once a PR has carried
+          # needs-review or ai-resolved, later "clean" runs never turn auto-merge on for it.
           pr_number=$(gh pr list --repo "$GITHUB_REPOSITORY" --base dev --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
-          has_ai_label=false
-          if [ -n "$pr_number" ] && gh pr view "$pr_number" --json labels --jq '.labels[].name' | grep -qx ai-resolved; then
-            has_ai_label=true
+          sticky=false
+          if [ -n "$pr_number" ]; then
+            labels=$(gh pr view "$pr_number" --json labels --jq '.labels[].name')
+            if printf '%s\n' "$labels" | grep -qxE 'ai-resolved|needs-review'; then sticky=true; fi
+            # Disable auto-merge BEFORE pushing so new commits can never land through an earlier-armed auto-merge.
+            gh pr merge "$pr_number" --disable-auto || true
           fi
+          no_auto=false
+          if [ "$needs_review" = "true" ] || [ "$AI_RESOLVED" = "true" ] || [ "$sticky" = "true" ] || [ "$DIRTY" = "true" ]; then no_auto=true; fi
 
           body="$RUNNER_TEMP/body.md"
           : > "$body"
@@ -430,24 +527,28 @@ jobs:
               echo
               echo "## Conflict resolution summary (AI-written, unverified)"
               if [ -s "$res/summary.md" ]; then
-                # Untrusted text: neutralize @mentions, drop control chars; only ever written to a body file.
+                # Untrusted text: drop control chars, neutralize @mentions; only ever written to a body file.
                 tr -d '\000-\010\013\014\016-\037' < "$res/summary.md" | sed 's/@/@\xe2\x80\x8b/g'
               else
                 echo "_The resolver did not write a summary; inspect the merge commit diff._"
               fi
               echo
-              echo "## Conflicted files"
-              sed 's/^/- `/; s/$/`/' "$RUNNER_TEMP/conflicts.safe"
+              echo "## Conflicted files (recomputed by the publish job)"
+              sed 's/^/- `/; s/$/`/' "$RUNNER_TEMP/conflicts.trusted"
               echo
               echo "---"
               echo
             } >> "$body"
           fi
+          if [ "$DIRTY" = "true" ] || [ "$sticky" = "true" ]; then
+            echo "> Review is required: this branch already carries earlier review-flagged, AI-resolved or hand-pushed commits. Auto-merge stays off." >> "$body"
+            echo >> "$body"
+          fi
           cat "$RUNNER_TEMP/report.md" >> "$body"
           printf '\n_Generated by `mka-upstream-sync` ([run](%s/%s/actions/runs/%s))._\n' "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" >> "$body"
           head -c 60000 "$body" > "$body.trunc" && mv "$body.trunc" "$body"   # PR body cap is 65536
 
-          # Push the verified candidate object. Hooks disabled; App token only in this command's header.
+          # Push the verified candidate object (plain push: no force). Hooks disabled; token only in this header.
           basic=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
           git -c core.hooksPath=/dev/null -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $basic" \
             push "https://github.com/${GITHUB_REPOSITORY}.git" "refs/mka/candidate:refs/heads/${BRANCH}"
@@ -467,17 +568,24 @@ jobs:
 
           if [ "$AI_RESOLVED" = "true" ]; then
             gh pr edit "$pr" --add-label ai-resolved --add-label needs-review
-          elif [ "$needs_review" = "true" ]; then
+          elif [ "$needs_review" = "true" ] || [ "$DIRTY" = "true" ]; then
             gh pr edit "$pr" --add-label needs-review
           fi
 
-          if [ "$needs_review" = "true" ] || [ "$AI_RESOLVED" = "true" ] || [ "$has_ai_label" = "true" ]; then
+          if [ "$no_auto" = "true" ]; then
             gh pr merge "$pr" --disable-auto || true
             echo "Auto-merge not enabled for #$pr"
-          else
-            # --merge = merge commit (never squash/rebase). Waits for the required "MKA CI gate" check.
-            gh pr merge "$pr" --auto --merge
+            exit 0
           fi
+          # Only arm auto-merge if the PR head is exactly what we just pushed (nobody pushed in between),
+          # and bind it to that commit.
+          head_oid=$(gh pr view "$pr" --json headRefOid --jq .headRefOid)
+          if [ "$head_oid" != "$CAND" ]; then
+            echo "::warning::PR head $head_oid != pushed $CAND; not enabling auto-merge"
+            exit 0
+          fi
+          # --merge = merge commit (never squash/rebase). Waits for the required "MKA CI gate" check.
+          gh pr merge "$pr" --auto --merge --match-head-commit "$CAND"
 
       - name: Open or update blocked-sync issue
         if: steps.verify.outputs.state == 'blocked'

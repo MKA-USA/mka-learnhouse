@@ -68,7 +68,7 @@ def build(a):
     total = int(git("rev-list", "--count", f"{a.base}..{a.head}").strip())
 
     changed = {}
-    for line in git("diff", "--name-status", "--no-renames", f"{a.base}...{a.head}").splitlines():
+    for line in git("diff", "--name-status", "--no-renames", f"{a.base}...{a.gate_head}").splitlines():
         status, _, path = line.partition("\t")
         changed[path] = status
 
@@ -105,22 +105,25 @@ def build(a):
         groups[kind if kind in ("feat", "fix") else "other"].append((sha, subj))
 
     def fmt(sha, subj):
-        subj = subj.replace("<", "&lt;").replace("@", "@​")  # no mentions/HTML from untrusted text
+        # Subjects are untrusted text: always a code span (no links/images/mentions/HTML); the link is built
+        # only from digits / hex.
         pr = PR_RE.search(subj)
-        link = f"https://github.com/{a.upstream_repo}/pull/{pr.group(1)}" if pr else f"https://github.com/{a.upstream_repo}/commit/{sha}"
-        subj = PR_RE.sub(f"([#{pr.group(1)}]({link}))", subj) if pr else f"{subj} ([`{sha}`]({link}))"
-        return f"- {subj}"
+        subj = PR_RE.sub("", subj).strip()
+        subj = "".join(ch for ch in subj if ch.isprintable())[:200].replace("`", "'")
+        if pr:
+            return f"- `{subj}` ([#{pr.group(1)}](https://github.com/{a.upstream_repo}/pull/{pr.group(1)}))"
+        return f"- `{subj}` ([`{sha}`](https://github.com/{a.upstream_repo}/commit/{sha}))"
 
     reasons = []
     out = ["## Upstream sync\n",
            f"Merges `{a.head}` into `dev`: **{total}** upstream commit(s) ({len(changed)} files changed). "
-           "Merge with a **merge commit** only (never squash/rebase) so future syncs share a merge-base.\n",
+           "Gate computed on the cumulative diff of everything this PR lands. Merge with a **merge commit** only (never squash/rebase) so future syncs share a merge-base.\n",
            "### Needs human attention\n"]
     for title, items in categories:
         if items:
             reasons.append(title)
             out.append(f"**{title}** ({len(items)})\n")
-            out.extend(f"- `{p}`" for p in items[:MAX_LIST])
+            out.extend("- `" + p.replace("`", "'") + "`" for p in items[:MAX_LIST])
             if len(items) > MAX_LIST:
                 out.append(f"- ... and {len(items) - MAX_LIST} more")
             out.append("")
@@ -132,7 +135,7 @@ def build(a):
     if cfg:
         out.append("<details><summary>Config / env diffs (added or removed lines)</summary>\n")
         for p in cfg[:15]:
-            d = git("diff", "-U0", f"{a.base}...{a.head}", "--", p).splitlines()
+            d = git("diff", "-U0", f"{a.base}...{a.gate_head}", "--", p).splitlines()
             body = [l for l in d if l[:1] in "+-" and not l.startswith(("+++", "---"))]
             out.append(f"`{p}`\n\n```diff")
             out.extend(l.replace("```", "'''") for l in body[:MAX_DIFF_LINES])
@@ -162,8 +165,10 @@ def main():
     ap.add_argument("--base", default="origin/dev")
     ap.add_argument("--head", default="upstream/dev")
     ap.add_argument("--upstream-repo", default="learnhouse/learnhouse")
+    ap.add_argument("--gate-head", help="ref whose cumulative diff vs --base drives the gate (default: --head)")
     ap.add_argument("--github-output")
     a = ap.parse_args()
+    a.gate_head = a.gate_head or a.head
 
     try:
         body, needs_review, reasons, total = build(a)
