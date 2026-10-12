@@ -63,6 +63,17 @@ def schedule_guardrail_audit(
         logger.debug("Jev guardrail audit not scheduled: %s", type(exc).__name__)
 
 
+def intent_routing_active(org_id: int | None) -> bool:
+    """Cheap, non-throwing check used to skip extra lookups when routing is off."""
+    try:
+        from src.services.ai.jev.client import jev_enabled
+
+        cfg = _cfg()
+        return bool(cfg is not None and cfg.intent_routing_enabled and jev_enabled(org_id))
+    except Exception:  # noqa: BLE001
+        return False
+
+
 async def should_route_to_general(
     message: str,
     *,
