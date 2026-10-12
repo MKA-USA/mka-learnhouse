@@ -1,0 +1,67 @@
+name: MKA CI Gate
+
+# Fork-only. Upstream CI workflows are path-filtered, so no single upstream check
+# runs on every PR and none can be a *required* status check (a required check
+# that never reports blocks the PR forever). This always-running job waits for
+# every other check on the PR head commit and passes only if none failed.
+# "MKA CI gate" is the only required check in the branch rulesets.
+#
+# Plain `pull_request` trigger: no secrets, read-only token.
+
+on:
+  pull_request:
+    branches: [dev, prod]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  checks: read
+
+concurrency:
+  group: mka-ci-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: MKA CI gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - name: Wait for all other checks on the head commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+          # Checks that always fail on this fork (missing INFRA_REPO_PAT / vars.INFRA_REPO).
+          IGNORED: "MKA CI gate|Dispatch to Infrastructure Repo"
+        run: |
+          set -uo pipefail
+          # Give path-filtered workflows time to register their check runs.
+          sleep 90
+          stable=0
+          for _ in $(seq 1 130); do
+            runs=$(gh api --paginate "repos/$REPO/commits/$SHA/check-runs?per_page=100" \
+              --jq '.check_runs[] | [.name, .status, (.conclusion // "")] | @tsv') || { sleep 30; continue; }
+            pending=0; failed=""
+            while IFS=$'\t' read -r name status conclusion; do
+              [ -z "$name" ] && continue
+              if printf '%s' "$name" | grep -qxE "$IGNORED"; then continue; fi
+              if [ "$status" != "completed" ]; then pending=$((pending + 1)); continue; fi
+              case "$conclusion" in
+                success|skipped|neutral) ;;
+                *) failed="$failed\n- $name ($conclusion)" ;;
+              esac
+            done <<< "$runs"
+            if [ -n "$failed" ]; then
+              printf 'Failing checks:%b\n' "$failed"
+              exit 1
+            fi
+            if [ "$pending" -eq 0 ]; then
+              stable=$((stable + 1))
+              if [ "$stable" -ge 2 ]; then echo "All other checks passed."; exit 0; fi
+            else
+              stable=0
+            fi
+            sleep 30
+          done
+          echo "Timed out waiting for checks"; exit 1

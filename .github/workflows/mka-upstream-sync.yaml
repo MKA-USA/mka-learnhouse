@@ -1,0 +1,385 @@
+name: MKA Upstream Sync
+
+# Fork-only (mka- prefix). Merges learnhouse/learnhouse `dev` into our `dev` via a PR.
+#
+#   clean merge          -> PR (label upstream-sync); auto-merge unless it carries
+#                           migrations / config / workflow / fork-hook-site changes
+#                           (then label needs-review, no auto-merge)
+#   conflicts            -> Claude resolves them, PR labeled upstream-sync +
+#                           ai-resolved + needs-review, NEVER auto-merged
+#   AI unavailable/fails -> single issue "Upstream sync blocked by conflicts"
+#                           labeled ready-for-agent; run still exits green
+#
+# Security: only `schedule` and `workflow_dispatch` triggers. No pull_request_target,
+# issue_comment, or any trigger an outside contributor can fire. The GitHub App
+# token is never written to .git/config and is only exposed to the steps that push
+# and call `gh`; the AI step (which runs upstream code via uv/bun) gets only the
+# read-only GITHUB_TOKEN plus the Anthropic credential.
+#
+# Why a GitHub App token: pushes/PRs made with GITHUB_TOKEN do not trigger other
+# workflows, so CI would never run on the PR and auto-merge would wait forever.
+# Needed App permissions: Contents RW, Pull requests RW, Issues RW, Workflows RW
+# (Workflows is required to push any commit that touches .github/workflows/**,
+# which upstream syncs routinely do). Secrets: MKA_SYNC_APP_ID, MKA_SYNC_APP_PRIVATE_KEY,
+# ANTHROPIC_API_KEY (or CLAUDE_CODE_OAUTH_TOKEN).
+#
+# The sync commit MUST stay a merge commit (never squash/rebase) so future syncs
+# share a merge-base. Only ever `git merge --no-ff` here.
+
+on:
+  schedule:
+    - cron: "0 14 * * 1,4" # Mon + Thu 14:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+concurrency:
+  group: mka-upstream-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Sync upstream
+    # `schedule` only fires from the default branch; also refuse manual runs from other branches
+    # so a branch edit of this file cannot reach the secrets.
+    if: github.repository == 'MKA-USA/mka-learnhouse' && github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      HAS_AI: ${{ (secrets.ANTHROPIC_API_KEY != '' || secrets.CLAUDE_CODE_OAUTH_TOKEN != '') && 'true' || 'false' }}
+      UPSTREAM_REPO: learnhouse/learnhouse
+      BLOCKED_TITLE: Upstream sync blocked by conflicts
+    steps:
+      - name: Create GitHub App token
+        id: app
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.MKA_SYNC_APP_ID }}
+          private-key: ${{ secrets.MKA_SYNC_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+          permission-issues: write
+          permission-workflows: write
+
+      - uses: actions/checkout@v7
+        with:
+          ref: dev
+          fetch-depth: 0
+          token: ${{ steps.app.outputs.token }}
+          # Do not leave the App token in .git/config (the AI step runs untrusted-ish upstream code).
+          persist-credentials: false
+
+      - name: Fetch upstream and decide
+        id: fetch
+        run: |
+          set -euo pipefail
+          # Copy fork tooling out of the working tree so it survives branch switches/merges.
+          cp scripts/mka/upstream-sync-report.py "$RUNNER_TEMP/report.py"
+          cp .github/mka/upstream-conflict-prompt.md "$RUNNER_TEMP/prompt.md"
+          git config user.name "mka-upstream-sync[bot]"
+          git config user.email "mka-upstream-sync[bot]@users.noreply.github.com"
+          git config rerere.enabled true
+          echo ".mka-resolution-summary.md" >> .git/info/exclude
+          git remote add upstream "https://github.com/${UPSTREAM_REPO}.git"
+          # --no-tags: never pull upstream release tags (cli-*/semver tags trigger publish workflows if pushed).
+          git fetch --no-tags upstream dev
+          git fetch --no-tags origin dev
+          n=$(git rev-list --count origin/dev..upstream/dev)
+          echo "Upstream is $n commit(s) ahead of origin/dev"
+          if [ "$n" -eq 0 ]; then
+            echo "ahead=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ahead=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Prepare branch and merge upstream/dev
+        id: sync
+        if: steps.fetch.outputs.ahead == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          out() { echo "$1=$2" >> "$GITHUB_OUTPUT"; }
+
+          # Reuse the branch of an open upstream-sync PR rather than opening a duplicate.
+          existing=$(gh pr list --repo "$GITHUB_REPOSITORY" --base dev --label upstream-sync --state open \
+            --json number,headRefName,labels --limit 1 \
+            --jq '.[0] // empty | [(.number|tostring), .headRefName, ((.labels|map(.name)|index("ai-resolved")) != null | tostring)] | @tsv')
+          pr_number=""; has_ai_label="false"; reused="false"
+          if [ -n "$existing" ]; then
+            IFS=$'\t' read -r pr_number branch has_ai_label <<< "$existing"
+            case "$branch" in
+              sync/*) reused="true" ;;
+              *) echo "Open upstream-sync PR #$pr_number has unexpected branch '$branch'; not reusing"; pr_number=""; has_ai_label="false" ;;
+            esac
+          fi
+
+          if [ "$reused" = "true" ]; then
+            git fetch --no-tags origin "$branch"
+            git checkout -B "$branch" "origin/$branch"
+            remote_tip=$(git rev-parse HEAD)
+            if ! git merge --no-ff --no-edit -m "Merge dev into $branch" origin/dev; then
+              git diff --name-only --diff-filter=U > "$RUNNER_TEMP/conflicts.txt"
+              git merge --abort
+              echo "Merging origin/dev into $branch conflicts; needs a human."
+              out state devconflict; out branch "$branch"; out pr_number "$pr_number"
+              exit 0
+            fi
+          else
+            branch="sync/upstream-$(date -u +%F)"
+            if git ls-remote --exit-code --heads origin "$branch" > /dev/null 2>&1; then
+              branch="$branch-$(date -u +%H%M)"
+            fi
+            git checkout -b "$branch" origin/dev
+            remote_tip=""
+          fi
+          out branch "$branch"; out pr_number "$pr_number"; out has_ai_label "$has_ai_label"
+
+          # NEVER squash/rebase: must be a true merge commit.
+          if git merge --no-ff --no-edit -m "Merge upstream/dev (${UPSTREAM_REPO}) into dev" upstream/dev; then
+            if [ -n "$remote_tip" ] && [ "$(git rev-parse HEAD)" = "$remote_tip" ]; then
+              echo "Reused branch already contains everything; nothing to push."
+              out state nochange
+            else
+              out state clean
+            fi
+            exit 0
+          fi
+
+          git diff --name-only --diff-filter=U > "$RUNNER_TEMP/conflicts.txt"
+          if [ ! -s "$RUNNER_TEMP/conflicts.txt" ]; then
+            echo "::error::git merge failed without conflicts (see log above)"
+            exit 1
+          fi
+          # Keep the conflicted state (no --abort): the resolver continues from it.
+          echo "Conflicted files:"; cat "$RUNNER_TEMP/conflicts.txt"
+          out state conflicted
+
+      # ---- conflict path ------------------------------------------------------------------
+      - uses: oven-sh/setup-bun@v2
+        if: steps.sync.outputs.state == 'conflicted' && env.HAS_AI == 'true'
+        with:
+          bun-version: 1.4.2
+
+      - uses: actions/setup-python@v7
+        if: steps.sync.outputs.state == 'conflicted' && env.HAS_AI == 'true'
+        with:
+          python-version: "3.14" # keep in sync with api-tests.yaml / apps/api/pyproject.toml
+
+      - uses: astral-sh/setup-uv@v10.1.0
+        if: steps.sync.outputs.state == 'conflicted' && env.HAS_AI == 'true'
+
+      - name: Build resolver prompt
+        id: prompt
+        if: steps.sync.outputs.state == 'conflicted' && env.HAS_AI == 'true'
+        run: |
+          set -euo pipefail
+          delim="PROMPT_$(openssl rand -hex 12)"
+          {
+            echo "text<<$delim"
+            cat "$RUNNER_TEMP/prompt.md"
+            echo
+            echo "## Context"
+            echo "- Upstream ref: upstream/dev ($(git rev-parse --short upstream/dev)); base: origin/dev ($(git rev-parse --short origin/dev))"
+            echo "- Write the resolution report to: $GITHUB_WORKSPACE/.mka-resolution-summary.md"
+            echo "- Conflicted files:"
+            sed 's/^/  - /' "$RUNNER_TEMP/conflicts.txt"
+            echo "$delim"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Resolve conflicts with Claude
+        id: ai
+        if: steps.sync.outputs.state == 'conflicted' && env.HAS_AI == 'true'
+        continue-on-error: true
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Read-only token on purpose; the push happens later with the App token.
+          github_token: ${{ github.token }}
+          prompt: ${{ steps.prompt.outputs.text }}
+          claude_args: >-
+            --model claude-sonnet-5-5
+            --max-turns 80
+            --allowedTools "Read,Edit,MultiEdit,Write,Glob,Grep,Bash(git status:*),Bash(git diff:*),Bash(git add:*),Bash(git commit:*),Bash(git log:*),Bash(git show:*),Bash(git checkout:*),Bash(git ls-files:*),Bash(git grep:*),Bash(git rev-parse:*),Bash(uv:*),Bash(bun:*),Bash(bunx:*),Bash(ls:*),Bash(cat:*),Bash(grep:*),Bash(find:*)"
+            --disallowedTools "Bash(git push:*),Bash(gh:*),Bash(git merge --abort:*),Bash(git reset:*),Bash(git rebase:*),Bash(curl:*),Bash(wget:*)"
+
+      - name: Decide outcome
+        id: decide
+        if: ${{ !cancelled() && steps.sync.outcome == 'success' }}
+        env:
+          STATE: ${{ steps.sync.outputs.state }}
+          AI_OUTCOME: ${{ steps.ai.outcome }}
+        run: |
+          set -uo pipefail
+          out() { echo "$1=$2" >> "$GITHUB_OUTPUT"; }
+          publish=false; blocked=false; ai_resolved=false; reason=""
+          case "$STATE" in
+            clean) publish=true ;;
+            nochange|"") ;;
+            devconflict) blocked=true; reason="merging origin/dev into the existing sync PR branch conflicts" ;;
+            conflicted)
+              if [ "$HAS_AI" != "true" ]; then
+                blocked=true; reason="no ANTHROPIC_API_KEY / CLAUDE_CODE_OAUTH_TOKEN secret configured"
+              elif [ "$AI_OUTCOME" != "success" ]; then
+                blocked=true; reason="the Claude conflict-resolution step failed (outcome: $AI_OUTCOME)"
+              else
+                # Finish the merge if the agent staged everything but did not commit.
+                if [ -f .git/MERGE_HEAD ] && [ -z "$(git diff --name-only --diff-filter=U)" ]; then
+                  git commit --no-edit || true
+                fi
+                if [ -n "$(git diff --name-only --diff-filter=U)" ]; then
+                  blocked=true; reason="unresolved conflicts remain"
+                elif [ -f .git/MERGE_HEAD ]; then
+                  blocked=true; reason="merge was not committed"
+                elif ! git merge-base --is-ancestor upstream/dev HEAD || ! git merge-base --is-ancestor origin/dev HEAD; then
+                  blocked=true; reason="result is not a merge that contains both origin/dev and upstream/dev"
+                elif [ -s "$RUNNER_TEMP/conflicts.txt" ] && \
+                     xargs -a "$RUNNER_TEMP/conflicts.txt" -d '\n' git grep -lE '^(<<<<<<<|>>>>>>>) ' -- 2>/dev/null | grep -q .; then
+                  blocked=true; reason="conflict markers remain in resolved files"
+                else
+                  # Lockfile regeneration / metadata edits left uncommitted after the merge commit.
+                  if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+                    git add -u
+                    git commit -m "chore: regenerate lockfiles after upstream merge"
+                  fi
+                  publish=true; ai_resolved=true
+                fi
+              fi
+              ;;
+          esac
+          out publish "$publish"; out blocked "$blocked"; out ai_resolved "$ai_resolved"; out reason "$reason"
+          echo "publish=$publish blocked=$blocked ai_resolved=$ai_resolved reason=$reason"
+
+      # ---- publish ------------------------------------------------------------------------
+      - name: Push branch and open or update PR
+        id: publish
+        if: steps.decide.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          BRANCH: ${{ steps.sync.outputs.branch }}
+          PR_NUMBER: ${{ steps.sync.outputs.pr_number }}
+          HAS_AI_LABEL: ${{ steps.sync.outputs.has_ai_label }}
+          AI_RESOLVED: ${{ steps.decide.outputs.ai_resolved }}
+        run: |
+          set -euo pipefail
+          python3 "$RUNNER_TEMP/report.py" --base origin/dev --head upstream/dev \
+            --upstream-repo "$UPSTREAM_REPO" --github-output "$GITHUB_OUTPUT" > "$RUNNER_TEMP/report.md"
+          needs_review=$(grep -h '^needs_review=' "$GITHUB_OUTPUT" | tail -1 | cut -d= -f2)
+          commit_count=$(grep -h '^commit_count=' "$GITHUB_OUTPUT" | tail -1 | cut -d= -f2)
+
+          body="$RUNNER_TEMP/body.md"
+          : > "$body"
+          if [ "$AI_RESOLVED" = "true" ]; then
+            {
+              echo "> **AI-resolved merge conflicts. This PR is never auto-merged. Review every resolution below before merging (merge commit only).**"
+              echo
+              echo "## Conflict resolution summary"
+              if [ -s .mka-resolution-summary.md ]; then cat .mka-resolution-summary.md; else echo "_The resolver did not write a summary; inspect the merge commit diff (\`git show -m --first-parent\`)._"; fi
+              echo
+              echo "## Conflicted files"
+              sed 's/^/- `/; s/$/`/' "$RUNNER_TEMP/conflicts.txt"
+              echo
+              echo "---"
+              echo
+            } >> "$body"
+          fi
+          cat "$RUNNER_TEMP/report.md" >> "$body"
+          printf '\n_Generated by `mka-upstream-sync` ([run](%s/%s/actions/runs/%s))._\n' "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" >> "$body"
+          # PR bodies are capped at 65536 chars.
+          head -c 60000 "$body" > "$body.trunc" && mv "$body.trunc" "$body"
+
+          # Push with the App token only for this command (explicit URL, no stored credential).
+          basic=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $basic" \
+            push "https://github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/${BRANCH}"
+
+          gh label create upstream-sync --color 0e8a16 --description "Automated upstream (learnhouse/learnhouse) sync" --force
+          gh label create needs-review --color d93f0b --description "Needs human review before merge" --force
+          gh label create ai-resolved --color 5319e7 --description "Merge conflicts resolved by AI; never auto-merge" --force
+
+          title="chore(sync): merge upstream learnhouse dev (${commit_count} commits, $(date -u +%F))"
+          if [ -n "$PR_NUMBER" ]; then
+            gh pr edit "$PR_NUMBER" --title "$title" --body-file "$body"
+            pr="$PR_NUMBER"
+          else
+            url=$(gh pr create --base dev --head "$BRANCH" --title "$title" --body-file "$body" --label upstream-sync)
+            pr=$(gh pr view "$url" --json number --jq .number)
+          fi
+          echo "pr=$pr" >> "$GITHUB_OUTPUT"
+
+          if [ "$AI_RESOLVED" = "true" ]; then
+            gh pr edit "$pr" --add-label ai-resolved --add-label needs-review
+          elif [ "$needs_review" = "true" ]; then
+            gh pr edit "$pr" --add-label needs-review
+          fi
+
+          if [ "$needs_review" = "true" ] || [ "$AI_RESOLVED" = "true" ] || [ "$HAS_AI_LABEL" = "true" ]; then
+            gh pr merge "$pr" --disable-auto || true
+            echo "Auto-merge not enabled for #$pr"
+          else
+            # --merge = merge commit (never squash/rebase). Waits for the required "MKA CI gate" check.
+            gh pr merge "$pr" --auto --merge
+          fi
+
+      # ---- blocked ------------------------------------------------------------------------
+      - name: Open or update blocked-sync issue
+        if: steps.decide.outputs.blocked == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          REASON: ${{ steps.decide.outputs.reason }}
+          BRANCH: ${{ steps.sync.outputs.branch }}
+        run: |
+          set -euo pipefail
+          gh label create ready-for-agent --color 1d76db --description "Ready for an agent to pick up" --force
+          files="(none recorded)"
+          [ -s "$RUNNER_TEMP/conflicts.txt" ] && files=$(sed 's/^/- `/; s/$/`/' "$RUNNER_TEMP/conflicts.txt")
+          body="$RUNNER_TEMP/issue.md"
+          {
+            echo "The scheduled upstream sync could not complete automatically."
+            echo
+            echo "**Reason:** $REASON"
+            echo "**Run:** $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "**Upstream commits not yet in dev:** $(git rev-list --count origin/dev..upstream/dev)"
+            echo
+            echo "### Conflicted files"
+            echo "$files"
+            echo
+            echo "### Reproduce locally"
+            echo '```sh'
+            echo "git config rerere.enabled true"
+            echo "git remote add upstream https://github.com/${UPSTREAM_REPO}.git   # once"
+            echo "git fetch --no-tags upstream dev && git fetch origin dev"
+            echo "git checkout -b sync/upstream-manual origin/dev"
+            echo "git merge --no-ff upstream/dev        # never squash/rebase"
+            echo "# resolve: upstream as base + re-apply fork hooks per .codebase-memory/upstream-modifications.md"
+            echo "# regenerate lockfiles: (cd apps/api && uv lock) ; (cd apps/web && bun install)"
+            echo "git commit"
+            echo "git push -u origin sync/upstream-manual   # open PR into dev, label upstream-sync, merge with a MERGE COMMIT"
+            echo '```'
+            echo
+            echo "See the 'Syncing upstream' section of CLAUDE.md."
+          } > "$body"
+          n=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --label ready-for-agent \
+            --search "in:title \"$BLOCKED_TITLE\"" --json number --jq '.[0].number // empty')
+          if [ -n "$n" ]; then
+            gh issue edit "$n" --body-file "$body"
+            gh issue comment "$n" --body "Still blocked as of $(date -u +%F): $REASON ($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)"
+          else
+            gh issue create --title "$BLOCKED_TITLE" --label ready-for-agent --body-file "$body"
+          fi
+          echo "## Upstream sync blocked: $REASON" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Close stale blocked-sync issue
+        if: ${{ !cancelled() && steps.decide.outcome == 'success' && steps.decide.outputs.blocked != 'true' }}
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: |
+          n=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --label ready-for-agent \
+            --search "in:title \"$BLOCKED_TITLE\"" --json number --jq '.[0].number // empty') || exit 0
+          if [ -n "$n" ]; then
+            gh issue close "$n" --comment "Resolved by a later run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" || true
+          fi
