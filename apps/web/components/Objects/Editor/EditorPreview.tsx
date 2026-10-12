@@ -34,7 +34,7 @@ import UserBlock from './Extensions/Users/UserBlock'
 import MagicBlock from './Extensions/MagicBlocks/MagicBlock'
 import { mkaEditorExtensions } from '@components/mka/editor' // MKA fork
 
-// Lowlight — slim grammar set; see editorLowlight.ts
+// Lowlight with a slim grammar set; see editorLowlight.ts
 import { lowlight } from './editorLowlight'
 import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight'
 

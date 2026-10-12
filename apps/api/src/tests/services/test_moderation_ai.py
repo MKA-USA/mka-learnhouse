@@ -615,6 +615,8 @@ class TestHookSites:
         with patch(c + "schedule_moderation") as sched, patch(
             c + "authorization_verify_if_user_is_anon", new_callable=AsyncMock
         ), patch(c + "check_resource_access", new_callable=AsyncMock), patch(
+            c + "require_community_participant", new_callable=AsyncMock, return_value=regular_user.id
+        ), patch(
             c + "validate_comment_content", new_callable=AsyncMock
         ), patch(c + "dispatch_webhooks", new_callable=AsyncMock), patch(
             c + "get_user_votes_for_comments", new_callable=AsyncMock, return_value={}

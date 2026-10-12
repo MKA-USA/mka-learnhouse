@@ -173,16 +173,16 @@ index d94e081a..aee7defd 100644
 
 ### `apps/api/src/services/ai/rag/query_service.py`
 
-- **Date**: 2026-10-03
+- **Date**: 2026-10-03 (re-applied 2026-10-11 after upstream RAG access-scope restructure: rerank now lives in `search_course_content`; `course_name` fetched after `_open_rag`)
 - **Reason**: Reranking must happen between the vector query and context assembly inside `query_course_rag`; there is no hook between those steps. Logic lives in `jev/client.py`; the hunk is a candidate-count helper plus one call.
 - **Diff**:
 
 ```diff
 diff --git a/apps/api/src/services/ai/rag/query_service.py b/apps/api/src/services/ai/rag/query_service.py
-index 927c3c44..a7e64d8c 100644
+index 5934714c..81e0844a 100644
 --- a/apps/api/src/services/ai/rag/query_service.py
 +++ b/apps/api/src/services/ai/rag/query_service.py
-@@ -1,8 +1,8 @@
+@@ -1,13 +1,13 @@
  """
  RAG query service.
  
@@ -192,19 +192,25 @@ index 927c3c44..a7e64d8c 100644
 +LLM responses grounded in course content.
  """
  
+ import json
  import logging
-@@ -20,6 +20,24 @@ logger = logging.getLogger(__name__)
- TOP_K = 5
+-from typing import AsyncGenerator
++from typing import AsyncGenerator, Optional
  
+ from sqlalchemy import bindparam, text
+ from sqlmodel.ext.asyncio.session import AsyncSession
+@@ -24,6 +24,35 @@ TOP_K = 5
+ OVERFETCH_FACTOR = 4
+ SNIPPET_CHARS = 280
  
-+# Candidates fetched from vector search when Jev reranking is active.
++# Candidates fetched from vector search when Jev reranking is active. (MKA fork)
 +JEV_RERANK_CANDIDATES = 10
 +
 +
 +def _resolve_rag_limits(top_k: int, org_id: Optional[int] = None) -> tuple[int, int]:
-+    """Return (retrieve_k, final_k).
++    """Return (retrieve_k, final_k). MKA fork: Jev reranking over-retrieves.
 +
-+    When Jev reranking is active for this org we fetch more candidates from
++    When Jev reranking is active for this org we keep more candidates from
 +    vector search than the caller asked for, rerank them, then trim to the
 +    original top_k. Otherwise the two values are identical (no behaviour change).
 +    """
@@ -215,64 +221,9 @@ index 927c3c44..a7e64d8c 100644
 +    return top_k, top_k
 +
 +
- async def query_course_rag(
-     question: str,
-     org_id: int,
-@@ -28,7 +46,8 @@ async def query_course_rag(
-     top_k: int = TOP_K,
- ) -> dict:
-     """
--    Retrieve relevant course content via vector similarity search.
-+    Retrieve relevant course content via vector similarity search,
-+    optionally reranked by Jev for semantic precision.
- 
-     Args:
-         question: The user's question
-@@ -40,6 +59,8 @@ async def query_course_rag(
-     Returns:
-         {context: str, sources: list[dict]}
-     """
-+    retrieve_k, final_k = _resolve_rag_limits(top_k, org_id)
-+
-     # Embed the question
-     query_embedding = await embed_single_text(question)
- 
-@@ -62,7 +83,7 @@ async def query_course_rag(
-             "query_embedding": embedding_str,
-             "org_id": org_id,
-             "course_id": course_id,
--            "top_k": top_k,
-+            "top_k": retrieve_k,
-         }
-     else:
-         sql = text("""
-@@ -79,7 +100,7 @@ async def query_course_rag(
-         params = {
-             "query_embedding": embedding_str,
-             "org_id": org_id,
--            "top_k": top_k,
-+            "top_k": retrieve_k,
-         }
- 
-     results = (await db_session.execute(sql, params)).fetchall()
-@@ -87,6 +108,10 @@ async def query_course_rag(
-     if not results:
-         return {"context": "", "sources": []}
- 
-+    # Optional Jev reranking: score all retrieved chunks, keep the best final_k
-+    if retrieve_k > final_k:
-+        results = await _jev_rerank(question, results, final_k)
-+
-     # Build numbered context and deduplicated source list
-     context_parts = []
-     sources = []
-@@ -121,6 +146,18 @@ async def query_course_rag(
-     return {"context": context, "sources": sources}
- 
- 
 +async def _jev_rerank(question: str, results: list, final_k: int) -> list:
 +    """Rerank vector-search results via Jev. Falls back to vector order
-+    (trimmed to final_k) if Jev is unavailable or fails."""
++    (trimmed to final_k) if Jev is unavailable or fails. (MKA fork)"""
 +    from src.services.ai.jev.client import jev_rerank_chunks
 +
 +    reranked = await jev_rerank_chunks(question, results, final_k)
@@ -281,10 +232,34 @@ index 927c3c44..a7e64d8c 100644
 +        return results[:final_k]
 +    return reranked[:final_k]
 +
-+
- async def query_course_rag_stream(
-     question: str,
-     org_id: int,
+ _KIND_LABELS = {
+     SourceType.COURSE.value: "Course",
+     SourceType.CHAPTER.value: "Chapter",
+@@ -53,6 +82,7 @@ async def search_course_content(
+     if not scope.course_ids:
+         return []
+ 
++    retrieve_k, final_k = _resolve_rag_limits(top_k, org_id)  # MKA fork (Jev rerank)
+     query_embedding = await embed_single_text(question)
+     embedding_str = "[" + ",".join(str(v) for v in query_embedding) + "]"
+ 
+@@ -74,11 +104,14 @@ async def search_course_content(
+         "query_embedding": embedding_str,
+         "org_id": org_id,
+         "course_ids": scope.course_ids,
+-        "limit": top_k * OVERFETCH_FACTOR,
++        "limit": retrieve_k * OVERFETCH_FACTOR,
+     }
+ 
+     rows = (await db_session.execute(sql, params)).fetchall()
+-    return (await filter_readable_chunks(rows, scope, db_session))[:top_k]
++    readable = (await filter_readable_chunks(rows, scope, db_session))[:retrieve_k]
++    if retrieve_k > final_k and readable:  # MKA fork: optional Jev reranking
++        return await _jev_rerank(question, readable, final_k)
++    return readable[:final_k]
+ 
+ 
+ def source_from_row(row) -> Source:
 ```
 
 ### `apps/api/src/services/ai/quiz.py`
@@ -323,16 +298,27 @@ index 9a10cb95..5fd8282b 100644
 
 ### `apps/api/src/routers/ai/rag.py`
 
-- **Date**: 2026-10-03
+- **Date**: 2026-10-03 (re-applied 2026-10-11 after upstream RAG access-scope restructure: rerank now lives in `search_course_content`; `course_name` fetched after `_open_rag`)
 - **Reason**: Needs a fire-and-forget audit call after the final SSE event and an intent-routing check before retrieval; no middleware hook exists inside the SSE generator or endpoint. Logic lives in `services/ai/jev_integration.py`.
 - **Diff**:
 
 ```diff
 diff --git a/apps/api/src/routers/ai/rag.py b/apps/api/src/routers/ai/rag.py
-index 34ed6518..8f1d849d 100644
+index 3efd5435..07e2c5b5 100644
 --- a/apps/api/src/routers/ai/rag.py
 +++ b/apps/api/src/routers/ai/rag.py
-@@ -105,6 +105,16 @@ async def rag_chat_event_generator(
+@@ -64,7 +64,9 @@ class RAGChatRequest(BaseModel):
+     message: str = Field(max_length=AI_MESSAGE_MAX_CHARS)
+     course_uuid: Optional[str] = None
+     aichat_uuid: Optional[str] = None
+-    mode: Literal["course_only", "general"] = "course_only"
++    # None = client expressed no preference (treated as "course_only"; the only
++    # case where opt-in Jev intent routing may switch to "general").
++    mode: Optional[Literal["course_only", "general"]] = None
+     org_slug: Optional[str] = None
+ 
+ 
+@@ -147,6 +149,16 @@ async def rag_chat_event_generator(
          # Send done event
          yield f"data: {json.dumps({'type': 'done', 'aichat_uuid': aichat_uuid})}\n\n"
  
@@ -349,23 +335,19 @@ index 34ed6518..8f1d849d 100644
          # Generate follow-up suggestions
          follow_ups = await generate_follow_up_suggestions(
              full_response,
-@@ -168,6 +178,7 @@ async def api_rag_chat(
-     - If course_uuid is omitted, searches across all courses for the user's org.
-     """
-     course_id = None
-+    course_name = ""
-     org_id = None
+@@ -294,6 +306,11 @@ async def api_rag_chat(
+     org_id, access_scope = await _open_rag(
+         request, current_user, chat_request.course_uuid, chat_request.org_slug, db_session
+     )
++    course_name = ""  # MKA fork: used by opt-in Jev intent routing
++    if chat_request.course_uuid:
++        course_name = (await db_session.execute(
++            select(Course.name).where(Course.course_uuid == chat_request.course_uuid)
++        )).scalars().first() or ""
+     chat_acting_user_id = resolve_acting_user_id(current_user)
  
-     if chat_request.course_uuid:
-@@ -177,6 +188,7 @@ async def api_rag_chat(
-         if not course:
-             raise HTTPException(status_code=404, detail="Course not found")
-         course_id = course.id
-+        course_name = getattr(course, "name", "") or ""
-         org_id = course.org_id
-     else:
-         if chat_request.org_slug:
-@@ -250,6 +262,18 @@ async def api_rag_chat(
+     # Validate session ownership BEFORE reserving credits. Reserving first means
+@@ -311,6 +328,18 @@ async def api_rag_chat(
      # Get or create chat session
      chat_session = get_chat_session_history(chat_request.aichat_uuid)
  
@@ -384,15 +366,24 @@ index 34ed6518..8f1d849d 100644
      # Perform RAG query with streaming
      stream, sources = await query_course_rag_stream(
          question=chat_request.message,
-@@ -257,7 +281,7 @@ async def api_rag_chat(
+@@ -318,7 +347,7 @@ async def api_rag_chat(
          db_session=db_session,
          message_history=chat_session["message_history"],
-         course_id=course_id,
+         scope=access_scope,
 -        mode=chat_request.mode or "course_only",
 +        mode=effective_mode,
      )
  
      return StreamingResponse(
+@@ -332,7 +361,7 @@ async def api_rag_chat(
+             user_id=chat_acting_user_id,
+             course_uuid=chat_request.course_uuid,
+             is_new_session=is_new_session,
+-            mode=chat_request.mode,
++            mode=effective_mode,
+             org_id=org_id,
+         ),
+         media_type="text/event-stream",
 ```
 
 Follow-up (Executor E): `RAGChatRequest.mode` became `Optional[Literal["course_only","general"]] = None` (None = no explicit client choice; intent routing applies only then, and `effective_mode` falls back to `"course_only"`). The SSE generator now receives `mode=effective_mode` (instead of `chat_request.mode`) so chat history records the mode actually used. Re-apply:

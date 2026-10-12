@@ -31,7 +31,7 @@ from src.services.ai.llm.provider import (
 
 logger = logging.getLogger(__name__)
 
-# Default dimensionality — matches Vector(768) in src/db/course_embeddings.py.
+# Default dimensionality; matches Vector(768) in src/db/course_embeddings.py.
 DEFAULT_EMBEDDING_DIMENSIONS = 768
 
 # Per-provider default embedding model. All chosen to produce 768-dim vectors so the existing
