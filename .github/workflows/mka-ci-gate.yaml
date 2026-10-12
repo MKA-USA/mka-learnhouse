@@ -52,9 +52,9 @@ jobs:
             infra_runs=$(gh api --paginate "repos/$REPO/actions/runs?head_sha=$SHA&per_page=100" \
               --jq '.workflow_runs[] | select(.path == ".github/workflows/notify-infra.yaml") | .id') || { sleep 30; continue; }
             runs=$(gh api --paginate "repos/$REPO/commits/$SHA/check-runs?per_page=100" \
-              --jq '.check_runs[] | [.name, .status, (.conclusion // ""), (.app.slug // ""), (.details_url // "")] | @tsv') || { sleep 30; continue; }
+              --jq '.check_runs[] | [.id, .name, .status, (.conclusion // ""), (.app.slug // ""), (.details_url // "")] | @tsv') || { sleep 30; continue; }
             pending=0; failed=""
-            while IFS=$'\t' read -r name status conclusion app url; do
+            while IFS=$'\t' read -r cid name status conclusion app url; do
               [ -z "$name" ] && continue
               run_of_check=$(printf '%s' "$url" | sed -n 's#.*/actions/runs/\([0-9][0-9]*\)/.*#\1#p')
               if [ "$app" = "github-actions" ] && [ "$run_of_check" = "$RUN_ID" ]; then continue; fi
@@ -63,6 +63,16 @@ jobs:
               if [ "$status" != "completed" ]; then pending=$((pending + 1)); continue; fi
               case "$conclusion" in
                 success|skipped|neutral) ;;
+                failure)
+                  # Fork has no CODECOV_TOKEN: tolerate a failed Actions job ONLY if every failed step is the
+                  # Codecov upload. Fail closed on any API error / unexpected shape.
+                  if [ "$app" = "github-actions" ] && [[ "$cid" =~ ^[0-9]+$ ]] && \
+                     gh api "repos/$REPO/actions/jobs/$cid" --jq '[.steps[] | select(.conclusion == "failure") | .name]
+                       | (length > 0) and all(.[]; test("^Upload .* (to )?Codecov$"; "i"))' 2>/dev/null | grep -qx true; then
+                    echo "Tolerated (only Codecov upload step failed): $name"
+                  else
+                    failed="$failed\n- $name ($conclusion)"
+                  fi ;;
                 *) failed="$failed\n- $name ($conclusion)" ;;
               esac
             done <<< "$runs"
