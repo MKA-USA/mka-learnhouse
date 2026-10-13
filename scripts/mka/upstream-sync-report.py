@@ -14,6 +14,7 @@ Fail-safe: on ANY error (including an unparseable diff entry) the gate defaults 
 needs_review=true. Run it from a TRUSTED checkout (origin/dev), never from the merged tree.
 """
 import argparse
+import ast
 import os
 import posixpath
 import re
@@ -27,6 +28,12 @@ MODS_FILE = ".codebase-memory/upstream-modifications.md"
 PATH_RE = re.compile(r"`((?:apps|custom|scripts|docs|\.github)/[\w./\[\]()@+-]+\.\w+)`")
 CC_RE = re.compile(r"^(\w+)(?:\([^)]*\))?(!)?:\s")
 PR_RE = re.compile(r"\(#(\d+)\)\s*$")
+# Alembic ops that change an EXISTING table. create_all (our startup) never applies these, so a sync carrying one
+# must be reviewed and checked with /api/v1/mka/health/schema after deploy.
+SCHEMA_OPS_RE = re.compile(
+    r"\bop\.(add_column|alter_column|drop_column|create_index|drop_index|create_foreign_key|drop_constraint|"
+    r"create_unique_constraint|create_check_constraint|rename_table|drop_table|execute)\b|\bbatch_alter_table\b"
+)
 MAX_DIFF_LINES = 40
 MAX_LIST = 60
 
@@ -43,6 +50,18 @@ DEPLOY_DIR_RE = re.compile(r"(^|/)(\.?coolify|deploy|deployment|deployments|infr
 GITCFG_RE = re.compile(r"(^|/)(\.gitattributes|\.gitmodules)$")
 AUTH_RE = re.compile(r"auth|security|permission|rbac|session|oauth|sso")
 NEXT_CFG_RE = re.compile(r"^(next\.config\.[^/]+|middleware\.(ts|js|mjs)|proxy\.(ts|js|mjs))$")
+
+
+def upgrade_body(src):
+    """Source of the migration's upgrade() only (downgrade() reverses every op and would double-count). Falls back to
+    the whole file when it cannot be parsed, which errs towards flagging."""
+    try:
+        for node in ast.parse(src).body:
+            if isinstance(node, ast.FunctionDef) and node.name == "upgrade":
+                return ast.get_source_segment(src, node) or src
+    except SyntaxError:
+        pass
+    return src
 
 
 def base(p):
@@ -94,10 +113,27 @@ def build(a):
         b = base(n)
         return b.startswith(("mka-", "mka_")) or n.startswith("custom/") or n in hook_keys
 
+    def schema_changes():
+        """Migration files in the range (added or modified) that alter existing tables, with the ops they use."""
+        found = []
+        for n in keys:
+            if not (n.startswith(MIGRATIONS_DIR) and n.endswith(".py")) or n in deleted - added:
+                continue
+            try:
+                src = dec(git("show", f"{a.gate_head}:{touched[n]}")[1])
+            except RuntimeError:
+                continue
+            ops = sorted({m.group(1) or "batch_alter_table" for m in SCHEMA_OPS_RE.finditer(upgrade_body(src))})
+            if ops:
+                found.append(f"{touched[n]}: {', '.join(ops)}")
+        return found
+
     special_entries = sorted({touched[norm(e["paths"][-1])] for e in entries if special(e) or mode_changed(e)}, key=norm)
     categories = [
         ("New alembic migrations",
          [touched[n] for n in keys if n in added and n.startswith(MIGRATIONS_DIR) and n.endswith(".py")]),
+        ("Schema changes (migrations altering existing tables: create_all will NOT apply these; "
+         "check /api/v1/mka/health/schema after deploy)", schema_changes()),
         ("Config / env changes (config.yaml/py, .env*, env.ts, env docs)", [touched[n] for n in keys if is_config(n)]),
         ("Dependency manifests and lockfiles", [touched[n] for n in keys if base(n) in DEP_BASENAMES or DEP_RE.match(base(n))]),
         ("Docker / compose / deploy files", [touched[n] for n in keys if DEPLOY_BASENAME_RE.match(base(n)) or DEPLOY_DIR_RE.search(n)]),

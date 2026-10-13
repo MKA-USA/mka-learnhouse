@@ -1,0 +1,34 @@
+name: MKA check schema
+description: Poll the unauthenticated schema health endpoint until it reports ok and alembic_at_head, or fail after the timeout.
+inputs:
+  url:
+    description: URL of /api/v1/mka/health/schema
+    required: true
+  timeout-seconds:
+    description: Total seconds to keep polling
+    required: false
+    default: "300"
+runs:
+  using: composite
+  steps:
+    - name: Poll schema health
+      shell: bash
+      env:
+        SCHEMA_URL: ${{ inputs.url }}
+        TIMEOUT_SECONDS: ${{ inputs.timeout-seconds }}
+      run: |
+        set -u
+        deadline=$(( $(date +%s) + TIMEOUT_SECONDS ))
+        while true; do
+          body=$(curl -s --max-time 20 "$SCHEMA_URL" || true)
+          echo "$(date -u +%H:%M:%S) ${SCHEMA_URL} -> ${body:-none}"
+          if echo "$body" | python3 -c 'import json,sys; d=json.load(sys.stdin); sys.exit(0 if d.get("ok") is True and d.get("alembic_at_head") is True else 1)' 2>/dev/null; then
+            echo "Schema OK."
+            exit 0
+          fi
+          if [ "$(date +%s)" -ge "$deadline" ]; then
+            echo "::error::Schema check failed after ${TIMEOUT_SECONDS}s (last response: ${body:-none}). Migrations did not apply cleanly; see MKA_MIGRATE_FAILED / MKA_SCHEMA_DRIFT in the service log."
+            exit 1
+          fi
+          sleep 20
+        done

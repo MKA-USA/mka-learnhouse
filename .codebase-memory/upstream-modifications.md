@@ -1818,3 +1818,25 @@ Why: the shared per-course RAG index embedded `mkaAudience` (restricted) lesson 
 ```
 
 Re-apply: `grep -n "MKA fork" apps/api/src/services/ai/rag/sources/__init__.py` (2 lines, at the end of the file, after `register_ee_rag_sources()`). Guarded by `src/tests/services/mka/test_rag_audience.py` (fails if the registry/walker is renamed). Extractors registered after import time (plugins) are not wrapped.
+
+### Run DB migrations at container start (`docker/start.sh`, `apps/api/src/router.py`, 2026-10-13)
+
+Why: deploys build the root Dockerfile and nothing runs Alembic (the API only does `create_all`, which never adds columns), so upstream v1.4.0's `assignmenttask.order` was missing on dev. `docker/start.sh` has no hook point, so one line calls the fork-owned `apps/api/scripts/mka-migrate.sh` (all logic is in fork files: `services/mka/schema_migrate.py`, `services/mka/schema_drift.py`, `routers/mka_health.py`). `router.py` mounts the unauthenticated schema health router, same registration point as every other `mka_*` router. The Dockerfile is NOT touched (the script lives under `apps/api`, which it already copies).
+
+```diff
+--- a/docker/start.sh
+@@ before "# Start the services"
++# MKA fork: apply DB migrations before the API starts (never blocks startup)
++sh /app/api/scripts/mka-migrate.sh
++
+--- a/apps/api/src/router.py
++from src.routers import mka_health as mka_health_router_module  # MKA fork
+@@ before the usergroups include_router
++v1_router.include_router(  # MKA fork: schema health; deliberately unauthenticated (deploy checks), returns counts only
++    mka_health_router_module.router,
++    prefix="/mka/health",
++    tags=["mka-health"],
++)
+```
+
+Re-apply: `grep -n "mka-migrate" docker/start.sh` (1 line) and `grep -n "mka_health" apps/api/src/router.py` (2 lines + the include block).
