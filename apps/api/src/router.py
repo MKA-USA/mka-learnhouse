@@ -18,6 +18,7 @@ from src.routers import mka_compliance as mka_compliance_router_module  # MKA fo
 from src.routers import mka_automation as mka_automation_router_module  # MKA fork
 from src.routers import mka_identity as mka_identity_router_module  # MKA fork
 from src.routers import mka_course_audience as mka_course_audience_router_module  # MKA fork
+from src.routers import mka_health as mka_health_router_module  # MKA fork
 from src.routers import monitoring
 from src.routers import nudges as nudges_router_module
 from src.routers import stream
@@ -112,6 +113,11 @@ v1_router.include_router(  # MKA fork: course audience; session (author/admin of
     prefix="/mka/courses",
     tags=["mka-course-audience"],
     dependencies=[Depends(require_authenticated_user_or_api_token)],
+)
+v1_router.include_router(  # MKA fork: schema health; deliberately unauthenticated (deploy checks), returns counts only
+    mka_health_router_module.router,
+    prefix="/mka/health",
+    tags=["mka-health"],
 )
 v1_router.include_router(
     usergroups.router,
