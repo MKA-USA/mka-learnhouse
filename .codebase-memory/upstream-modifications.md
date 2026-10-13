@@ -1804,3 +1804,17 @@ Why: the per-course Audience panel must sit on the course Access tab; EditCourse
 ```
 
 Re-apply: `grep -n "MKA fork" apps/web/components/Dashboard/Pages/Course/EditCourseAccess/EditCourseAccess.tsx` (2 lines).
+
+### RAG audience guard hook (`apps/api/src/services/ai/rag/sources/__init__.py`, 2026-10-13)
+
+Why: the shared per-course RAG index embedded `mkaAudience` (restricted) lesson text, readable by every learner via RAG chat/search. The walker (`dynamic._NODE_HANDLERS`) and extractor registry (`_EXTRACTORS`) have no plugin point, and this package `__init__` is the one module every extraction (web, queue consumer, scheduler, CLI backfill) must import, so the fork installs its guard at its end. All logic lives in the fork file `services/mka/rag_audience.py` (no-op `mkaAudience` handler + wrapper that strips audience nodes and drops segments of audience-referenced blocks, fail closed). One-off cleanup: `services/mka/rag_audience_reindex.py`.
+
+```diff
+ register_ee_rag_sources()
++
++from src.services.mka.rag_audience import install as _mka_install_rag_audience  # noqa: E402  # MKA fork
++
++_mka_install_rag_audience()  # MKA fork: keep audience-restricted lesson text out of the shared index
+```
+
+Re-apply: `grep -n "MKA fork" apps/api/src/services/ai/rag/sources/__init__.py` (2 lines, at the end of the file, after `register_ee_rag_sources()`). Guarded by `src/tests/services/mka/test_rag_audience.py` (fails if the registry/walker is renamed). Extractors registered after import time (plugins) are not wrapped.

@@ -167,3 +167,7 @@ from src.services.ai.rag.sources import (  # noqa: E402,F401
 from src.core.ee_hooks import register_ee_rag_sources  # noqa: E402
 
 register_ee_rag_sources()
+
+from src.services.mka.rag_audience import install as _mka_install_rag_audience  # noqa: E402  # MKA fork
+
+_mka_install_rag_audience()  # MKA fork: keep audience-restricted lesson text out of the shared index
