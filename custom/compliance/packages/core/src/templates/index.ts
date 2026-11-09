@@ -4,3 +4,4 @@ export * from "./attestation";
 export * from "./quiz";
 export * from "./department";
 export * from "./general";
+export * from "./majlis-plan";

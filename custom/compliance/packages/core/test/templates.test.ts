@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import {
-  DEFAULT_THINKIFIC_DIR, DEPARTMENTS, STALE_NOTE, buildDepartmentCourse, buildGeneralCourse, buildPlanQuiz, extractObjectives, foundationCourse,
+  DEFAULT_THINKIFIC_DIR, DEPARTMENTS, STALE_NOTE, buildDepartmentCourse, buildGeneralCourse, buildMajlisPlanCourse, buildMajlisQuiz, countKeyResults, MULTI_OFFICE_NOTE, buildPlanQuiz, extractObjectives, foundationCourse,
   generateRoster, htmlToProseMirror, listTkCourses, loadFoundation, markdownToProseMirror, plainText, renderDirectory, specHash, type PlanInput,
 } from "../src";
 
@@ -114,9 +114,70 @@ describe.skipIf(!existsSync(DEFAULT_THINKIFIC_DIR))("general course from Foundat
     expect([q("quiz-jamaat"), q("quiz-khuddam"), q("quiz-rules")]).toEqual([10, 12, 2]);
     expect(spec.chapters[4]!.activities.filter((a) => a.kind === "pdf").length).toBe(2);
   });
+  test("first page carries the multi-office note", () => {
+    const first = spec.chapters.flatMap((c) => c.activities).find((a) => a.kind === "page")!;
+    expect(first.kind === "page" && plainText(first.doc)).toContain("Hold more than one office?");
+    expect(spec.chapters.flatMap((c) => c.activities).filter((a) => a.kind === "page" && plainText(a.doc).includes("Hold more than one office?")).length).toBe(1);
+  });
   test("no inline styling survives; every quiz question has a correct answer", () => {
     expect(JSON.stringify(spec)).not.toMatch(/font-family|box-sizing|rgb\(/);
     for (const a of spec.chapters.flatMap((c) => c.activities)) if (a.kind === "assignment") for (const t of a.tasks) if (t.type === "QUIZ" && a.key.startsWith("quiz-")) for (const qq of t.contents.questions) expect(qq.options.some((o) => o.assigned_right_answer)).toBe(true);
   });
   test("stale-year callouts and content flags are produced", () => { expect(spec.flags.length).toBeGreaterThan(0); expect(Array.isArray(flags)).toBe(true); });
+});
+
+describe("Majlis Plan course", () => {
+  const depts = DEPARTMENTS.filter((d) => d.slug !== "atfal");
+  const lvl = (slug: string, level: string, kr: string[]) => plan(slug, { level, responsibilitiesDoc: null, okrsDoc: planDoc(`What this means at the ${level} level:\n\n${kr.map((k) => `- ${k}`).join("\n")}`) });
+  const plansFor = (slug: string): PlanInput[] => slug === "ishaat" ? [] : [
+    plan(slug, { responsibilitiesDoc: null, okrsDoc: planDoc(`Objective 1: ${slug} first goal\n\nObjective 2: ${slug} second goal`) }),
+    lvl(slug, "majlis", ["Local one", "Local two"]), ...(slug === "maal" ? [lvl(slug, "region", ["Regional one"])] : []),
+  ];
+  const { spec } = buildMajlisPlanCourse({ cycle: "2026-27", deadline: "Dec 1, 2026", departments: depts, plansFor });
+  const page = (k: string) => { const a = spec.chapters.flatMap((c) => c.activities).find((x) => x.key === k)!; if (a.kind !== "page") throw new Error("page"); return a.doc; };
+  test("name, kind and shape: 3 chapters, overview + 20 department pages + knowledge check + sign-off", () => {
+    expect(spec.name).toBe("MKA 2026-27 · Majlis Plan"); expect(spec.kind).toBe("majlis-plan"); expect(spec.departmentSlug).toBe("");
+    expect(spec.chapters.map((c) => c.name)).toEqual(["Overview", "Department plans", "Finish"]);
+    expect(spec.chapters[1]!.activities.map((a) => a.key)).toEqual(depts.map((d) => `dept-${d.slug}`));
+    expect(spec.chapters[1]!.activities.length).toBe(20);
+    expect(spec.chapters[2]!.activities.map((a) => a.key)).toEqual(["knowledge-check", "signoff"]);
+    const so = spec.chapters[2]!.activities[1]!; expect(so.kind === "assignment" && so.tasks.map((t) => t.type)).toEqual(["QUIZ", "FORM"]);
+    expect(spec.chapters.flatMap((c) => c.activities).every((a) => (a.owner ?? "generated") === "generated")).toBe(true);
+    expect(spec.flags).toContain("Ishaat: no plan for this department");
+  });
+  test("overview table: one row per department with local/regional KR counts and the Mohtamim mailbox", () => {
+    const t = plainText(page("overview"));
+    expect(t).toContain("generated from the 2026-27 Department Plans");
+    const row = (d: string, l: string, r: string, m: string) => expect(t).toContain(`${d}\n\n${l}\n\n${r}\n\n${m}`);
+    row("Maal (Finance)", "2", "1", "maal@mkausa.org"); row("Tabligh (Preaching)", "2", "0", "tabligh@mkausa.org");
+    row("Ishaat (Publications)", "0", "0", "ishaat@mkausa.org"); row("Aitmad (General Secretary)", "2", "0", "motamid@mkausa.org");
+  });
+  test("department page: objectives, then Local and Regional lists wrapped in mkaAudience", () => {
+    const d = page("dept-maal"); const auds = d.content.filter((n) => n.type === "mkaAudience");
+    expect(auds.map((n) => (n.attrs!.rule as any).groups)).toEqual([[{ level: ["local"] }, { level: ["national"] }], [{ level: ["regional"] }, { level: ["national"] }]]);
+    expect(auds.map((n) => (n.attrs!.rule as any).label)).toEqual(["Local officeholders", "Regional officeholders"]);
+    expect(new Set(auds.map((n) => n.attrs!.id)).size).toBe(2);
+    expect(auds.every((n) => /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(n.attrs!.id as string))).toBe(true);
+    const outside = d.content.filter((n) => n.type !== "mkaAudience").map((n) => plainText(n)).join("");
+    expect(outside).toContain("maal first goal"); expect(outside).not.toContain("Local one");
+    expect(plainText({ type: "doc", content: auds[0]!.content! })).toContain("Local two");
+    expect(plainText({ type: "doc", content: auds[1]!.content! })).toContain("Regional one");
+    expect(plainText(page("dept-ishaat"))).toContain("Content pending");
+  });
+  test("deterministic; knowledge check asks which department owns an objective (4 questions, pass 60%)", () => {
+    expect(JSON.stringify(buildMajlisPlanCourse({ cycle: "2026-27", deadline: "Dec 1, 2026", departments: depts, plansFor }).spec)).toBe(JSON.stringify(spec));
+    const kc = spec.chapters[2]!.activities[0]!; if (kc.kind !== "assignment") throw new Error("assignment");
+    expect(kc.passThreshold).toBe(60); expect(kc.ungraded).toBe(false);
+    const qs = kc.tasks[0]!.type === "QUIZ" ? kc.tasks[0]!.contents.questions : [];
+    expect(qs.length).toBe(4);
+    for (const q of qs) { expect(q.options.length).toBe(4); expect(q.options.filter((o) => o.assigned_right_answer).length).toBe(1); }
+  });
+  test("countKeyResults and the quiz fallback", () => {
+    expect(countKeyResults(planDoc("lead\n\n- a\n- b\n- c"))).toBe(3); expect(countKeyResults(null)).toBe(0);
+    expect(buildMajlisQuiz({ cycle: "2026-27", items: [{ slug: "a", name: "A", objectives: ["x"] }] }).basis).toBe("fallback");
+  });
+});
+
+test("General multi-office note text", () => {
+  expect(plainText({ type: "doc", content: [MULTI_OFFICE_NOTE] })).toContain("Hold more than one office? Sign in with each office's @mkausa.org account and complete that office's course. Each office signs off separately.");
 });

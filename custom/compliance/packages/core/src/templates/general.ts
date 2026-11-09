@@ -57,6 +57,9 @@ function quizTasks(cycle: string, scope: string, q: FoundationQuiz): QuizQuestio
   return q.questions.map((qq, i) => mcq(`${cycle}:${scope}:${i}:${qq.prompt}`, qq.prompt, qq.choices.map((c) => ({ text: c.text, correct: c.correct })), qq.multiple));
 }
 
+/** First page of General: officeholders with several offices sign in once per office. */
+export const MULTI_OFFICE_NOTE: PMNode = calloutInfo("Hold more than one office? Sign in with each office's @mkausa.org account and complete that office's course. Each office signs off separately.");
+
 export function buildGeneralCourse(args: { cycle: string; deadline: string; foundation: FoundationInput }): { spec: CourseSpec; flags: { lesson: string; flag: ContentFlag }[] } {
   const { cycle, deadline, foundation: F } = args;
   const cflags: { lesson: string; flag: ContentFlag }[] = [];
@@ -85,7 +88,7 @@ export function buildGeneralCourse(args: { cycle: string; deadline: string; foun
   if (F.introVideo) chapters.push({ key: "ch-intro", name: "Course Introduction", description: "Start here", activities: [{ kind: "video", key: "intro-video", name: "Course Introduction Video", file: { rel: F.introVideo.rel, abs: F.introVideo.abs, size: F.introVideo.size }, source: F.introVideo.source }] });
   chapters.push(
     { key: "ch-structures", name: "Organizational Structures", description: "Jama'at and Khuddam structure", activities: [
-      makePage(F.jamaat, "jamaat-structure"), quiz("quiz-jamaat", F.jamaatQuiz.name, F.jamaatQuiz), makePage(F.khuddam, "khuddam-structure"), quiz("quiz-khuddam", F.khuddamQuiz.name, F.khuddamQuiz) ] },
+      makePage(F.jamaat, "jamaat-structure", [MULTI_OFFICE_NOTE]), quiz("quiz-jamaat", F.jamaatQuiz.name, F.jamaatQuiz), makePage(F.khuddam, "khuddam-structure"), quiz("quiz-khuddam", F.khuddamQuiz.name, F.khuddamQuiz) ] },
     { key: "ch-resources", name: "Resources for Officeholders", description: "Systems and resources you will use", activities: [...F.resources.map((r, i) => makePage(r, `resource-${i + 1}`)), resourceConfirm] },
     { key: "ch-rules", name: "Housekeeping Rules", description: "Rules and procedures", activities: [makePage(F.rules, "rules"), quiz("quiz-rules", F.rulesQuiz.name, F.rulesQuiz)] },
     { key: "ch-message", name: "Huzoor's Latest Message to the US Khuddam", description: "Read and confirm", activities: [

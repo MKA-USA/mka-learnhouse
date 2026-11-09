@@ -1,7 +1,7 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  ConflictError, LhApi, LhClient, SafetyError, STAGING_API_BASE, applyCourse, assertStaging, connect, courseMap, dbMapStore, getCycleId, idmap, loadRoster, planCourse, reconcileEnrollments, selectLearners, upsertEnrollmentLog, buildCycleCourses, executePublish, publishPlan, DEPARTMENTS, courseName, verifyCourse, withoutExcluded, carryForward, readPageDoc, type MapStore, type PMDoc, type CourseSpec, type SeedSource, type ProvisionConfig, type CoursePlan,
+  ConflictError, LhApi, LhClient, SafetyError, STAGING_API_BASE, applyCourse, assertStaging, connect, courseMap, dbMapStore, getCycleId, idmap, loadRoster, planCourse, reconcileEnrollments, selectLearners, upsertEnrollmentLog, buildCycleCourses, executePublish, publishPlan, DEPARTMENTS, courseName, verifyCourse, withoutExcluded, carryForward, readPageDoc, coursesFor, type MapStore, type PMDoc, type CourseSpec, type SeedSource, type ProvisionConfig, type CoursePlan,
 } from "@mka/compliance-core";
 import { eq } from "drizzle-orm";
 import type { Args } from "./args";
@@ -13,8 +13,8 @@ import { PILOT, buildWorld } from "./world";
 
 function selection(a: Args) {
   if (a.has("pilot")) return { only: PILOT, includeGeneral: true, label: "pilot (General + Aitmad + Tabligh)" };
-  if (a.has("only")) return { only: String(a.str("only")).split(",").map((s) => s.trim()).filter(Boolean), includeGeneral: a.has("with-general"), label: `only ${a.str("only")}` };
-  if (a.has("all")) return { only: undefined, includeGeneral: true, label: "ALL courses (General + every non-excluded department)" };
+  if (a.has("only")) return { only: String(a.str("only")).split(",").map((s) => s.trim()).filter(Boolean), includeGeneral: a.has("with-general"), includeMajlisPlan: a.has("with-majlis-plan"), label: `only ${a.str("only")}` };
+  if (a.has("all")) return { only: undefined, includeGeneral: true, includeMajlisPlan: true, label: "ALL courses (General + Majlis Plan + every non-excluded department)" };
   return null;
 }
 
@@ -51,7 +51,7 @@ export async function cmdPlan(a: Args) {
   const sel = selection(a) ?? { only: undefined, includeGeneral: true, label: "ALL courses (dry run)" };
   const cycle = a.str("cycle", DEFAULT_CYCLE)!; const config = configFrom(a); const { db, sql } = connect();
   try {
-    const w = await buildWorld(db, { cycle, only: sel.only, includeGeneral: sel.includeGeneral, config });
+    const w = await buildWorld(db, { cycle, only: sel.only, includeGeneral: sel.includeGeneral, includeMajlisPlan: (sel as { includeMajlisPlan?: boolean }).includeMajlisPlan, config });
     const store = dbMapStore(db, w.cycleId);
     let existing: { name: string; course_uuid: string }[] | null = null;
     if (process.env.LH_API_TOKEN) { try { existing = await new LhApi(clientFromEnv()).listCourses(1, 100, true); } catch { console.log("(could not list LearnHouse courses; conflict check skipped)"); } }
@@ -79,7 +79,7 @@ export async function cmdApply(a: Args) {
   const client = clientFromEnv(); const api = new LhApi(client);
   const cycle = a.str("cycle", DEFAULT_CYCLE)!; const config = configFrom(a); const { db, sql } = connect();
   try {
-    const w = await buildWorld(db, { cycle, only: sel.only, includeGeneral: sel.includeGeneral, config });
+    const w = await buildWorld(db, { cycle, only: sel.only, includeGeneral: sel.includeGeneral, includeMajlisPlan: (sel as { includeMajlisPlan?: boolean }).includeMajlisPlan, config });
     const store = dbMapStore(db, w.cycleId);
     const courses = await api.listCourses(1, 1, true);
     const orgId = courses[0]?.org_id ?? 1;
@@ -120,6 +120,7 @@ export async function cmdReconcile(a: Args) {
     const cid = await getCycleId(db, cycle); if (cid === null) throw new Error(`cycle ${cycle} not found`);
     const maps = withoutExcluded(await db.select().from(courseMap).where(eq(courseMap.cycleId, cid)), config.excludedDepartments);
     const general = maps.find((m) => m.kind === "general")?.lhCourseUuid;
+    const majlisPlan = maps.find((m) => m.kind === "majlis-plan")?.lhCourseUuid;
     const deptCourse = new Map(maps.filter((m) => m.kind === "department").map((m) => [m.departmentSlug, m.lhCourseUuid]));
     const roster = await loadRoster(db, cid, config.excludedDepartments);
     const wanted = selectLearners(roster, sel.only);
@@ -127,6 +128,7 @@ export async function cmdReconcile(a: Args) {
     for (const r of wanted) {
       const set = byEmail.get(r.learnerEmail) ?? new Set<string>();
       if (general) set.add(general); else missingCourses.add("general");
+      if (coursesFor(r).majlisPlan) { if (majlisPlan) set.add(majlisPlan); else missingCourses.add("majlis-plan"); }
       if (r.departmentSlug) { const c = deptCourse.get(r.departmentSlug); if (c) set.add(c); else missingCourses.add(r.departmentSlug); }
       byEmail.set(r.learnerEmail, set);
     }
@@ -170,7 +172,7 @@ export async function cmdPublish(a: Args) {
   try {
     const cid = await getCycleId(db, cycle); if (cid === null) throw new Error(`cycle ${cycle} not found`);
     const rows = await dbMapStoreRows(db, cid, configFrom(a));
-    const nameOf = (r: any) => courseName(cycle, r.kind === "general" ? "General" : DEPARTMENTS.find((d) => d.slug === r.departmentSlug)?.name ?? r.departmentSlug);
+    const nameOf = (r: any) => courseName(cycle, r.kind === "general" ? "General" : r.kind === "majlis-plan" ? "Majlis Plan" : DEPARTMENTS.find((d) => d.slug === r.departmentSlug)?.name ?? r.departmentSlug);
     const chosen = all ? rows : rows.filter((r: any) => r.lhCourseUuid === which || nameOf(r).toLowerCase() === String(which).toLowerCase());
     if (!chosen.length) throw new Error(`no provisioned course matches ${which}`);
     console.log(`PUBLISH ${execute ? "EXECUTE" : "(dry run, nothing is changed)"} on staging: ${chosen.length} course(s)`);

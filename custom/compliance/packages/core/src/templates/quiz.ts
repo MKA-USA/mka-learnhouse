@@ -34,3 +34,29 @@ export function buildPlanQuiz(args: { cycle: string; deptSlug: string; deptName:
   ], `${cycle}:${deptSlug}:fb`));
   return { questions: [q], basis: "fallback" };
 }
+
+/**
+ * Majlis Plan knowledge check: "Which department's plan has this objective?" across departments.
+ * `items`: each department's own objectives. Needs 4+ departments with objectives, else a single generic fallback question.
+ */
+export function buildMajlisQuiz(args: { cycle: string; items: { slug: string; name: string; objectives: string[] }[]; count?: number }): QuizBuild {
+  const { cycle } = args; const withObj = args.items.filter((i) => i.objectives.length);
+  const key = `${cycle}:majlis-plan`;
+  if (withObj.length >= 4) {
+    const picks = seededShuffle(withObj, `${key}:depts`).slice(0, args.count ?? 4);
+    const questions = picks.map((d, i) => {
+      const unique = d.objectives.filter((o) => !args.items.some((x) => x.slug !== d.slug && x.objectives.includes(o)));
+      const obj = seededShuffle(unique.length ? unique : d.objectives, `${key}:o${i}`)[0]!;
+      const distract = seededShuffle(withObj.filter((x) => x.slug !== d.slug && !x.objectives.includes(obj)), `${key}:d${i}`).slice(0, 3);
+      const options = seededShuffle([{ text: d.name, correct: true }, ...distract.map((x) => ({ text: x.name, correct: false }))], `${key}:opt${i}`);
+      return mcq(`${key}:q${i}`, `Which department's annual plan includes this objective: "${obj}"?`, options);
+    });
+    return { questions, basis: "plan" };
+  }
+  const q = mcq(`${key}:fallback`, "As Qaid or Naib Qaid, whose Local key results do you need to know?", seededShuffle([
+    { text: "Every department's Local key results", correct: true },
+    { text: "Only the Qaid's own", correct: false },
+    { text: "None; departments handle their own", correct: false },
+  ], `${key}:fb`));
+  return { questions: [q], basis: "fallback" };
+}
