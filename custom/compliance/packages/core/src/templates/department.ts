@@ -1,5 +1,5 @@
 import {
-  calloutInfo, calloutWarning, doc, h, p, table, text, ul, bold, type PMDoc, type PMNode,
+  audience, audienceId, calloutInfo, calloutWarning, doc, h, p, table, text, ul, bold, type PMDoc, type PMNode,
 } from "../content/pm";
 import type { RosterRow } from "../roster/generate";
 import { MAJLIS_TO_REGION, REGION_NAMES } from "../roster/generate";
@@ -11,6 +11,12 @@ import { courseName } from "./util";
 
 export const STALE_NOTE = "Last year's content — update pending";
 const LEVEL_ORDER = ["all", "national", "region", "majlis"];
+/** Audience rule per CSV level: national officeholders see every level; `all` stays unwrapped. */
+const LEVEL_AUDIENCE: Record<string, { groups: Record<string, string[]>[]; label: string }> = {
+  national: { groups: [{ level: ["national"] }], label: "National team" },
+  region: { groups: [{ level: ["regional"] }, { level: ["national"] }], label: "Regional officeholders" },
+  majlis: { groups: [{ level: ["local"] }, { level: ["national"] }], label: "Local officeholders" },
+};
 const LEVEL_TITLE: Record<string, string> = { all: "", national: "National level", region: "Regional level", majlis: "Local (Majlis) level" };
 
 function pendingCallout(deptName: string, cycle: string): PMNode {
@@ -25,8 +31,9 @@ export function renderPlanSection(plans: PlanInput[], pick: (p: PlanInput) => PM
   if (rows.some((r) => r.stale)) out.push(calloutWarning(STALE_NOTE));
   for (const r of rows) {
     const title = LEVEL_TITLE[r.level];
-    if (title) out.push(h(2, title));
-    out.push(...pick(r)!.content);
+    const section: PMNode[] = [...(title ? [h(2, title)] : []), ...pick(r)!.content];
+    const aud = LEVEL_AUDIENCE[r.level];
+    out.push(...(aud ? [audience(audienceId(cycle, r.departmentSlug, r.level), aud.groups, aud.label, section)] : section));
   }
   return out;
 }

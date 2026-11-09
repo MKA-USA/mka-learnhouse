@@ -54,6 +54,26 @@ describe("department course", () => {
     expect(specHash(a)).toBe(specHash(b));
     expect(a.chapters.map((c) => `${c.key}:${c.activities.map((x) => `${x.kind}/${x.key}`).join("+")}`)).toMatchSnapshot();
   });
+  test("per-level OKR sections are wrapped in mkaAudience blocks; `all` stays unwrapped; ids are stable", () => {
+    const lv = (level: string, md: string) => plan("tabligh", { level, responsibilitiesDoc: null, okrsDoc: planDoc(md) });
+    const plans = [plan("tabligh"), lv("majlis", "Local KR"), lv("region", "Regional KR"), lv("national", "National KR")];
+    const page = (c: ReturnType<typeof build>) => { const a = c.chapters[1]!.activities[0]!; if (a.kind !== "page") throw new Error("page"); return a.doc.content; };
+    const top = page(build(plans));
+    const auds = top.filter((n) => n.type === "mkaAudience");
+    expect(auds.map((n) => (n.attrs!.rule as any).label)).toEqual(["National team", "Regional officeholders", "Local officeholders"]);
+    expect(auds.map((n) => (n.attrs!.rule as any).groups)).toEqual([
+      [{ level: ["national"] }], [{ level: ["regional"] }, { level: ["national"] }], [{ level: ["local"] }, { level: ["national"] }],
+    ]);
+    for (const n of auds) {
+      const r = n.attrs!.rule as any;
+      expect(r.v).toBe(1); expect(r.mode).toBe("show");
+      expect(n.attrs!.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+      expect(n.content![0]!.type).toBe("heading");
+    }
+    expect(new Set(auds.map((n) => n.attrs!.id)).size).toBe(3);
+    expect(top.filter((n) => n.type !== "mkaAudience").map((n) => plainText(n)).join("")).toContain("Objective 1: Grow attendance");
+    expect(JSON.stringify(page(build(plans)))).toBe(JSON.stringify(top));
+  });
   test("stale plan shows the visible callout and flags the quiz basis", () => {
     const c = build([plan("tabligh", { stale: true })]);
     const goals = c.chapters[0]!.activities[0]!;
