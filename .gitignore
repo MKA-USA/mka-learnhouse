@@ -72,3 +72,25 @@ apps/web/ee
 # Playwright MCP session artifacts
 .playwright-mcp/
 .demo-secrets
+
+# --- MKA fork: never commit secrets or local agent state (see docs/security/secrets.md) ---
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+*.key
+*.p12
+*.pfx
+.agents/
+.considered/
+.hermes/
+.kiro/
+.qwen/tmp/
+.qwen/worktrees/
+.serena/
+/skills/
+skills-lock.json
+docs/superpowers/
+DEVLOG.md
+DEVLOG.raw.md
+# --- end MKA fork ---

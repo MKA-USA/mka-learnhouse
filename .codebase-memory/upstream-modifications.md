@@ -1460,6 +1460,38 @@ diff --git a/apps/web/components/Auth/TurnstileWidget.tsx b/apps/web/components/
 
 - **Re-apply**: `grep -rn "MKA fork" apps/web/app/api/signup apps/web/app/api/turnstile apps/web/components/Auth/TurnstileWidget.tsx`.
 
+### `.gitignore` secret-hygiene block (MKA fork)
+
+- **File**: `.gitignore` (upstream-owned)
+- **Date**: 2026-10-12
+- **Reason**: no extension point; git only reads `.gitignore` files. Single delimited block appended at the end to minimise merge conflicts. Deviations from the first draft: `skills/` anchored to `/skills/` (unanchored would hide tracked `.claude/skills` and `.qwen/skills`), `.qwen/` narrowed to `.qwen/tmp/` + `.qwen/worktrees/` (tracked `.qwen/skills/*` live there), and `docs/agents/` omitted (referenced by CLAUDE.md, must stay trackable).
+- **Diff**:
+```diff
++# --- MKA fork: never commit secrets or local agent state (see docs/security/secrets.md) ---
++.env.*
++!.env.example
++!.env.sample
++!.env.template
++*.key
++*.p12
++*.pfx
++.agents/
++.considered/
++.hermes/
++.kiro/
++.qwen/tmp/
++.qwen/worktrees/
++.serena/
++/skills/
++skills-lock.json
++docs/superpowers/
++DEVLOG.md
++DEVLOG.raw.md
++# --- end MKA fork ---
+```
+- **Re-apply after pulling upstream**: if the block is lost, re-append it verbatim.
+- **Upstream PR**: none
+
 ---
 
 **Reminder**: Before modifying an upstream file, verify that no extension point, plugin, or wrapper approach exists. Document the change here immediately after making it.
