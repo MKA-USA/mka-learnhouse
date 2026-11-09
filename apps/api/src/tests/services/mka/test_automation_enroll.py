@@ -346,3 +346,20 @@ async def test_login_hook_does_not_enrol_when_flag_off(db, org, monkeypatch):
     with patch("src.services.auth.session.is_mfa_active", return_value=False):
         await issue_session_or_challenge(db, u, amr="google")
     assert await enrolled(db, 20) == []
+
+
+@pytest.mark.asyncio
+async def test_qaideen_also_get_the_majlis_plan_course(db, org, factory):
+    cyc = await make_cycle(db, org.id, 100)
+    await add_course(db, org.id, 104, "course_104", "C104", 0)
+    db.add(MkaComplianceCycleCourse(org_id=org.id, cycle_id=cyc.id, course_id=104, course_uuid="course_104", kind="majlis-plan", department=None))
+    await db.commit()
+    uid = 10
+    for title, dept, level, expect in (("Qaid", "", "local", [101, 104]), ("Naib Qaid II", "", "local", [101, 104]), ("Regional Qaid", "", "regional", [101, 104]),
+                                       ("Sadr", "", "national", [101]), ("Secretary", "tabligh", "local", [101, 102])):
+        email = f"u{uid}@example.invalid"
+        await roster(db, org.id, cyc.id, email, (dept, level, title))
+        u = await learner(db, org.id, uid, email)
+        await enroll.autoenroll_user(factory, u)
+        assert await enrolled(db, u.id) == expect, title
+        uid += 1

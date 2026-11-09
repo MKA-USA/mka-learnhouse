@@ -8,15 +8,17 @@ export interface FormQuestion { questionUUID: string; questionText: string; blan
 
 export interface SourceRef { system: "thinkific"; courseId: number; chapterId?: string; lessonId?: string; path?: string }
 
+/** Who maintains an activity's content: `generated` (apply keeps it in sync, the default) or `author` (created once, then never updated by apply). */
+export type ActivityOwner = "author" | "generated";
 export type ActivitySpec =
-  | { kind: "page"; key: string; name: string; doc: PMDoc; source?: SourceRef }
-  | { kind: "assignment"; key: string; name: string; title: string; description: string; ungraded: boolean; passThreshold?: number; tasks: TaskSpec[]; source?: SourceRef }
-  | { kind: "video"; key: string; name: string; file: { rel: string; abs: string; size: number }; source?: SourceRef }
-  | { kind: "pdf"; key: string; name: string; file: { rel: string; abs: string; size: number }; source?: SourceRef };
+  | { kind: "page"; key: string; name: string; doc: PMDoc; source?: SourceRef; owner?: ActivityOwner }
+  | { kind: "assignment"; key: string; name: string; title: string; description: string; ungraded: boolean; passThreshold?: number; tasks: TaskSpec[]; source?: SourceRef; owner?: ActivityOwner }
+  | { kind: "video"; key: string; name: string; file: { rel: string; abs: string; size: number }; source?: SourceRef; owner?: ActivityOwner }
+  | { kind: "pdf"; key: string; name: string; file: { rel: string; abs: string; size: number }; source?: SourceRef; owner?: ActivityOwner };
 
 export interface ChapterSpec { key: string; name: string; description: string; source?: SourceRef; activities: ActivitySpec[] }
 export interface CourseSpec {
-  key: string; kind: "general" | "department"; departmentSlug: string; cycle: string;
+  key: string; kind: "general" | "department" | "majlis-plan"; departmentSlug: string; cycle: string;
   name: string; description: string; about: string; learnings: string; tags: string;
   chapters: ChapterSpec[]; flags: string[];
 }

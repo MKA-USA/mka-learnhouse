@@ -64,7 +64,7 @@ const ISO = /^\d{4}-\d{2}-\d{2}$/;
 export function buildCyclePayload(file: CycleCoursesFile, startsOn: string, deadlineOn: string): CyclePayload {
   return {
     cycle: file.cycle, starts_on: startsOn, deadline: deadlineOn, deadline_on: deadlineOn,
-    courses: file.courses.map((c) => ({ kind: c.kind, department: c.kind === "general" ? null : forkDepartment(c.department), course_uuid: c.course_uuid,
+    courses: file.courses.map((c) => ({ kind: c.kind, department: c.kind === "department" ? forkDepartment(c.department) : null, course_uuid: c.course_uuid,
       signoff: c.signoff ? { assignment_uuid: c.signoff.assignment_uuid } : null, contact_check: c.contact_check ? { assignment_uuid: c.contact_check.assignment_uuid } : null })),
   };
 }
@@ -76,7 +76,7 @@ export function validateCyclePayload(p: CyclePayload): string[] {
   if (ISO.test(p.deadline) && ISO.test(p.starts_on) && p.starts_on > p.deadline) e.push("starts_on must not be after the deadline");
   if (p.courses.length > MAX_COURSE_ROWS) e.push(`at most ${MAX_COURSE_ROWS} courses per request`);
   p.courses.forEach((c, i) => {
-    if (c.kind !== "general" && c.kind !== "department") e.push(`course ${i}: kind must be general or department`);
+    if (c.kind !== "general" && c.kind !== "department" && c.kind !== "majlis-plan") e.push(`course ${i}: kind must be general, department or majlis-plan`);
     if (c.kind === "department" && !c.department) e.push(`course ${i}: department is required for a department course`);
     if (!c.course_uuid || c.course_uuid.length > 200) e.push(`course ${i}: course_uuid is required`);
   });

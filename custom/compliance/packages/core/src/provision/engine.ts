@@ -1,5 +1,6 @@
 import type { LhApi } from "../lh/api";
 import { LhHttpError } from "../lh/errors";
+import { SafetyError } from "../safety";
 import type { LhCourse } from "../lh/types";
 import type { ActivitySpec, ChapterSpec, CourseSpec, TaskSpec } from "../templates/types";
 import { sha, specHash } from "../templates/util";
@@ -7,6 +8,7 @@ import type { Action, CoursePlan, CourseStructure, MapRow, MapStore, PlanItem } 
 
 const actHash = (a: ActivitySpec) => sha(JSON.stringify(a, (k, v) => (k === "abs" ? undefined : v)), 16);
 const taskHash = (t: TaskSpec) => sha(JSON.stringify(t), 16);
+const chapterHash = (c: ChapterSpec) => sha(JSON.stringify([c.name, c.description]), 12);
 const metaOf = (s: CourseSpec) => sha(JSON.stringify([s.name, s.description, s.about, s.learnings, s.tags]), 16);
 const emptyStructure = (courseId: number, metaHash: string): CourseStructure => ({ courseId, metaHash, chapters: {}, activities: {} });
 
@@ -19,7 +21,7 @@ function countsOf(spec: CourseSpec) {
 }
 
 /** Pure plan: no network. `existingByName` (uuid) detects a same-named course that is not in course_map. */
-export function planCourse(spec: CourseSpec, row: MapRow | null, existingByName?: string | null): CoursePlan {
+export function planCourse(spec: CourseSpec, row: MapRow | null, existingByName?: string | null, opts: { published?: boolean | null } = {}): CoursePlan {
   const items: PlanItem[] = [];
   const base = { courseKey: spec.key, name: spec.name, counts: countsOf(spec), flags: spec.flags };
   if (!row) {
@@ -34,21 +36,35 @@ export function planCourse(spec: CourseSpec, row: MapRow | null, existingByName?
   if (metaAction === "update") changed = true;
   items.push({ level: "course", key: spec.key, action: metaAction });
   for (const ch of spec.chapters) {
-    const exists = !!st.chapters[ch.key];
-    if (!exists) changed = true;
-    items.push({ level: "chapter", key: ch.key, action: exists ? "unchanged" : "create" });
+    const chRec = st.chapters[ch.key];
+    if (!chRec) changed = true;
+    const chAction: Action = !chRec ? "create" : chRec.metaHash === chapterHash(ch) ? "unchanged" : "update";
+    if (chAction === "update") changed = true;
+    items.push({ level: "chapter", key: ch.key, action: chAction });
     for (const a of ch.activities) {
       const rec = st.activities[a.key]; const h = actHash(a);
-      const action: Action = !rec ? "create" : rec.hash === h ? "unchanged" : "update";
-      if (action !== "unchanged") changed = true;
-      const detail = a.kind === "video" || a.kind === "pdf" ? (action === "update" ? "media changed; not re-uploaded" : a.kind) : a.kind;
+      let action: Action; let detail: string = a.kind;
+      if (!rec) action = "create";
+      else if ((a.owner ?? "generated") === "author") {
+        if (rec.owner === "author") { action = "skip"; detail = "author-owned (skip)"; }
+        else { action = "update"; detail = "one-time: content seeded from the spec, then author-owned"; }
+      } else action = rec.hash === h ? "unchanged" : "update";
+      if (action === "update" || action === "create") changed = true;
+      if (action === "update" && (a.kind === "video" || a.kind === "pdf")) detail = "media changed; not re-uploaded";
       items.push({ level: "activity", key: a.key, action, detail });
     }
+  }
+  // Activities recorded in course_map that the spec no longer has (drafts only; apply refuses on a published course).
+  const specKeys = new Set(spec.chapters.flatMap((c) => c.activities.map((a) => a.key)));
+  for (const [key, rec] of Object.entries(st.activities)) {
+    if (specKeys.has(key)) continue;
+    changed = true;
+    items.push({ level: "activity", key, action: "remove", detail: opts.published === true ? `${rec.kind}; BLOCKED: course is published` : rec.kind });
   }
   return { ...base, action: changed ? "update" : "unchanged", items };
 }
 
-export interface ApplyEnv { api: LhApi; store: MapStore; orgId: number; log?: (s: string) => void }
+export interface ApplyEnv { api: LhApi; store: MapStore; orgId: number; log?: (s: string) => void; /** Remove activities that left the spec (default true; drafts only). */ prune?: boolean; /** Allow writes (not removals) to a course that is published or whose state is unknown. Default false: apply refuses. */ allowPublished?: boolean }
 
 async function saveRow(env: ApplyEnv, spec: CourseSpec, uuid: string, st: CourseStructure) {
   await env.store.save({ kind: spec.kind, departmentSlug: spec.departmentSlug, lhCourseUuid: uuid, lhCourseId: st.courseId, structure: st, contentHash: null });
@@ -62,9 +78,9 @@ function sourceOfChapter(ch: ChapterSpec): { system: string; chapterId: string }
 }
 
 /** Executes the plan. Every created uuid is persisted immediately (resumable). Never publishes. */
-export async function applyCourse(env: ApplyEnv, spec: CourseSpec, thinkificCourseId?: number): Promise<{ courseUuid: string; created: number; updated: number }> {
+export async function applyCourse(env: ApplyEnv, spec: CourseSpec, thinkificCourseId?: number): Promise<{ courseUuid: string; created: number; updated: number; removed: number }> {
   const { api, store } = env; const log = env.log ?? (() => {});
-  let created = 0, updated = 0;
+  let created = 0, updated = 0, removed = 0;
   let row = await store.get(spec.kind, spec.departmentSlug);
   let uuid: string; let st: CourseStructure;
 
@@ -79,6 +95,14 @@ export async function applyCourse(env: ApplyEnv, spec: CourseSpec, thinkificCour
     log(`created course ${spec.name}`);
   } else {
     uuid = row.lhCourseUuid; st = row.structure;
+    // Draft guard BEFORE any write: a published (or unknown-state) course is never modified, and activities are never removed from one.
+    const specKeys0 = new Set(spec.chapters.flatMap((c) => c.activities.map((a) => a.key)));
+    const gone0 = env.prune === false ? [] : Object.keys(st.activities).filter((k) => !specKeys0.has(k));
+    const meta = (await api.getCourseMeta(uuid)) as { published?: boolean };
+    if (meta.published !== false) {
+      if (gone0.length) throw new SafetyError(`refusing to remove activities from ${spec.name}: the course is published (or its state is unknown)`);
+      if (!env.allowPublished) throw new SafetyError(`refusing to write to ${spec.name}: the course is published (or its state is unknown)`);
+    }
     if (st.metaHash !== metaOf(spec)) {
       await api.updateCourse(uuid, { name: spec.name, description: spec.description, about: spec.about, learnings: spec.learnings, tags: spec.tags });
       st.metaHash = metaOf(spec); updated++; await saveRow(env, spec, uuid, st);
@@ -88,27 +112,53 @@ export async function applyCourse(env: ApplyEnv, spec: CourseSpec, thinkificCour
   for (const ch of spec.chapters) {
     if (!st.chapters[ch.key]) {
       const c = await api.createChapter({ name: ch.name, description: ch.description, org_id: env.orgId, course_id: st.courseId });
-      st.chapters[ch.key] = { id: c.id, uuid: c.chapter_uuid }; created++; await saveRow(env, spec, uuid, st);
+      st.chapters[ch.key] = { id: c.id, uuid: c.chapter_uuid, metaHash: chapterHash(ch) }; created++; await saveRow(env, spec, uuid, st);
       const src = sourceOfChapter(ch);
       if (src) await store.addIdmap({ sourceSystem: src.system, sourceKind: "chapter", sourceId: src.chapterId, lhKind: "chapter", lhUuid: c.chapter_uuid });
     }
     const chRec = st.chapters[ch.key]!;
+    if (chRec.metaHash !== chapterHash(ch)) {
+      await api.updateChapter(chRec.id, { name: ch.name, description: ch.description });
+      chRec.metaHash = chapterHash(ch); updated++; await saveRow(env, spec, uuid, st);
+      log(`  updated chapter ${ch.key}`);
+    }
     for (const a of ch.activities) {
-      const h = actHash(a); const rec = st.activities[a.key];
+      const h = actHash(a); const rec = st.activities[a.key]; const owner = a.owner ?? "generated";
       if (!rec) {
         const r = await createActivity(env, a, chRec.id, st.courseId, ch);
-        st.activities[a.key] = { ...r, hash: h, chapterKey: ch.key, kind: a.kind }; created++; await saveRow(env, spec, uuid, st);
+        st.activities[a.key] = { ...r, hash: h, chapterKey: ch.key, kind: a.kind, owner }; created++; await saveRow(env, spec, uuid, st);
         if (a.source?.lessonId) await store.addIdmap({ sourceSystem: "thinkific", sourceKind: "lesson", sourceId: a.source.lessonId, lhKind: "activity", lhUuid: r.uuid, sourcePath: a.source.path });
         log(`  created ${a.kind} ${a.key}`);
-      } else if (rec.hash !== h) {
-        await updateActivity(env, a, rec);
-        rec.hash = h; updated++; await saveRow(env, spec, uuid, st);
-        log(`  updated ${a.kind} ${a.key}`);
+      } else if (owner === "author" && rec.owner === "author") {
+        log(`  skipped ${a.kind} ${a.key} (author-owned)`);
+      } else if (owner === "author" || rec.hash !== h) {
+        // author-owned but not yet handed over (legacy record): seed once from the spec, then never touch it again.
+        // Stamp ownership BEFORE the PUT so a failed save afterwards can never re-seed and wipe the author's edits; undo the stamp if the PUT itself fails.
+        const before = { hash: rec.hash, owner: rec.owner };
+        if (owner === "author") { rec.hash = h; rec.owner = owner; await saveRow(env, spec, uuid, st); }
+        try { await updateActivity(env, a, rec); }
+        catch (e) { if (owner === "author") { rec.hash = before.hash; if (before.owner) rec.owner = before.owner; else delete rec.owner; await saveRow(env, spec, uuid, st); } throw e; }
+        rec.hash = h; rec.owner = owner; updated++; await saveRow(env, spec, uuid, st);
+        log(`  updated ${a.kind} ${a.key}${owner === "author" ? " (one-time seed; author-owned from now on)" : ""}`);
       }
     }
   }
-  return { courseUuid: uuid, created, updated };
+  if (env.prune !== false) {
+    const specKeys = new Set(spec.chapters.flatMap((c) => c.activities.map((a) => a.key)));
+    const gone = Object.entries(st.activities).filter(([k]) => !specKeys.has(k));
+    if (gone.length) {
+      for (const [key, rec] of gone) {
+        if (rec.assignmentUuid) await ignore404(() => api.deleteAssignment(rec.assignmentUuid!));
+        await ignore404(() => api.deleteActivity(rec.uuid));
+        delete st.activities[key]; removed++; await saveRow(env, spec, uuid, st);
+        log(`  removed ${rec.kind} ${key}`);
+      }
+    }
+  }
+  return { courseUuid: uuid, created, updated, removed };
 }
+
+async function ignore404(f: () => Promise<unknown>) { try { await f(); } catch (e) { if (!(e instanceof LhHttpError && e.status === 404)) throw e; } }
 
 const taskBody = (t: TaskSpec) => ({ title: t.title, description: t.description, hint: t.hint, assignment_type: t.type, contents: t.contents as Record<string, unknown> });
 

@@ -11,7 +11,7 @@ const USAGE = `provisioner <command>
   import <dept-plans|overrides|names> <csv> [--cycle]
   seed-thinkific [--dir <data>]                 seed stale 2025-26 plans from the Thinkific export
   plan [--pilot|--only a,b|--all]                dry run (default; writes nothing)
-  apply --confirm-staging --pilot|--only|--all    create/update DRAFT courses on staging only
+  apply --confirm-staging --pilot|--only|--all [--from-cycle 2025-26]   create/update DRAFT courses on staging only (author pages seeded once; removes activities that left the spec)
   reconcile --pilot|--only|--all [--apply --confirm-staging]   enroll EXISTING users only (dry run default)
   publish --course <name|uuid>|--all [--execute --confirm-staging]   publishes course+activities; DRY RUN by default
   export-courses [--cycle]                       writes out/cycle-courses.json

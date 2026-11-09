@@ -15,6 +15,7 @@ Record shape (all keys snake_case; mirrors the API JSON)::
       "level", "region", "majlis", "role_title", "appointed_on",
       "signed_in": bool (default True),
       "general": course | None, "dept_course": course | None,
+      "majlis_plan": course | None, "majlis_plan_required": bool (default False),
       "self_check": {"answered": bool, "mismatches": [str]} | None,
     }
     course = {"enrolled", "lessons_done", "lessons_total", "completed_at", "attested_at",
@@ -188,6 +189,21 @@ def _present(course: Optional[dict]) -> bool:
     return bool(course) and bool(course.get("enrolled"))
 
 
+MAJLIS_PLAN_KIND = "majlis-plan"
+_NAIB_QAID_RE = re.compile(r"naib qaid(?: (?:i{1,3}|[123]))?")
+
+
+def requires_majlis_plan(role_title: Optional[str], department: Optional[str] = "") -> bool:
+    """Qaideen and Naib Qaideen (local, incl. Naib Qaid I/II/III), Regional Qaideen and the Muqami chapter Qaid (``muqami@``,
+    a national-level row titled "Mohtamim Muqami") must also finish the Majlis Plan course (Constitution cl. 145-146).
+    National Sadr / Naib Sadr and every department officeholder do not."""
+    t = " ".join((role_title or "").lower().split())
+    if t in ("qaid", "regional qaid") or _NAIB_QAID_RE.fullmatch(t):
+        return True
+    # The roster pushes the Muqami chapter Qaid with an empty department; identity_rules maps muqami@ to department "muqami".
+    return t == "mohtamim muqami" and (department or "").strip().lower() in ("", "muqami")
+
+
 def _required_courses(record: dict) -> list[Optional[dict]]:
     """The courses this person must finish. Executives (no department) only have the general course;
     a department with no cycle course (``dept_required`` false) and a cycle with no general course
@@ -195,6 +211,8 @@ def _required_courses(record: dict) -> list[Optional[dict]]:
     req: list[Optional[dict]] = [record.get("general")] if record.get("general_required", True) else []
     if record.get("department_slug", "") != "" and record.get("dept_required", True):
         req.append(record.get("dept_course"))
+    if record.get("majlis_plan_required", False):  # Qaideen / Naib Qaideen: the Majlis Plan course (absent key: not required)
+        req.append(record.get("majlis_plan"))
     return req
 
 
@@ -224,7 +242,7 @@ def stage_of(record: dict, cfg: Optional[dict] = None) -> str:
             return "completed"
     any_activity = any(
         _present(c) and (c["lessons_done"] > 0 or bool(c.get("attested_at")))  # type: ignore[index]
-        for c in (record.get("general"), record.get("dept_course"))
+        for c in (record.get("general"), record.get("dept_course"), record.get("majlis_plan"))
     )
     return "in_progress" if any_activity else "not_started"
 
@@ -236,7 +254,7 @@ def score_learner(record: dict, cycle: dict, as_of: str, cfg: Optional[dict] = N
     due = due_date(record.get("appointed_on"), cycle, cfg)
     start = window_start(record.get("appointed_on"), cycle)
     overdue = stage != "attested" and diff_days(as_of, due) > 0
-    courses = [c for c in (record.get("general"), record.get("dept_course")) if _present(c)]
+    courses = [c for c in (record.get("general"), record.get("dept_course"), record.get("majlis_plan")) if _present(c)]
     scores = [s for c in courses for s in (c.get("quiz_scores") or [])]
     attested_courses = [c.get("attested_at") for c in courses]
     attested_at = max_day(*attested_courses) if stage == "attested" else None
