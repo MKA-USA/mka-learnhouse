@@ -44,7 +44,7 @@ Formats for yearly CSV data: `docs/data-formats.md`.
 
 ## Targets: dev (default) and prod (guarded)
 `--target dev|prod` on every LearnHouse command (plan, apply, reconcile, publish, export-courses, push-*, assign-authors, sync-identity, identity-status).
-Prod needs `--confirm-prod ilm.mkausa.org` and the prod token via `bun run lh:prod` (keychain `MKA_LH_PROD_API_TOKEN`); `course_map`, `idmap`, `enrollment_log` and `out/` are separate per target.
+Prod needs `--confirm-prod ilm.mkausa.org` to select it, an extra `--write` for any write, and the prod token via `bun run lh:prod` (keychain `MKA_LH_PROD_API_TOKEN`; tokens must come from `bun run lh` / `lh:prod`, which tag them with their target); `course_map`, `idmap`, `enrollment_log` and `out/` are separate per target.
 See `docs/runbooks/cycle-rollout.md`, "First prod push".
 
 ## Publishing (explicit, never automatic)

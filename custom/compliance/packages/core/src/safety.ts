@@ -9,11 +9,11 @@ export class SafetyError extends Error {
 export type TargetName = "dev" | "prod";
 /** LearnHouse targets. Hostnames come from config (here), never from a flag. Each target has its own keychain token item. */
 export const TARGETS = {
-  dev: { host: STAGING_HOST, tokenItem: "MKA_LH_DEV_API_TOKEN" },
-  prod: { host: "ilm.mkausa.org", tokenItem: "MKA_LH_PROD_API_TOKEN" },
-} as const satisfies Record<TargetName, { host: string; tokenItem: string }>;
+  dev: { host: STAGING_HOST, tokenItem: "MKA_LH_DEV_API_TOKEN", orgSlug: "default" },
+  prod: { host: "ilm.mkausa.org", tokenItem: "MKA_LH_PROD_API_TOKEN", orgSlug: "default" },
+} as const satisfies Record<TargetName, { host: string; tokenItem: string; orgSlug: string }>;
 
-export interface Target { name: TargetName; host: string; apiBase: string }
+export interface Target { name: TargetName; host: string; apiBase: string; orgSlug: string }
 
 /**
  * Resolve `--target` (default dev). Prod needs `--confirm-prod <exact prod hostname from config>` for ANY use (reads included),
@@ -33,21 +33,24 @@ export function resolveTarget(o: { target?: string; confirmProd?: string; env?: 
     try { u = new URL(fromEnv); } catch { throw new SafetyError("LH_API_BASE is not a valid URL"); }
     if (u.protocol !== "https:" || u.hostname !== host) throw new SafetyError(`refusing: LH_API_BASE host must be ${host} for --target ${name}`);
   }
-  return { name, host, apiBase: base };
+  return { name, host, apiBase: base, orgSlug: TARGETS[name].orgSlug };
 }
 
 /**
  * The token must come from the wrapper of the SAME target (it sets LH_TOKEN_TARGET): a dev token is never sent to prod and vice versa.
- * A token supplied directly (no wrapper) is accepted for dev only.
+ * A token without that tag (supplied directly in the environment) is refused for every target.
  */
 export function assertTokenTarget(t: Target, env: Record<string, string | undefined>): void {
   if (!env.LH_API_TOKEN) return;
   const from = env.LH_TOKEN_TARGET;
-  if (from ? from !== t.name : t.name !== "dev") throw new SafetyError(`refusing: the API token was loaded for ${from ?? "an unknown target"}, but --target is ${t.name}`);
+  if (from !== t.name) throw new SafetyError(`refusing: the API token was loaded for ${from ?? "an unknown target (no LH_TOKEN_TARGET: use bun run lh / lh:prod)"}, but --target is ${t.name}`);
 }
 
-/** Write gate: dev keeps `--confirm-staging`; prod's gate is the exact `--confirm-prod` already checked by resolveTarget. */
-export const writeConfirmed = (t: Target, hasConfirmStaging: boolean): boolean => t.name === "prod" || hasConfirmStaging;
+/**
+ * Write gate. Dev: `--confirm-staging`. Prod: `--confirm-prod` only SELECTS the target (resolveTarget); a write also needs an explicit `--write`,
+ * otherwise a prod run is a dry run / plan only.
+ */
+export const writeConfirmed = (t: Target, hasConfirmStaging: boolean, hasWrite = false): boolean => (t.name === "prod" ? hasWrite : hasConfirmStaging);
 
 /** Throws unless the base URL is exactly the staging host over https. */
 export function assertStaging(base: string | undefined): URL {

@@ -48,21 +48,24 @@ The provisioner targets **dev** (ilm-dev) by default. Prod is a separate, guarde
 
 **How the guard works**
 - `--target dev|prod`, default `dev`. Prod needs `--confirm-prod ilm.mkausa.org` (the exact hostname from config; a flag cannot choose another host) for **any** use, reads and dry runs included. `--confirm-staging` never authorises prod.
-- Run prod commands only through `bun run lh:prod ...` (token from `MKA_LH_PROD_API_TOKEN`). The CLI refuses a prod target with a dev token, and a dev target with the prod token.
+- `--confirm-prod` only **selects** prod. Every prod write also needs an explicit `--write`: `apply`, `push-cycle/push-roster/assign-authors/sync-identity --apply`, `reconcile --apply`, `publish --execute`. Without `--write` a prod run is a dry run: `apply` prints the plan and stops, the others are refused.
+- Run prod commands only through `bun run lh:prod ...` (token from `MKA_LH_PROD_API_TOKEN`). Both wrappers tag the token (`LH_TOKEN_TARGET`); the CLI refuses a dev token for prod, the prod token for dev, and any token without the tag (so never export `LH_API_TOKEN` by hand). The org slug for prod comes from the config (`TARGETS.prod.orgSlug`), not from `.env`.
 - `course_map`, `idmap` and `enrollment_log` are namespaced by `target`; `out/` artefacts for prod go to `out/prod/`. A prod run never reads or updates a dev mapping, and the reverse. A prod run therefore starts with an empty `course_map` and **creates** its courses.
-- On prod, writes use `--confirm-prod <host>` in place of `--confirm-staging`: `apply` (drafts only, same as dev), `push-cycle --apply`, `push-roster --apply`, `assign-authors --apply`, `reconcile --apply`, `publish --execute`. All the dev safety rules still apply: apply refuses to write to a published course, removals are drafts only, publish is a separate command.
+- `cycle-courses.json` records its `target` and `host`; `push-cycle` refuses a file from another target, and a file without a target for prod (regenerate it with `apply --write` or `export-courses` on prod).
+- All the dev safety rules still apply: `apply` is drafts only, refuses to write to a published course, removals are drafts only, and publish is a separate command.
 
 **Order (each write after its dry run; stop at the first surprise)**
 ```
 cd custom/compliance/apps/provisioner
 P="--target prod --confirm-prod ilm.mkausa.org"
-bun run lh:prod plan --all $P                      # dry run: expect 22 CREATE (General, 20 department, Majlis Plan)
-bun run lh:prod apply --all $P                     # creates DRAFT courses on prod, then the owner spot-checks them
-bun run lh:prod push-cycle $P                      # dry run, then add --apply
-bun run lh:prod push-roster --all $P               # dry run, then add --apply
-bun run lh:prod assign-authors --map mohtamims.csv $P   # dry run, then --apply (after Mohtamims first sign in)
-bun run lh:prod reconcile --all $P                 # dry run, then --apply
-bun run lh:prod publish --all $P                   # dry run; --execute only with the owner's explicit say-so
+bun run lh:prod plan --all $P                           # dry run: expect 22 CREATE (General, 20 department, Majlis Plan)
+bun run lh:prod apply --all $P                          # no --write: prints the plan and stops
+bun run lh:prod apply --all $P --write                  # creates DRAFT courses on prod; the owner spot-checks them
+bun run lh:prod push-cycle $P                           # dry run, then add --apply --write
+bun run lh:prod push-roster --all $P                    # dry run, then add --apply --write
+bun run lh:prod assign-authors --map mohtamims.csv $P   # dry run, then --apply --write (after Mohtamims first sign in)
+bun run lh:prod reconcile --all $P                      # dry run, then --apply --write
+bun run lh:prod publish --all $P                        # dry run; --execute --write only with the owner's explicit say-so
 ```
 Re-running any step is safe (idempotent upserts). Rollback is per step as in the table above, using the prod UI.
 

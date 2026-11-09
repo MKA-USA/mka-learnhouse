@@ -7,7 +7,7 @@ import { and, eq } from "drizzle-orm";
 import type { Args } from "./args";
 import { loadCycleDef } from "./cycles";
 import { ensureOut, outDir, writeOut } from "./commands-data";
-import { confirmHint, currentTarget, writeOk } from "./target";
+import { confirmHint, currentTarget, orgSlug, writeOk } from "./target";
 import { DEFAULT_CYCLE } from "./cycles";
 import { assertNotExcluded, configFrom } from "./config";
 import { PILOT, buildWorld } from "./world";
@@ -22,7 +22,7 @@ function selection(a: Args) {
 /** by-email lookups are limited to 60/min per token (routers/admin.py): reconcile paces at 1.5s. */
 function clientFromEnv(delayMs = 1200, maxRetries = 2) {
   process.env.LH_API_BASE = currentTarget().apiBase;
-  return LhClient.fromEnv({ ...process.env, LH_ORG_SLUG: process.env.LH_ORG_SLUG || "default" }, { delayMs, maxRetries });
+  return LhClient.fromEnv({ ...process.env, LH_ORG_SLUG: orgSlug() }, { delayMs, maxRetries });
 }
 
 export function formatPlan(p: CoursePlan): string {
@@ -73,7 +73,10 @@ export async function cmdPlan(a: Args) {
 }
 
 export async function cmdApply(a: Args) {
-  if (!writeOk(a)) throw new SafetyError(`apply requires ${confirmHint()}`);
+  if (!writeOk(a)) {
+    if (currentTarget().name === "prod") { console.log(`prod: apply writes only with ${confirmHint()}; showing the plan and stopping (nothing is written)`); await cmdPlan(a); return; }
+    throw new SafetyError(`apply requires ${confirmHint()}`);
+  }
   const sel = selection(a);
   if (!sel) throw new SafetyError("apply requires --pilot, --only <slugs> or --all (the first apply must be --pilot)");
   const client = clientFromEnv(); const api = new LhApi(client);
@@ -83,7 +86,7 @@ export async function cmdApply(a: Args) {
     const store = dbMapStore(db, w.cycleId, currentTarget().name);
     const courses = await api.listCourses(1, 1, true);
     const orgId = courses[0]?.org_id ?? 1;
-    console.log(`APPLY on staging, cycle ${cycle}, selection: ${sel.label}; all courses stay DRAFT`);
+    console.log(`APPLY on ${currentTarget().host}, cycle ${cycle}, selection: ${sel.label}; all courses stay DRAFT`);
     const results: { name: string; uuid: string; created: number; updated: number; removed: number; verify: string }[] = [];
     const prev = await prevStore(db, a); const refused: { name: string; reason: string }[] = [];
     for (const { spec: s0, thinkificCourseId } of w.specs) {
@@ -148,7 +151,7 @@ export async function cmdReconcile(a: Args) {
 async function exportCycleCourses(db: any, cycleId: number, cycle: string, config: ProvisionConfig) {
   const rows = await dbMapStoreRows(db, cycleId, config);
   const def = await loadCycleDef(db, cycle);
-  writeOut("cycle-courses.json", JSON.stringify(buildCycleCourses(cycle, def.startsOn, def.deadlineOn, rows), null, 1));
+  writeOut("cycle-courses.json", JSON.stringify(buildCycleCourses(cycle, def.startsOn, def.deadlineOn, rows, new Date(), currentTarget()), null, 1));
   return rows.length;
 }
 async function dbMapStoreRows(db: any, cycleId: number, config: ProvisionConfig) {
@@ -175,7 +178,7 @@ export async function cmdPublish(a: Args) {
     const nameOf = (r: any) => courseName(cycle, r.kind === "general" ? "General" : r.kind === "majlis-plan" ? "Majlis Plan" : DEPARTMENTS.find((d) => d.slug === r.departmentSlug)?.name ?? r.departmentSlug);
     const chosen = all ? rows : rows.filter((r: any) => r.lhCourseUuid === which || nameOf(r).toLowerCase() === String(which).toLowerCase());
     if (!chosen.length) throw new Error(`no provisioned course matches ${which}`);
-    console.log(`PUBLISH ${execute ? "EXECUTE" : "(dry run, nothing is changed)"} on staging: ${chosen.length} course(s)`);
+    console.log(`PUBLISH ${execute ? "EXECUTE" : "(dry run, nothing is changed)"} on ${currentTarget().host}: ${chosen.length} course(s)`);
     for (const r of chosen) {
       const items = publishPlan({ courseUuid: r.lhCourseUuid, name: nameOf(r), activities: Object.entries(r.structure.activities).map(([key, x]: [string, any]) => ({ key, uuid: x.uuid, assignmentUuid: x.assignmentUuid })) });
       const c = (l: string) => items.filter((i) => i.level === l).length;

@@ -1,27 +1,27 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  LhApi, LhClient, LhHttpError, MAX_EXPECTED_ROWS, SafetyError, assignAuthors, identityStatus, syncIdentity, buildCyclePayload, chunk, connect, courseMap, getCycleId,
+  LhApi, LhClient, LhHttpError, MAX_EXPECTED_ROWS, SafetyError, TARGETS, assertCycleFileTarget, assignAuthors, identityStatus, syncIdentity, buildCyclePayload, chunk, connect, courseMap, getCycleId,
   loadRoster, parseCsv, pushCycle, pushExpected, resolveDepartment, selectLearners, withoutExcluded, toExpectedRow, validateCyclePayload, validateExpected, type CycleCoursesFile, type RosterRow,
 } from "@mka/compliance-core";
 import { and, eq } from "drizzle-orm";
 import type { Args } from "./args";
 import { assertNotExcluded, configFrom } from "./config";
 import { outDir, writeOut } from "./commands-data";
-import { confirmHint, currentTarget, writeOk } from "./target";
+import { confirmHint, currentTarget, orgSlug, writeOk } from "./target";
 import { DEFAULT_CYCLE, loadCycleDef } from "./cycles";
 import { PILOT } from "./world";
 
 function client(delayMs = 1000) {
   process.env.LH_API_BASE = currentTarget().apiBase;
-  return LhClient.fromEnv({ ...process.env, LH_ORG_SLUG: process.env.LH_ORG_SLUG || "default" }, { delayMs, maxRetries: 2 });
+  return LhClient.fromEnv({ ...process.env, LH_ORG_SLUG: orgSlug() }, { delayMs, maxRetries: 2 });
 }
 function gate(a: Args, what: string) { if (a.has("apply") && !writeOk(a)) throw new SafetyError(`${what} --apply requires ${confirmHint()}`); }
 /** Clear, PII-free messages. Token rights per the fork API: reads need courses+assignments read (Read-only preset), imports/deletes all Full Access update rights (courses, activities, assignments, coursechapters, usergroups, certifications). */
 export function explainHttp(e: LhHttpError): string {
   const need = "Create the org API token with the **Full Access** preset (reads work with Read-only, writes (push-*, apply, assign-authors, reconcile --apply) need a token created with the Full Access preset; the UI cannot grant users/organizations rights); see docs/runbooks/cycle-rollout.md";
   if (e.status === 403) return `HTTP 403 forbidden: ${(e.detail ?? "").replace(/\S+@\S+/g, "<email>")}. ${need}.`;
-  if (e.status === 401) return "HTTP 401: the API token was rejected (expired or revoked). Re-issue it and update the keychain item MKA_LH_DEV_API_TOKEN.";
+  if (e.status === 401) return `HTTP 401: the API token was rejected (expired or revoked). Re-issue it and update the keychain item ${TARGETS[currentTarget().name].tokenItem}.`;
   if (e.status === 409) return "HTTP 409: conflicting concurrent import; nothing was lost, re-run the same command.";
   if (e.status === 404) return `HTTP 404${e.detail ? ` (${e.detail.slice(0, 80)})` : ""}: cycle not found (run push-cycle first) or the fork compliance API is not deployed on this host.`;
   return `HTTP ${e.status}`;
@@ -36,7 +36,7 @@ export async function cmdPushCycle(a: Args) {
     const def = await loadCycleDef(db, cycle, a);
     const file = a.str("file", join(outDir(), "cycle-courses.json"))!;
     if (!existsSync(file)) throw new Error(`${file} not found; run export-courses (or apply) first`);
-    const cfg = JSON.parse(readFileSync(file, "utf8")) as CycleCoursesFile; const excl = configFrom(a).excludedDepartments;
+    const cfg = JSON.parse(readFileSync(file, "utf8")) as CycleCoursesFile; assertCycleFileTarget(cfg, currentTarget()); const excl = configFrom(a).excludedDepartments;
     const payload = buildCyclePayload({ ...cfg, courses: cfg.courses.filter((c) => !excl.includes(c.department_slug)) }, def.startsOn, def.deadlineOn);
     const errs = validateCyclePayload(payload);
     console.log(`PUSH-CYCLE ${apply ? "APPLY" : "(dry run, nothing is sent)"} ${payload.cycle}: starts ${payload.starts_on}, deadline ${payload.deadline}, ${payload.courses.length} courses`);
