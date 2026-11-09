@@ -1,21 +1,22 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  LhApi, LhClient, LhHttpError, MAX_EXPECTED_ROWS, SafetyError, STAGING_API_BASE, assertStaging, assignAuthors, identityStatus, syncIdentity, buildCyclePayload, chunk, connect, courseMap, getCycleId,
+  LhApi, LhClient, LhHttpError, MAX_EXPECTED_ROWS, SafetyError, assignAuthors, identityStatus, syncIdentity, buildCyclePayload, chunk, connect, courseMap, getCycleId,
   loadRoster, parseCsv, pushCycle, pushExpected, resolveDepartment, selectLearners, withoutExcluded, toExpectedRow, validateCyclePayload, validateExpected, type CycleCoursesFile, type RosterRow,
 } from "@mka/compliance-core";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { Args } from "./args";
 import { assertNotExcluded, configFrom } from "./config";
-import { OUT_DIR, writeOut } from "./commands-data";
+import { outDir, writeOut } from "./commands-data";
+import { confirmHint, currentTarget, writeOk } from "./target";
 import { DEFAULT_CYCLE, loadCycleDef } from "./cycles";
 import { PILOT } from "./world";
 
 function client(delayMs = 1000) {
-  process.env.LH_API_BASE ||= STAGING_API_BASE; assertStaging(process.env.LH_API_BASE);
+  process.env.LH_API_BASE = currentTarget().apiBase;
   return LhClient.fromEnv({ ...process.env, LH_ORG_SLUG: process.env.LH_ORG_SLUG || "default" }, { delayMs, maxRetries: 2 });
 }
-function gate(a: Args, what: string) { if (a.has("apply") && !a.has("confirm-staging")) throw new SafetyError(`${what} --apply requires --confirm-staging`); }
+function gate(a: Args, what: string) { if (a.has("apply") && !writeOk(a)) throw new SafetyError(`${what} --apply requires ${confirmHint()}`); }
 /** Clear, PII-free messages. Token rights per the fork API: reads need courses+assignments read (Read-only preset), imports/deletes all Full Access update rights (courses, activities, assignments, coursechapters, usergroups, certifications). */
 export function explainHttp(e: LhHttpError): string {
   const need = "Create the org API token with the **Full Access** preset (reads work with Read-only, writes (push-*, apply, assign-authors, reconcile --apply) need a token created with the Full Access preset; the UI cannot grant users/organizations rights); see docs/runbooks/cycle-rollout.md";
@@ -33,7 +34,7 @@ export async function cmdPushCycle(a: Args) {
   const cycle = a.str("cycle", DEFAULT_CYCLE)!; const { db, sql } = connect();
   try {
     const def = await loadCycleDef(db, cycle, a);
-    const file = a.str("file", join(OUT_DIR, "cycle-courses.json"))!;
+    const file = a.str("file", join(outDir(), "cycle-courses.json"))!;
     if (!existsSync(file)) throw new Error(`${file} not found; run export-courses (or apply) first`);
     const cfg = JSON.parse(readFileSync(file, "utf8")) as CycleCoursesFile; const excl = configFrom(a).excludedDepartments;
     const payload = buildCyclePayload({ ...cfg, courses: cfg.courses.filter((c) => !excl.includes(c.department_slug)) }, def.startsOn, def.deadlineOn);
@@ -88,7 +89,7 @@ export async function cmdAssignAuthors(a: Args) {
   const cycle = a.str("cycle", DEFAULT_CYCLE)!; const config = configFrom(a); const { db, sql } = connect();
   try {
     const cid = await getCycleId(db, cycle); if (cid === null) throw new Error(`cycle ${cycle} not found`);
-    const maps = withoutExcluded(await db.select().from(courseMap).where(eq(courseMap.cycleId, cid)), config.excludedDepartments);
+    const maps = withoutExcluded(await db.select().from(courseMap).where(and(eq(courseMap.target, currentTarget().name), eq(courseMap.cycleId, cid))), config.excludedDepartments);
     const course = new Map(maps.filter((m) => m.kind === "department").map((m) => [m.departmentSlug, m.lhCourseUuid]));
     const todo: { department: string; email: string; courseUuid: string }[] = []; const skipped: string[] = [];
     for (const r of rows) {

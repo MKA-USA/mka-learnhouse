@@ -1,21 +1,23 @@
 import { and, eq } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { courseMap, idmap } from "../schema";
+import type { TargetName } from "../safety";
 import type { IdmapEntry, MapRow, MapStore } from "./types";
 
-export function dbMapStore(db: PostgresJsDatabase<any>, cycleId: number): MapStore {
+/** Every query is scoped to `target`: a prod run never sees or updates a dev mapping, and vice versa. */
+export function dbMapStore(db: PostgresJsDatabase<any>, cycleId: number, target: TargetName = "dev"): MapStore {
   return {
     async get(kind, departmentSlug) {
-      const [r] = await db.select().from(courseMap).where(and(eq(courseMap.cycleId, cycleId), eq(courseMap.kind, kind), eq(courseMap.departmentSlug, departmentSlug)));
+      const [r] = await db.select().from(courseMap).where(and(eq(courseMap.target, target), eq(courseMap.cycleId, cycleId), eq(courseMap.kind, kind), eq(courseMap.departmentSlug, departmentSlug)));
       return r ? ({ cycleId, kind, departmentSlug, lhCourseUuid: r.lhCourseUuid, lhCourseId: r.lhCourseId, structure: r.structure as any, contentHash: r.contentHash } as MapRow) : null;
     },
     async save(row) {
-      await db.insert(courseMap).values({ cycleId, kind: row.kind, departmentSlug: row.departmentSlug, lhCourseUuid: row.lhCourseUuid, lhCourseId: row.lhCourseId, structure: row.structure as any, contentHash: row.contentHash })
-        .onConflictDoUpdate({ target: [courseMap.cycleId, courseMap.kind, courseMap.departmentSlug], set: { lhCourseUuid: row.lhCourseUuid, lhCourseId: row.lhCourseId, structure: row.structure as any, contentHash: row.contentHash, updatedAt: new Date() } });
+      await db.insert(courseMap).values({ target, cycleId, kind: row.kind, departmentSlug: row.departmentSlug, lhCourseUuid: row.lhCourseUuid, lhCourseId: row.lhCourseId, structure: row.structure as any, contentHash: row.contentHash })
+        .onConflictDoUpdate({ target: [courseMap.target, courseMap.cycleId, courseMap.kind, courseMap.departmentSlug], set: { lhCourseUuid: row.lhCourseUuid, lhCourseId: row.lhCourseId, structure: row.structure as any, contentHash: row.contentHash, updatedAt: new Date() } });
     },
     async addIdmap(e: IdmapEntry) {
-      await db.insert(idmap).values({ sourceSystem: e.sourceSystem, sourceKind: e.sourceKind, sourceId: e.sourceId, lhKind: e.lhKind, lhUuid: e.lhUuid, sourcePath: e.sourcePath ?? null })
-        .onConflictDoUpdate({ target: [idmap.sourceSystem, idmap.sourceKind, idmap.sourceId], set: { lhUuid: e.lhUuid, lhKind: e.lhKind, sourcePath: e.sourcePath ?? null } });
+      await db.insert(idmap).values({ target, sourceSystem: e.sourceSystem, sourceKind: e.sourceKind, sourceId: e.sourceId, lhKind: e.lhKind, lhUuid: e.lhUuid, sourcePath: e.sourcePath ?? null })
+        .onConflictDoUpdate({ target: [idmap.target, idmap.sourceSystem, idmap.sourceKind, idmap.sourceId], set: { lhUuid: e.lhUuid, lhKind: e.lhKind, sourcePath: e.sourcePath ?? null } });
     },
   };
 }

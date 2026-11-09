@@ -1,12 +1,13 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  ConflictError, LhApi, LhClient, SafetyError, STAGING_API_BASE, applyCourse, assertStaging, connect, courseMap, dbMapStore, getCycleId, idmap, loadRoster, planCourse, reconcileEnrollments, selectLearners, upsertEnrollmentLog, buildCycleCourses, executePublish, publishPlan, DEPARTMENTS, courseName, verifyCourse, withoutExcluded, carryForward, readPageDoc, coursesFor, type MapStore, type PMDoc, type CourseSpec, type SeedSource, type ProvisionConfig, type CoursePlan,
+  ConflictError, LhApi, LhClient, SafetyError, applyCourse, connect, courseMap, dbMapStore, getCycleId, idmap, loadRoster, planCourse, reconcileEnrollments, selectLearners, upsertEnrollmentLog, buildCycleCourses, executePublish, publishPlan, DEPARTMENTS, courseName, verifyCourse, withoutExcluded, carryForward, readPageDoc, coursesFor, type MapStore, type PMDoc, type CourseSpec, type SeedSource, type ProvisionConfig, type CoursePlan,
 } from "@mka/compliance-core";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { Args } from "./args";
 import { loadCycleDef } from "./cycles";
-import { OUT_DIR, ensureOut, writeOut } from "./commands-data";
+import { ensureOut, outDir, writeOut } from "./commands-data";
+import { confirmHint, currentTarget, writeOk } from "./target";
 import { DEFAULT_CYCLE } from "./cycles";
 import { assertNotExcluded, configFrom } from "./config";
 import { PILOT, buildWorld } from "./world";
@@ -20,8 +21,7 @@ function selection(a: Args) {
 
 /** by-email lookups are limited to 60/min per token (routers/admin.py): reconcile paces at 1.5s. */
 function clientFromEnv(delayMs = 1200, maxRetries = 2) {
-  process.env.LH_API_BASE ||= STAGING_API_BASE;
-  assertStaging(process.env.LH_API_BASE);
+  process.env.LH_API_BASE = currentTarget().apiBase;
   return LhClient.fromEnv({ ...process.env, LH_ORG_SLUG: process.env.LH_ORG_SLUG || "default" }, { delayMs, maxRetries });
 }
 
@@ -44,7 +44,7 @@ async function seedSpec(spec: CourseSpec, row: Awaited<ReturnType<MapStore["get"
 async function prevStore(db: ReturnType<typeof connect>["db"], a: Args): Promise<MapStore | null> {
   const label = a.str("from-cycle", undefined); if (!label) return null;
   const id = await getCycleId(db, label); if (id === null) throw new Error(`--from-cycle ${label} not found`);
-  return dbMapStore(db, id);
+  return dbMapStore(db, id, currentTarget().name);
 }
 
 export async function cmdPlan(a: Args) {
@@ -52,7 +52,7 @@ export async function cmdPlan(a: Args) {
   const cycle = a.str("cycle", DEFAULT_CYCLE)!; const config = configFrom(a); const { db, sql } = connect();
   try {
     const w = await buildWorld(db, { cycle, only: sel.only, includeGeneral: sel.includeGeneral, includeMajlisPlan: (sel as { includeMajlisPlan?: boolean }).includeMajlisPlan, config });
-    const store = dbMapStore(db, w.cycleId);
+    const store = dbMapStore(db, w.cycleId, currentTarget().name);
     let existing: { name: string; course_uuid: string }[] | null = null;
     if (process.env.LH_API_TOKEN) { try { existing = await new LhApi(clientFromEnv()).listCourses(1, 100, true); } catch { console.log("(could not list LearnHouse courses; conflict check skipped)"); } }
     else console.log("(no LH_API_TOKEN: conflict check against LearnHouse skipped; run via `bun run lh plan`)");
@@ -73,14 +73,14 @@ export async function cmdPlan(a: Args) {
 }
 
 export async function cmdApply(a: Args) {
-  if (!a.has("confirm-staging")) throw new SafetyError("apply requires --confirm-staging");
+  if (!writeOk(a)) throw new SafetyError(`apply requires ${confirmHint()}`);
   const sel = selection(a);
   if (!sel) throw new SafetyError("apply requires --pilot, --only <slugs> or --all (the first apply must be --pilot)");
   const client = clientFromEnv(); const api = new LhApi(client);
   const cycle = a.str("cycle", DEFAULT_CYCLE)!; const config = configFrom(a); const { db, sql } = connect();
   try {
     const w = await buildWorld(db, { cycle, only: sel.only, includeGeneral: sel.includeGeneral, includeMajlisPlan: (sel as { includeMajlisPlan?: boolean }).includeMajlisPlan, config });
-    const store = dbMapStore(db, w.cycleId);
+    const store = dbMapStore(db, w.cycleId, currentTarget().name);
     const courses = await api.listCourses(1, 1, true);
     const orgId = courses[0]?.org_id ?? 1;
     console.log(`APPLY on staging, cycle ${cycle}, selection: ${sel.label}; all courses stay DRAFT`);
@@ -99,10 +99,10 @@ export async function cmdApply(a: Args) {
       }
     }
     await exportCycleCourses(db, w.cycleId, cycle, config);
-    const rows = await db.select().from(idmap);
+    const rows = await db.select().from(idmap).where(eq(idmap.target, currentTarget().name));
     ensureOut();
-    writeFileSync(join(OUT_DIR, "idmap.json"), JSON.stringify(rows.map(({ id, createdAt, ...r }) => r), null, 1)) ;
-    const base = (process.env.LH_API_BASE ?? STAGING_API_BASE).replace(/\/api\/v1$/, "");
+    writeFileSync(join(outDir(), "idmap.json"), JSON.stringify(rows.map(({ id, createdAt, ...r }) => r), null, 1)) ;
+    const base = currentTarget().apiBase.replace(/\/api\/v1$/, "");
     for (const r of results) console.log(`${r.name}: ${r.uuid} created=${r.created} updated=${r.updated} removed=${r.removed} readback ${r.verify}\n   ${base}/course/${r.uuid.replace(/^course_/, "")}`);
     writeOut("apply-report.md", ["# Apply report", "", ...results.map((r) => `- ${r.name}: \`${r.uuid}\` (created ${r.created}, updated ${r.updated}, removed ${r.removed}); readback ${r.verify}`), ...(refused.length ? ["", "## Refused (nothing written for these)", ...refused.map((r) => `- ${r.name}: ${r.reason}`)] : []), ""].join("\n"));
     if (refused.length) console.error(`${refused.length} course(s) refused (published or state unknown); see out/apply-report.md`);
@@ -111,14 +111,14 @@ export async function cmdApply(a: Args) {
 
 export async function cmdReconcile(a: Args) {
   const apply = a.has("apply");
-  if (apply && !a.has("confirm-staging")) throw new SafetyError("reconcile --apply requires --confirm-staging");
+  if (apply && !writeOk(a)) throw new SafetyError(`reconcile --apply requires ${confirmHint()}`);
   const sel = selection(a);
   if (!sel) throw new SafetyError("reconcile requires --pilot, --only <slugs> or --all");
   const client = clientFromEnv(1500, 4); const api = new LhApi(client);
   const cycle = a.str("cycle", DEFAULT_CYCLE)!; const config = configFrom(a); assertNotExcluded(sel.only, config); const { db, sql } = connect();
   try {
     const cid = await getCycleId(db, cycle); if (cid === null) throw new Error(`cycle ${cycle} not found`);
-    const maps = withoutExcluded(await db.select().from(courseMap).where(eq(courseMap.cycleId, cid)), config.excludedDepartments);
+    const maps = withoutExcluded(await db.select().from(courseMap).where(and(eq(courseMap.target, currentTarget().name), eq(courseMap.cycleId, cid))), config.excludedDepartments);
     const general = maps.find((m) => m.kind === "general")?.lhCourseUuid;
     const majlisPlan = maps.find((m) => m.kind === "majlis-plan")?.lhCourseUuid;
     const deptCourse = new Map(maps.filter((m) => m.kind === "department").map((m) => [m.departmentSlug, m.lhCourseUuid]));
@@ -135,7 +135,7 @@ export async function cmdReconcile(a: Args) {
     const targets = [...byEmail.entries()].filter(([, s]) => s.size).map(([email, s]) => ({ email, courseUuids: [...s] }));
     console.log(`RECONCILE ${apply ? "APPLY" : "(dry run, nothing is written)"} cycle ${cycle}, selection: ${sel.label}: ${targets.length} learners${missingCourses.size ? `; courses not provisioned yet: ${[...missingCourses].join(", ")}` : ""}`);
     const r = await reconcileEnrollments(api, targets, { apply, log: (s) => console.log(s) });
-    if (apply) await upsertEnrollmentLog(db, cid, r.enrollmentRows);
+    if (apply) await upsertEnrollmentLog(db, cid, currentTarget().name, r.enrollmentRows);
     const lines = [`# Reconcile report (${apply ? "applied" : "dry run"}) cycle ${cycle}`, "", `Learners considered: ${r.learners}. Not yet signed up: ${r.notSignedUp.length}. Lookup failures: ${r.lookupFailed}.`, "",
       "| Course | Wanted (have account) | Already enrolled | To enroll | Enrolled now | Skipped (not org member) |", "|---|---|---|---|---|---|",
       ...r.perCourse.map((c) => `| ${c.courseUuid} | ${c.wanted} | ${c.alreadyEnrolled} | ${c.toEnroll} | ${c.enrolled} | ${c.skippedNotInOrg} |`), ""];
@@ -152,7 +152,7 @@ async function exportCycleCourses(db: any, cycleId: number, cycle: string, confi
   return rows.length;
 }
 async function dbMapStoreRows(db: any, cycleId: number, config: ProvisionConfig) {
-  const rows = withoutExcluded(await db.select().from(courseMap).where(eq(courseMap.cycleId, cycleId)), config.excludedDepartments);
+  const rows = withoutExcluded(await db.select().from(courseMap).where(and(eq(courseMap.target, currentTarget().name), eq(courseMap.cycleId, cycleId))), config.excludedDepartments);
   return rows.map((r: any) => ({ cycleId, kind: r.kind, departmentSlug: r.departmentSlug, lhCourseUuid: r.lhCourseUuid, lhCourseId: r.lhCourseId, structure: r.structure, contentHash: r.contentHash }));
 }
 
@@ -164,7 +164,7 @@ export async function cmdExportCourses(a: Args) {
 /** Publishes course + activities + assignments. Dry run unless --execute. NEVER invoked by apply/plan/reconcile. */
 export async function cmdPublish(a: Args) {
   const execute = a.has("execute");
-  if (execute && !a.has("confirm-staging")) throw new SafetyError("publish --execute requires --confirm-staging");
+  if (execute && !writeOk(a)) throw new SafetyError(`publish --execute requires ${confirmHint()}`);
   const which = a.str("course"); const all = a.has("all");
   if (!which && !all) throw new SafetyError("publish requires --course <name|uuid> or --all");
   const client = clientFromEnv(); const api = new LhApi(client);

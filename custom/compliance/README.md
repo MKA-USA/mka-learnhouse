@@ -42,6 +42,11 @@ bun run lh reconcile --pilot --apply --confirm-staging
 through `course_map` (change detection per activity). Outputs: `out/idmap.json`, `out/apply-report.md`, `out/reconcile-report.md`, `out/data-gap-report.md`.
 Formats for yearly CSV data: `docs/data-formats.md`.
 
+## Targets: dev (default) and prod (guarded)
+`--target dev|prod` on every LearnHouse command (plan, apply, reconcile, publish, export-courses, push-*, assign-authors, sync-identity, identity-status).
+Prod needs `--confirm-prod ilm.mkausa.org` and the prod token via `bun run lh:prod` (keychain `MKA_LH_PROD_API_TOKEN`); `course_map`, `idmap`, `enrollment_log` and `out/` are separate per target.
+See `docs/runbooks/cycle-rollout.md`, "First prod push".
+
 ## Publishing (explicit, never automatic)
 `plan`, `apply` and `reconcile` never publish: courses, activities and assignments stay drafts, and the API wrappers reject `published: true`.
 A human publishes with the separate command (staging only, **dry run by default**, prints exactly what it will flip):
