@@ -14,11 +14,13 @@ while IFS= read -r f; do
     .tinyb) reason="Tinybird credentials file" ;;
     DEVLOG.md|DEVLOG.raw.md) reason="local dev log (may contain pasted secrets)" ;;
     *.jsonl) reason="session transcript" ;;
+    *.pyc) reason="Python bytecode cache" ;;
   esac
   if [ -z "$reason" ]; then
     case "/$f" in
       # .claude/skills/ and .qwen/skills/ are tracked on purpose; everything else in these dirs is local state.
       */.claude/skills/*|*/.qwen/skills/*) ;;
+      */__pycache__/*) reason="Python bytecode cache" ;;
       */.hermes/*|*/.kiro/*|*/.serena/*|*/.considered/*|*/.agents/*|*/.qwen/*|*/.claude/*) reason="local agent state / session data" ;;
     esac
   fi

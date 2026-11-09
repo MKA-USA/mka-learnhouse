@@ -35,7 +35,6 @@ keywords = ["postgres", "redis"]
     '''(?i)postgres(?:ql)?(?:\+\w+)?://learnhouse:learnhouse@''',
     '''://[^:\s/]+:(u|p|pw|pass|passwd|password|changeme|change-me|secret|example|your[-_a-z]*|xxx+|\*+|<[^>]*>|\$\{[^}]*\}|\$[A-Za-z_]+)@''',
     '''\}:\$\{[^}]*\}@''',
-    '''://[^:\s/]+:[^@\s]+@(localhost|127\.0\.0\.1|db|redis|postgres|learnhouse-db|learnhouse-redis)(?::\d+)?(?:[/'"\s?]|$)''',
   ]
 
 [allowlist]
@@ -45,7 +44,7 @@ paths = [
   '''apps/cli/tests/unit\.test\.ts$''',
   '''docs/content/.*''',
   '''docs/screens/audience/explore/real/real-results\.json$''',
-  '''\.codebase-memory/.*''',
+  '''\.codebase-memory/graph\.db\.zst$''',  # binary graph only; .md/.json siblings are scanned
   # Untracked local tool state (also blocked from commits by scripts/check-forbidden-paths.sh)
   '''(^|/)\.tinyb$''',
   '''^\.(agents|hermes|kiro|serena|considered)/''',
