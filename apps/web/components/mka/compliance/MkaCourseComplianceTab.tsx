@@ -17,7 +17,7 @@ import { SummaryCards } from './SummaryCards'
 import { ErrorState, NoCycleState, NoExpectedState, PageLoading } from './states'
 import { deptLabel, isStatus, nz, remindBlockedReason, sameCourse } from './format'
 
-const KINDS = { general: 'General course', department: 'Department course' } as const
+const KINDS = { general: 'General course', department: 'Department course', 'majlis-plan': 'Majlis Plan course' } as const
 
 /**
  * Body of the course "Compliance" tab (hook H3). Shows ONLY this course: the

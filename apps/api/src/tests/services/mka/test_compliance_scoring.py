@@ -161,7 +161,7 @@ def test_attention_is_neutral_before_cycle_starts():
 
 @pytest.mark.parametrize("title,dept,expected", [
     ("Qaid", "", True), ("Naib Qaid", "", True), ("Naib Qaid I", "", True), ("Naib Qaid II", "", True), ("Naib Qaid III", "", True),
-    ("Naib Qaid 2", "", True), ("Regional Qaid", "", True), ("  regional   QAID ", "", True), ("Mohtamim Muqami", "", True),
+    ("Naib Qaid 2", "", True), ("Regional Qaid", "", True), ("  regional   QAID ", "", True), ("Mohtamim Muqami", "", True), ("Mohtamim Muqami", "muqami", True), ("Mohtamim Muqami", "MUQAMI", True),
     ("Mohtamim Muqami", "tabligh", False), ("Sadr", "", False), ("Naib Sadr", "", False), ("Nazim Tabligh", "tabligh", False),
     ("Mohtamim Tabligh", "tabligh", False), ("Qaid Tabligh", "tabligh", False), ("National staff (it)", "", False), ("", "", False), (None, "", False),
 ])
@@ -186,7 +186,8 @@ def test_qaid_is_attested_only_when_both_general_and_majlis_plan_are_signed():
     assert cs.stage_of(_qaid(True, True), cfg) == "attested"
     # not required of this person (or no such course in the cycle): general alone is enough, exactly as before
     assert cs.stage_of(_qaid(True, False, required=False), cfg) == "attested"
-    legacy = _qaid(True, False); del legacy["majlis_plan"], legacy["majlis_plan_required"]
+    legacy = _qaid(True, False)
+    del legacy["majlis_plan"], legacy["majlis_plan_required"]
     assert cs.stage_of(legacy, cfg) == "attested"
 
 

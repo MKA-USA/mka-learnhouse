@@ -200,7 +200,8 @@ def requires_majlis_plan(role_title: Optional[str], department: Optional[str] = 
     t = " ".join((role_title or "").lower().split())
     if t in ("qaid", "regional qaid") or _NAIB_QAID_RE.fullmatch(t):
         return True
-    return t == "mohtamim muqami" and not department
+    # The roster pushes the Muqami chapter Qaid with an empty department; identity_rules maps muqami@ to department "muqami".
+    return t == "mohtamim muqami" and (department or "").strip().lower() in ("", "muqami")
 
 
 def _required_courses(record: dict) -> list[Optional[dict]]:
