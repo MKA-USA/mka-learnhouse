@@ -155,3 +155,42 @@ def test_attention_is_neutral_before_cycle_starts():
     # on the start day the normal scoring applies again
     rows = [cs.score_learner(r, CYCLE, CYCLE["starts_on"]) for r in records(groups)]
     assert cs.attention(cs.aggregate("x", rows, CYCLE), CYCLE, CYCLE["starts_on"])["rag"] != "not_started"
+
+
+# ---- Majlis Plan (third course kind): Qaideen and Naib Qaideen need general + majlis-plan --------------------------
+
+@pytest.mark.parametrize("title,dept,expected", [
+    ("Qaid", "", True), ("Naib Qaid", "", True), ("Naib Qaid I", "", True), ("Naib Qaid II", "", True), ("Naib Qaid III", "", True),
+    ("Naib Qaid 2", "", True), ("Regional Qaid", "", True), ("  regional   QAID ", "", True), ("Mohtamim Muqami", "", True),
+    ("Mohtamim Muqami", "tabligh", False), ("Sadr", "", False), ("Naib Sadr", "", False), ("Nazim Tabligh", "tabligh", False),
+    ("Mohtamim Tabligh", "tabligh", False), ("Qaid Tabligh", "tabligh", False), ("National staff (it)", "", False), ("", "", False), (None, "", False),
+])
+def test_requires_majlis_plan(title, dept, expected):
+    assert cs.requires_majlis_plan(title, dept) is expected
+
+
+def _course(attested):
+    return {"enrolled": True, "lessons_done": 3, "lessons_total": 3, "completed_at": "2026-11-10",
+            "attested_at": "2026-11-12" if attested else None, "quiz_scores": [], "last_activity_at": "2026-11-12"}
+
+
+def _qaid(general, plan, required=True):
+    return {"signed_in": True, "department_slug": "", "general": _course(general), "dept_course": None,
+            "majlis_plan": _course(plan), "majlis_plan_required": required, "general_required": True, "dept_required": False}
+
+
+def test_qaid_is_attested_only_when_both_general_and_majlis_plan_are_signed():
+    cfg = cs.with_config({"attested_requires": "both"})
+    assert cs.stage_of(_qaid(True, False), cfg) == "completed"
+    assert cs.stage_of(_qaid(False, True), cfg) == "completed"
+    assert cs.stage_of(_qaid(True, True), cfg) == "attested"
+    # not required of this person (or no such course in the cycle): general alone is enough, exactly as before
+    assert cs.stage_of(_qaid(True, False, required=False), cfg) == "attested"
+    legacy = _qaid(True, False); del legacy["majlis_plan"], legacy["majlis_plan_required"]
+    assert cs.stage_of(legacy, cfg) == "attested"
+
+
+def test_majlis_plan_counts_in_lessons_and_last_activity():
+    rec = {"id": "q", "email": "q@example.invalid", "role_title": "Qaid", "level": "local", "region": "", "majlis": "m", "appointed_on": None, **_qaid(True, False)}
+    scored = cs.score_learner(rec, CYCLE, "2026-11-20")
+    assert scored["lessons_total"] == 6 and scored["stage"] == "completed"

@@ -525,6 +525,7 @@ def person_records(ds: Dataset, as_of: str, cfg: Optional[dict] = None) -> list[
     """One scored record per roster row across ALL cycle courses (general + the row's department course)."""
     general = next((cc for cc in ds.links if cc.kind == "general"), None)
     dept_links = {cc.department: cc for cc in ds.links if cc.kind == "department" and cc.department}
+    majlis_plan = next((cc for cc in ds.links if cc.kind == cs.MAJLIS_PLAN_KIND), None)
     out = []
     for row in ds.roster:
         uid = ds.user_map.get(row.email)
@@ -544,6 +545,8 @@ def person_records(ds: Dataset, as_of: str, cfg: Optional[dict] = None) -> list[
             "general": ds.course_progress(uid, general), "dept_course": ds.course_progress(uid, dept_link),
             "dept_required": dept_link is not None, "general_required": general is not None,
             "self_check": merged,
+            "majlis_plan": ds.course_progress(uid, majlis_plan),
+            "majlis_plan_required": majlis_plan is not None and cs.requires_majlis_plan(row.role_title, row.department),
         }
         out.append(cs.score_learner(record, ds.cycle_dict, as_of, cfg))
     return out
@@ -555,6 +558,8 @@ def course_records(ds: Dataset, link: MkaComplianceCycleCourse, as_of: str, cfg:
     out = []
     for row in ds.roster:
         if link.kind == "department" and row.department != link.department:
+            continue
+        if link.kind == cs.MAJLIS_PLAN_KIND and not cs.requires_majlis_plan(row.role_title, row.department):
             continue
         uid = ds.user_map.get(row.email)
         prog = ds.course_progress(uid, link)

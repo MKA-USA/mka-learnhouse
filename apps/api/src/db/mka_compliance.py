@@ -59,7 +59,7 @@ class MkaComplianceCycleCourse(SQLModel, table=True):
     )
     course_id: int = Field(sa_column=Column(Integer, ForeignKey("course.id", ondelete="CASCADE"), nullable=False))
     course_uuid: str = Field(sa_column=Column(String, nullable=False))
-    kind: str = Field(sa_column=Column(String, nullable=False))  # 'general' | 'department'
+    kind: str = Field(sa_column=Column(String, nullable=False))  # 'general' | 'department' | 'majlis-plan'
     department: Optional[str] = Field(default=None, sa_column=Column(String, nullable=True))
     signoff_assignment_id: Optional[int] = Field(
         default=None, sa_column=Column(Integer, ForeignKey("assignment.id", ondelete="SET NULL"), nullable=True)
