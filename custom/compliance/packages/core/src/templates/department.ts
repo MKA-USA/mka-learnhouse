@@ -4,7 +4,7 @@ import {
 import type { RosterRow } from "../roster/generate";
 import { MAJLIS_TO_REGION, REGION_NAMES } from "../roster/generate";
 import type { DepartmentSeed } from "../seed/departments";
-import { contactSelfCheckTasks, signOffTasks } from "./attestation";
+import { signOffTasks } from "./attestation";
 import { buildPlanQuiz, extractObjectives } from "./quiz";
 import type { ActivitySpec, ChapterSpec, CourseSpec, PlanInput, QuizQuestion, SourceRef } from "./types";
 import { courseName } from "./util";
@@ -37,6 +37,10 @@ export function renderPlanSection(plans: PlanInput[], pick: (p: PlanInput) => PM
   }
   return out;
 }
+
+/** Small notice at the top of every GENERATED page: edits belong in the source, not here (apply overwrites them). */
+export const generatedNote = (source: string, how: string): PMNode =>
+  calloutInfo(`This page is generated from the ${source}. To change it, ${how}, not this page.`);
 
 const dash = (s: string | null | undefined) => s || "—";
 
@@ -86,10 +90,12 @@ export function buildDepartmentCourse(a: DepartmentCourseInput): CourseSpec {
   const okrs = renderPlanSection(a.plans, (x) => x.okrsDoc, dept.name, cycle);
   const resources = a.plans.map((x) => x.resourcesDoc).filter((d): d is PMDoc => !!d);
 
-  const glance: PMNode[] = [
+  // ONE author-owned page: role at a glance, responsibilities, resources. Apply seeds it once; Mohtamims edit it from then on.
+  const rolePage: PMNode[] = [
     h(2, "Your role at a glance"),
-    ul([[bold("Role: "), text(roleTitle)], `Department: ${dept.name} (${dept.translation})`, `Local mailbox format: ${dept.mailboxPrefix}.<majlis>@${dept.slug === "atfal" ? "atfalusa.org (nazim / murabbi)" : "mkausa.org"}`, `Complete this course by ${a.deadline}.`]),
-    ...resources.flatMap((d) => [h(2, "Resources"), ...d.content]),
+    ul([[bold("Role: "), text(roleTitle)], `Department: ${dept.name} (${dept.translation})`, `Local mailbox format: ${dept.mailboxPrefix}.<majlis>@${dept.slug === "atfal" ? "atfalusa.org (nazim / murabbi)" : "mkausa.org"}`]),
+    ...goals,
+    ...(resources.length ? [h(2, "Resources"), ...resources.flatMap((d) => d.content)] : []),
   ];
 
   const ownObjectives = a.plans.flatMap((x) => extractObjectives(x.okrsDoc));
@@ -99,20 +105,18 @@ export function buildDepartmentCourse(a: DepartmentCourseInput): CourseSpec {
   if (quiz.basis === "fallback") flags.push("knowledge check is the generic fallback (no usable plan objectives)");
 
   const chapters: ChapterSpec[] = [
-    { key: "ch-role", name: "Your role", description: "Goals and responsibilities", activities: [
-      { kind: "page", key: "goals", name: "Goals and responsibilities", doc: doc(...goals), ...(a.sources?.goals ? { source: a.sources.goals } : {}) },
-      { kind: "page", key: "role", name: `Responsibilities of ${roleTitle}`, doc: doc(...glance) },
+    { key: "ch-role", name: "Your role", description: "Your responsibilities and resources", activities: [
+      { kind: "page", key: "role", name: "Your role and resources", doc: doc(...rolePage), owner: "author", ...(a.sources?.goals ? { source: a.sources.goals } : {}) },
     ] },
-    { key: "ch-plan", name: "Annual plan", description: "This cycle's plan and objectives", activities: [
-      { kind: "page", key: "plan", name: "Annual department plan and OKRs", doc: doc(...okrs), ...(a.sources?.plan ? { source: a.sources.plan } : {}) },
+    { key: "ch-plan", name: `Your ${cycle} plan`, description: "This cycle's plan and objectives", activities: [
+      { kind: "page", key: "plan", name: "Annual department plan and OKRs", doc: doc(generatedNote(`${cycle} Department Plan`, "update the plan with Aitmad"), ...okrs), ...(a.sources?.plan ? { source: a.sources.plan } : {}) },
       { kind: "assignment", key: "knowledge-check", name: "Knowledge check: department plan", title: "Knowledge check: department plan", description: `Check your understanding of the ${dept.name} plan.`, ungraded: false, passThreshold: 60,
         tasks: [{ key: "plan-quiz", type: "QUIZ", title: "Department plan", description: "Choose the best answer.", hint: "Review the plan lesson if unsure.", contents: { grading_mode: "ALL_OR_NOTHING", questions: quiz.questions as QuizQuestion[] } }] },
     ] },
-    { key: "ch-contacts", name: "Important contacts", description: "Your national, regional and local counterparts", activities: [
-      { kind: "page", key: "directory", name: "Contacts directory", doc: renderDirectory({ cycle, dept, roster: a.roster }) },
-      { kind: "assignment", key: "contact-selfcheck", name: "Contact self-check", title: "Contact self-check", description: "Confirm that you know your counterparts.", ungraded: true, tasks: contactSelfCheckTasks(cycle, dept.name) },
+    { key: "ch-contacts", name: "Contacts", description: "Your national, regional and local counterparts", activities: [
+      { kind: "page", key: "directory", name: "Contacts directory", doc: doc(generatedNote(`${cycle} officeholder roster`, "contact Aitmad"), ...renderDirectory({ cycle, dept, roster: a.roster }).content) },
     ] },
-    { key: "ch-attest", name: "Attestation", description: "Final sign-off", activities: [
+    { key: "ch-attest", name: "Finish", description: "Final sign-off", activities: [
       { kind: "assignment", key: "signoff", name: "Final sign-off", title: "Final sign-off", description: "Confirm and sign to complete this course.", ungraded: true, tasks: signOffTasks(cycle, dept.slug) },
     ] },
   ];

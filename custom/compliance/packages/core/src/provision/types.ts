@@ -1,7 +1,7 @@
-export interface ActivityRecord { id: number; uuid: string; hash: string; chapterKey: string; kind: string; assignmentUuid?: string; tasks?: Record<string, { uuid: string; hash: string }> }
+export interface ActivityRecord { owner?: "author" | "generated"; id: number; uuid: string; hash: string; chapterKey: string; kind: string; assignmentUuid?: string; tasks?: Record<string, { uuid: string; hash: string }> }
 export interface CourseStructure {
   courseId: number; metaHash: string;
-  chapters: Record<string, { id: number; uuid: string }>;
+  chapters: Record<string, { id: number; uuid: string; metaHash?: string }>;
   activities: Record<string, ActivityRecord>;
 }
 export interface MapRow { cycleId: number; kind: string; departmentSlug: string; lhCourseUuid: string; lhCourseId: number | null; structure: CourseStructure; contentHash: string | null }
@@ -13,6 +13,7 @@ export interface MapStore {
   addIdmap(e: IdmapEntry): Promise<void>;
 }
 
-export type Action = "create" | "update" | "unchanged" | "conflict";
+/** `remove`: recorded in course_map but no longer in the spec. `skip`: author-owned, apply leaves it alone. */
+export type Action = "create" | "update" | "unchanged" | "conflict" | "remove" | "skip";
 export interface PlanItem { level: "course" | "chapter" | "activity" | "task"; key: string; action: Action; detail?: string }
 export interface CoursePlan { courseKey: string; name: string; action: Action; counts: { chapters: number; pages: number; assignments: number; tasks: number; media: number }; items: PlanItem[]; flags: string[]; conflict?: string }

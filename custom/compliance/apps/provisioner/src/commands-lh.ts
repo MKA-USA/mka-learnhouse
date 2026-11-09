@@ -1,7 +1,7 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  ConflictError, LhApi, LhClient, SafetyError, STAGING_API_BASE, applyCourse, assertStaging, connect, courseMap, dbMapStore, getCycleId, idmap, loadRoster, planCourse, reconcileEnrollments, selectLearners, upsertEnrollmentLog, buildCycleCourses, executePublish, publishPlan, DEPARTMENTS, courseName, verifyCourse, withoutExcluded, type ProvisionConfig, type CoursePlan,
+  ConflictError, LhApi, LhClient, SafetyError, STAGING_API_BASE, applyCourse, assertStaging, connect, courseMap, dbMapStore, getCycleId, idmap, loadRoster, planCourse, reconcileEnrollments, selectLearners, upsertEnrollmentLog, buildCycleCourses, executePublish, publishPlan, DEPARTMENTS, courseName, verifyCourse, withoutExcluded, carryForward, readPageDoc, type MapStore, type PMDoc, type CourseSpec, type SeedSource, type ProvisionConfig, type CoursePlan,
 } from "@mka/compliance-core";
 import { eq } from "drizzle-orm";
 import type { Args } from "./args";
@@ -30,8 +30,21 @@ export function formatPlan(p: CoursePlan): string {
   const lines = [`${p.action.toUpperCase().padEnd(9)} ${p.name}  (${c.chapters} chapters, ${c.pages} pages, ${c.assignments} assignments/${c.tasks} tasks, ${c.media} media)`];
   if (p.conflict) lines.push(`    CONFLICT: ${p.conflict}`);
   for (const f of p.flags) lines.push(`    flag: ${f}`);
-  if (p.action === "update") for (const i of p.items.filter((x) => x.action === "update" || x.action === "create")) lines.push(`    ${i.action} ${i.level} ${i.key}${i.detail ? ` (${i.detail})` : ""}`);
+  if (p.action === "update" || p.items.some((x) => x.action === "skip")) for (const i of p.items.filter((x) => ["update", "create", "remove", "skip"].includes(x.action))) lines.push(`    ${i.action === "skip" ? "author-owned (skip)" : i.action} ${i.level} ${i.key}${i.detail && i.action !== "skip" ? ` (${i.detail})` : ""}`);
   return lines.join("\n");
+}
+
+/** Author-owned pages that are about to be created/seeded start from last cycle's page when `--from-cycle` is given and that page exists, else from the CSV. */
+async function seedSpec(spec: CourseSpec, row: Awaited<ReturnType<MapStore["get"]>>, prev: MapStore | null, api: LhApi | null, log: (s: string) => void): Promise<CourseSpec> {
+  const prevRow = prev ? await prev.get(spec.kind, spec.departmentSlug) : null;
+  const r = await carryForward(spec, { row, prev: prevRow, readDoc: async (uuid) => (api ? readPageDoc(api, uuid) : null) });
+  for (const [k, src] of Object.entries(r.sources) as [string, SeedSource][]) log(`  seed ${spec.name} / ${k}: ${src}`);
+  return r.spec;
+}
+async function prevStore(db: ReturnType<typeof connect>["db"], a: Args): Promise<MapStore | null> {
+  const label = a.str("from-cycle", undefined); if (!label) return null;
+  const id = await getCycleId(db, label); if (id === null) throw new Error(`--from-cycle ${label} not found`);
+  return dbMapStore(db, id);
 }
 
 export async function cmdPlan(a: Args) {
@@ -45,7 +58,15 @@ export async function cmdPlan(a: Args) {
     else console.log("(no LH_API_TOKEN: conflict check against LearnHouse skipped; run via `bun run lh plan`)");
     console.log(`PLAN (dry run, nothing is written) cycle ${cycle}, selection: ${sel.label}`);
     const out: CoursePlan[] = [];
-    for (const { spec } of w.specs) { const row = await store.get(spec.kind, spec.departmentSlug); const p = planCourse(spec, row, existing?.find((c) => c.name === spec.name)?.course_uuid ?? null); out.push(p); console.log(formatPlan(p)); }
+    const prev = await prevStore(db, a); const planApi = process.env.LH_API_TOKEN ? new LhApi(clientFromEnv()) : null;
+    for (const { spec: s0 } of w.specs) {
+      const row = await store.get(s0.kind, s0.departmentSlug);
+      const spec = await seedSpec(s0, row, prev, planApi, (m) => console.log(m));
+      let published: boolean | null = null;
+      if (row && planApi) { try { published = ((await planApi.getCourseMeta(row.lhCourseUuid)) as { published?: boolean }).published ?? null; } catch { /* leave unknown */ } }
+      const p = planCourse(spec, row, existing?.find((c) => c.name === spec.name)?.course_uuid ?? null, { published });
+      out.push(p); console.log(formatPlan(p));
+    }
     const tally = out.reduce<Record<string, number>>((m, p) => ((m[p.action] = (m[p.action] ?? 0) + 1), m), {});
     console.log(`\nsummary: ${JSON.stringify(tally)}${w.warnings.length ? `\nwarnings: ${w.warnings.join("; ")}` : ""}`);
   } finally { await sql.end(); }
@@ -63,14 +84,17 @@ export async function cmdApply(a: Args) {
     const courses = await api.listCourses(1, 1, true);
     const orgId = courses[0]?.org_id ?? 1;
     console.log(`APPLY on staging, cycle ${cycle}, selection: ${sel.label}; all courses stay DRAFT`);
-    const results: { name: string; uuid: string; created: number; updated: number; verify: string }[] = [];
-    for (const { spec, thinkificCourseId } of w.specs) {
+    const results: { name: string; uuid: string; created: number; updated: number; removed: number; verify: string }[] = [];
+    const prev = await prevStore(db, a); const refused: { name: string; reason: string }[] = [];
+    for (const { spec: s0, thinkificCourseId } of w.specs) {
       try {
+        const spec = await seedSpec(s0, await store.get(s0.kind, s0.departmentSlug), prev, api, (m) => console.log(m));
         const r = await applyCourse({ api, store, orgId, log: (s) => console.log(s) }, spec, thinkificCourseId);
         const v = await verifyCourse(api, r.courseUuid, spec);
-        results.push({ name: spec.name, uuid: r.courseUuid, created: r.created, updated: r.updated, verify: `${v.ok ? "OK" : "MISMATCH"} ${v.detail}` });
+        results.push({ name: spec.name, uuid: r.courseUuid, created: r.created, updated: r.updated, removed: r.removed, verify: `${v.ok ? "OK" : "MISMATCH"} ${v.detail}` });
       } catch (e) {
-        if (e instanceof ConflictError) { console.error(`CONFLICT ${spec.name}: ${e.message}`); continue; }
+        if (e instanceof ConflictError) { console.error(`CONFLICT ${s0.name}: ${e.message}`); continue; }
+        if (e instanceof SafetyError) { console.error(`REFUSED ${s0.name}: ${e.message}`); refused.push({ name: s0.name, reason: e.message }); continue; }
         throw e;
       }
     }
@@ -79,8 +103,9 @@ export async function cmdApply(a: Args) {
     ensureOut();
     writeFileSync(join(OUT_DIR, "idmap.json"), JSON.stringify(rows.map(({ id, createdAt, ...r }) => r), null, 1)) ;
     const base = (process.env.LH_API_BASE ?? STAGING_API_BASE).replace(/\/api\/v1$/, "");
-    for (const r of results) console.log(`${r.name}: ${r.uuid} created=${r.created} updated=${r.updated} readback ${r.verify}\n   ${base}/course/${r.uuid.replace(/^course_/, "")}`);
-    writeOut("apply-report.md", ["# Apply report", "", ...results.map((r) => `- ${r.name}: \`${r.uuid}\` (created ${r.created}, updated ${r.updated}); readback ${r.verify}`), ""].join("\n"));
+    for (const r of results) console.log(`${r.name}: ${r.uuid} created=${r.created} updated=${r.updated} removed=${r.removed} readback ${r.verify}\n   ${base}/course/${r.uuid.replace(/^course_/, "")}`);
+    writeOut("apply-report.md", ["# Apply report", "", ...results.map((r) => `- ${r.name}: \`${r.uuid}\` (created ${r.created}, updated ${r.updated}, removed ${r.removed}); readback ${r.verify}`), ...(refused.length ? ["", "## Refused (nothing written for these)", ...refused.map((r) => `- ${r.name}: ${r.reason}`)] : []), ""].join("\n"));
+    if (refused.length) console.error(`${refused.length} course(s) refused (published or state unknown); see out/apply-report.md`);
   } finally { await sql.end(); }
 }
 

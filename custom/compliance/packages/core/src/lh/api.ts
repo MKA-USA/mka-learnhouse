@@ -60,6 +60,9 @@ export class LhApi {
   getActivity(activityUuid: string) { return this.client.get<T.LhActivity>(`/activities/${activityUuid}`); }
   getAssignment(assignmentUuid: string) { return this.client.get<{ assignment_uuid: string; published?: boolean }>(`/assignments/${assignmentUuid}`); }
   listAssignmentTasks(assignmentUuid: string) { return this.client.get<unknown[]>(`/assignments/${assignmentUuid}/tasks`); }
+  updateChapter(chapterId: number, input: { name?: string; description?: string }) { return this.client.put<T.LhChapter>(`/chapters/${chapterId}`, input); }
+  deleteActivity(activityUuid: string) { return this.client.del(`/activities/${activityUuid}`); }
+  deleteAssignment(assignmentUuid: string) { return this.client.del(`/assignments/${assignmentUuid}`); }
   createChapter(input: T.CreateChapterInput) { return this.client.post<T.LhChapter>("/chapters/", input); }
   createActivity(input: T.CreateActivityInput) { assertDraftOnly(input); return this.client.post<T.LhActivity>("/activities/", input); }
   updateActivity(activityUuid: string, input: T.UpdateActivityInput) { assertDraftOnly(input); return this.client.put<T.LhActivity>(`/activities/${activityUuid}`, input); }

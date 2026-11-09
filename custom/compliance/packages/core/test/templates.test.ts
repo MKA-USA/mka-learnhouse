@@ -86,12 +86,21 @@ describe("department course", () => {
     expect(goals.kind === "page" && plainText(goals.doc)).toContain("Content pending");
     expect(c.flags).toContain("no plan for this department");
   });
-  test("attestation: ungraded contact self-check with 52-Majlis select + sign-off with typed name", () => {
-    const c = build([plan("tabligh")]);
-    const sc = c.chapters[2]!.activities[1]!; const so = c.chapters[3]!.activities[0]!;
-    expect(sc.kind === "assignment" && sc.ungraded && sc.tasks.map((t) => t.type)).toEqual(["QUIZ", "FORM"]);
-    if (sc.kind === "assignment" && sc.tasks[0]!.type === "QUIZ") expect(sc.tasks[0]!.contents.questions[0]!.options.length).toBe(52);
-    expect(so.kind === "assignment" && so.tasks.map((t) => t.type)).toEqual(["QUIZ", "FORM"]);
+  test("v2 structure: 4 chapters, 5 activities, role page is author-owned, generated pages carry the note", () => {
+    const c = build([plan("tabligh", { resourcesDoc: planDoc("- [A link](https://example.org)") })]);
+    expect(c.chapters.map((x) => x.name)).toEqual(["Your role", "Your 2026-27 plan", "Contacts", "Finish"]);
+    const acts = c.chapters.flatMap((x) => x.activities);
+    expect(acts.map((x) => x.key)).toEqual(["role", "plan", "knowledge-check", "directory", "signoff"]);
+    expect(Object.fromEntries(acts.map((x) => [x.key, x.owner ?? "generated"]))).toMatchObject({ role: "author", plan: "generated", directory: "generated", signoff: "generated" });
+    const txt = (k: string) => { const a = acts.find((x) => x.key === k)!; return a.kind === "page" ? plainText(a.doc) : ""; };
+    expect(txt("role")).toContain("do things"); expect(txt("role")).toContain("Resources"); expect(txt("role")).toContain("A link");
+    expect(txt("role")).not.toContain("generated from");
+    expect(txt("plan")).toContain("This page is generated from the 2026-27 Department Plan. To change it, update the plan with Aitmad, not this page.");
+    expect(txt("directory")).toContain("generated from the 2026-27 officeholder roster");
+  });
+  test("sign-off: ungraded, 2 tasks (confirm + typed name)", () => {
+    const so = build([plan("tabligh")]).chapters[3]!.activities[0]!;
+    expect(so.kind === "assignment" && so.ungraded && so.tasks.map((t) => t.type)).toEqual(["QUIZ", "FORM"]);
   });
 });
 
