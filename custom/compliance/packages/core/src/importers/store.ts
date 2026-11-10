@@ -73,10 +73,10 @@ export async function loadPlans(db: PostgresJsDatabase<any>, cycleId: number) {
 }
 
 import { enrollmentLog } from "../schema";
-export async function upsertEnrollmentLog(db: PostgresJsDatabase<any>, cycleId: number, rows: { email: string; courseUuid: string; userId: number | null; status: string }[]) {
+export async function upsertEnrollmentLog(db: PostgresJsDatabase<any>, cycleId: number, target: "dev" | "prod", rows: { email: string; courseUuid: string; userId: number | null; status: string }[]) {
   for (const r of rows) {
-    await db.insert(enrollmentLog).values({ cycleId, lhCourseUuid: r.courseUuid, learnerEmail: r.email, lhUserId: r.userId, status: r.status })
-      .onConflictDoUpdate({ target: [enrollmentLog.cycleId, enrollmentLog.lhCourseUuid, enrollmentLog.learnerEmail], set: { lhUserId: r.userId, status: r.status, updatedAt: sql`now()` } });
+    await db.insert(enrollmentLog).values({ target, cycleId, lhCourseUuid: r.courseUuid, learnerEmail: r.email, lhUserId: r.userId, status: r.status })
+      .onConflictDoUpdate({ target: [enrollmentLog.target, enrollmentLog.cycleId, enrollmentLog.lhCourseUuid, enrollmentLog.learnerEmail], set: { lhUserId: r.userId, status: r.status, updatedAt: sql`now()` } });
   }
 }
 

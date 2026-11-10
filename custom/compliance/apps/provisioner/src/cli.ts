@@ -3,6 +3,7 @@ import { parseArgs } from "./args";
 import { cmdApply, cmdExportCourses, cmdPlan, cmdPublish, cmdReconcile } from "./commands-lh";
 import { cmdAssignAuthors, cmdIdentityStatus, cmdPushCycle, cmdPushRoster, cmdSyncIdentity } from "./commands-push";
 import { cmdGapReport, cmdImport, cmdRoster, cmdSeedThinkific } from "./commands-data";
+import { TARGET_COMMANDS, initTarget } from "./target";
 
 const a = parseArgs(process.argv.slice(2));
 const cmd = a.pos[0];
@@ -21,8 +22,11 @@ const USAGE = `provisioner <command>
   sync-identity [--dry-run (default) | --apply --confirm-staging]   -> POST /mka/identity/sync (Mohtamim role + groups backfill)
   identity-status                               -> GET /mka/identity/status
   gap-report [--cycle] [--data <dir>] [--carry-over 2025-26]
+  (LearnHouse commands) --target dev|prod   default dev. prod needs --confirm-prod <exact prod hostname> for ANY use and the token from \`bun run lh:prod\`
+                                               (keychain MKA_LH_PROD_API_TOKEN); course_map, idmap, enrollment_log and out/ are separate per target; writes on prod use --confirm-prod instead of --confirm-staging
   (any command) --include-atfal   Atfal is excluded by default (core config); this switches it back on`;
 try {
+  if (cmd && TARGET_COMMANDS.has(cmd)) initTarget(a);
   switch (cmd) {
     case "roster": await cmdRoster(a); break;
     case "import": await cmdImport(a); break;
