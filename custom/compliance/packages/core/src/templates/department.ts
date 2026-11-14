@@ -7,7 +7,10 @@ import type { DepartmentSeed } from "../seed/departments";
 import { signOffTasks } from "./attestation";
 import { buildPlanQuiz, extractObjectives } from "./quiz";
 import type { ActivitySpec, ChapterSpec, CourseSpec, PlanInput, QuizQuestion, SourceRef } from "./types";
-import { courseName } from "./util";
+import { QUIZ_INSTRUCTION, SIGNOFF_INSTRUCTION, courseName, deptLabel } from "./util";
+
+/** Estimated time for a department course: ~4 short pages (about 1,500 words at 200 wpm, about 8 min), 3 quiz questions (about 2 min), contacts lookup and sign-off (about 5 min), plus margin. */
+export const DEPT_COURSE_MINUTES = 20;
 
 export const STALE_NOTE = "Last year's content — update pending";
 const LEVEL_ORDER = ["all", "national", "region", "majlis"];
@@ -93,7 +96,7 @@ export function buildDepartmentCourse(a: DepartmentCourseInput): CourseSpec {
   // ONE author-owned page: role at a glance, responsibilities, resources. Apply seeds it once; Mohtamims edit it from then on.
   const rolePage: PMNode[] = [
     h(2, "Your role at a glance"),
-    ul([[bold("Role: "), text(roleTitle)], `Department: ${dept.name} (${dept.translation})`, `Local mailbox format: ${dept.mailboxPrefix}.<majlis>@${dept.slug === "atfal" ? "atfalusa.org (nazim / murabbi)" : "mkausa.org"}`]),
+    ul([[bold("Role: "), text(roleTitle)], `Department: ${deptLabel(dept.name, dept.translation)}`, `Local mailbox format: ${dept.mailboxPrefix}.<majlis>@${dept.slug === "atfal" ? "atfalusa.org (nazim / murabbi)" : "mkausa.org"}`]),
     ...goals,
     ...(resources.length ? [h(2, "Resources"), ...resources.flatMap((d) => d.content)] : []),
   ];
@@ -110,21 +113,21 @@ export function buildDepartmentCourse(a: DepartmentCourseInput): CourseSpec {
     ] },
     { key: "ch-plan", name: `Your ${cycle} plan`, description: "This cycle's plan and objectives", activities: [
       { kind: "page", key: "plan", name: "Annual department plan and OKRs", doc: doc(generatedNote(`${cycle} Department Plan`, "update the plan with Aitmad"), ...okrs), ...(a.sources?.plan ? { source: a.sources.plan } : {}) },
-      { kind: "assignment", key: "knowledge-check", name: "Knowledge check: department plan", title: "Knowledge check: department plan", description: `Check your understanding of the ${dept.name} plan.`, ungraded: false, passThreshold: 60,
+      { kind: "assignment", key: "knowledge-check", name: "Knowledge check: department plan", title: "Knowledge check: department plan", description: `Check your understanding of the ${dept.name} plan. ${QUIZ_INSTRUCTION}`, ungraded: false, passThreshold: 60,
         tasks: [{ key: "plan-quiz", type: "QUIZ", title: "Department plan", description: "Choose the best answer.", hint: "Review the plan lesson if unsure.", contents: { grading_mode: "ALL_OR_NOTHING", questions: quiz.questions as QuizQuestion[] } }] },
     ] },
     { key: "ch-contacts", name: "Contacts", description: "Your national, regional and local counterparts", activities: [
       { kind: "page", key: "directory", name: "Contacts directory", doc: doc(generatedNote(`${cycle} officeholder roster`, "contact Aitmad"), ...renderDirectory({ cycle, dept, roster: a.roster }).content) },
     ] },
     { key: "ch-attest", name: "Finish", description: "Final sign-off", activities: [
-      { kind: "assignment", key: "signoff", name: "Final sign-off", title: "Final sign-off", description: "Confirm and sign to complete this course.", ungraded: true, tasks: signOffTasks(cycle, dept.slug) },
+      { kind: "assignment", key: "signoff", name: "Final sign-off", title: "Final sign-off", description: `Confirm and sign to complete this course. ${SIGNOFF_INSTRUCTION}`, ungraded: true, tasks: signOffTasks(cycle, dept.slug) },
     ] },
   ];
 
   return {
     key: `${cycle}|dept:${dept.slug}`, kind: "department", departmentSlug: dept.slug, cycle,
     name: courseName(cycle, dept.name),
-    description: `Annual compliance training for ${dept.name} (${dept.translation}) officeholders, ${cycle}. Complete by ${a.deadline}.`,
+    description: `Your role, this year's ${dept.name} plan and the people to contact, then a short knowledge check and sign-off. About ${DEPT_COURSE_MINUTES} minutes. Complete by ${a.deadline}.`,
     about: `Required annual training for ${roleTitle} and counterparts: goals, the annual plan, your contacts and a final sign-off.`,
     learnings: "Your responsibilities, this year's plan, who to contact, attestation",
     tags: `mka,compliance,${cycle},${dept.slug}`, chapters, flags,

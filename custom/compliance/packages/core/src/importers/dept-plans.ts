@@ -9,6 +9,32 @@ export interface DeptPlanInput {
   responsibilitiesDoc: PMDoc | null; okrsDoc: PMDoc | null; resourcesDoc: PMDoc | null;
   updatedBy: string | null; stale: boolean; source: string;
 }
+/**
+ * Drops unmatched quote marks from one line of text: a closing quote with no opener, an opener never closed. Straight and curly quotes pair with
+ * each other (a straight opener closed by a curly mark is balanced). Pure; returns the cleaned text and how many marks were dropped.
+ */
+export function dropStrayQuotesInSegment(seg: string): { text: string; dropped: number } {
+  const stack: number[] = []; const drop = new Set<number>();
+  for (let i = 0; i < seg.length; i++) {
+    const c = seg[i];
+    if (c === "“") stack.push(i);
+    else if (c === "”") { if (stack.length) stack.pop(); else drop.add(i); }
+    else if (c === '"') { if (stack.length) stack.pop(); else stack.push(i); }
+  }
+  for (const i of stack) drop.add(i);
+  return drop.size ? { text: [...seg].filter((_, i) => !drop.has(i)).join(""), dropped: drop.size } : { text: seg, dropped: 0 };
+}
+
+/** Markdown-aware: table rows are cleaned cell by cell, every other line whole. */
+export function dropStrayQuotes(md: string): { text: string; dropped: number } {
+  let dropped = 0;
+  const text = md.split("\n").map((line) => {
+    const parts = line.trimStart().startsWith("|") ? line.split("|") : [line];
+    return parts.map((p) => { const r = dropStrayQuotesInSegment(p); dropped += r.dropped; return r.text; }).join("|");
+  }).join("\n");
+  return { text, dropped };
+}
+
 export const PLAN_LEVELS = ["all", "national", "region", "majlis"];
 const FILE = "dept_plans.csv";
 
@@ -33,7 +59,12 @@ export function parseDeptPlans(csv: string, file = FILE): { rows: DeptPlanInput[
     if (rawDept && resolveDepartment(rawDept) && rawDept.toLowerCase().replace(/[^a-z]/g, "") !== dept.replace(/[^a-z]/g, "")) issues.push({ file, line: r.line, severity: "info", code: "slug-alias", message: `department "${rawDept}" resolved to ${dept}` });
     const level = (get("level") || "all").toLowerCase();
     if (!PLAN_LEVELS.includes(level)) { issues.push({ file, line: r.line, severity: "error", code: "bad-level", message: `level "${level}" not in ${PLAN_LEVELS.join("/")}; row skipped` }); continue; }
-    const resp = get("responsibilities_md"), okrs = get("okrs_md"), res = get("resources_md");
+    const clean = (n: string) => {
+      const q = dropStrayQuotes(get(n));
+      if (q.dropped) issues.push({ file, line: r.line, severity: "info", code: "stray-quote", message: `${dept}/${level} ${n}: dropped ${q.dropped} unmatched quote mark(s)` });
+      return q.text;
+    };
+    const resp = clean("responsibilities_md"), okrs = clean("okrs_md"), res = clean("resources_md");
     if (!resp && !okrs && !res) { issues.push({ file, line: r.line, severity: "warn", code: "empty-plan", message: `${dept}/${level} has no content; row skipped` }); continue; }
     const key = `${dept}|${level}`;
     if (out.has(key)) issues.push({ file, line: r.line, severity: "warn", code: "duplicate-key", message: `duplicate ${dept}/${level}; later row wins` });

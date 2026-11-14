@@ -63,6 +63,10 @@ export class LhApi {
   updateChapter(chapterId: number, input: { name?: string; description?: string }) { return this.client.put<T.LhChapter>(`/chapters/${chapterId}`, input); }
   deleteActivity(activityUuid: string) { return this.client.del(`/activities/${activityUuid}`); }
   deleteAssignment(assignmentUuid: string) { return this.client.del(`/assignments/${assignmentUuid}`); }
+  /** Sets the order of ALL chapters and the activities inside them. Activities may move between chapters (ids are kept); anything left out of the payload is unlinked from the course. */
+  reorderCourse(courseUuid: string, order: { chapter_order_by_ids: { chapter_id: number; activities_order_by_ids: { activity_id: number }[] }[] }) {
+    return this.client.put(`/chapters/course/${courseUuid}/order`, order);
+  }
   createChapter(input: T.CreateChapterInput) { return this.client.post<T.LhChapter>("/chapters/", input); }
   createActivity(input: T.CreateActivityInput) { return this.client.post<T.LhActivity>("/activities/", input); }
   updateActivity(activityUuid: string, input: T.UpdateActivityInput) { return this.client.put<T.LhActivity>(`/activities/${activityUuid}`, input); }
