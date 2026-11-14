@@ -137,7 +137,7 @@ describe.skipIf(!existsSync(DEFAULT_THINKIFIC_DIR))("general course from Foundat
     const m = spec.description.match(/About (\d+) minutes/);
     expect(m).not.toBeNull(); const minutes = Number(m![1]); expect(minutes % 5).toBe(0); expect(minutes).toBeGreaterThanOrEqual(15); expect(minutes).toBeLessThanOrEqual(90);
     const quizzes = spec.chapters.flatMap((c) => c.activities).filter((a) => a.kind === "assignment" && !a.ungraded) as unknown as { description: string }[];
-    expect(quizzes.length).toBeGreaterThan(0); for (const q of quizzes) expect(q.description).toContain("press Submit for grading");
+    expect(quizzes.length).toBeGreaterThan(0); for (const q of quizzes) expect(q.description).toContain("press the Submit button at the bottom of the page");
   });
   test("first page carries the multi-office note", () => {
     const first = spec.chapters.flatMap((c) => c.activities).find((a) => a.kind === "page")!;
@@ -233,13 +233,14 @@ describe("course content polish (usability findings)", () => {
     expect(qs.length).toBe(4); expect(new Set(qs.map((q) => q.questionText.replace(/"[^"]*"/, "OBJ"))).size).toBe(4);
   });
   test("knowledge checks and sign-offs say which button to press (LearnHouse's own labels)", () => {
-    expect(QUIZ_INSTRUCTION).toBe("Answer each question, then press Submit for grading at the bottom. You can change your answers until you submit.");
-    expect(SIGNOFF_INSTRUCTION).toBe("Answer the question, type your full name, then press Hand in my work. Then press Finish course.");
+    expect(QUIZ_INSTRUCTION).toBe("Answer each question, then press the Submit button at the bottom of the page. You can change your answers until you submit.");
+    expect(SIGNOFF_INSTRUCTION).toBe("Answer the question and type your full name, then press the Submit button at the bottom of the page. Then press Finish course.");
     const desc = (spec: { chapters: { activities: any[] }[] }, key: string) => allActs(spec as never).find((a) => a.key === key) as unknown as { description: string };
     expect(desc(mp, "knowledge-check").description).toContain(QUIZ_INSTRUCTION); expect(desc(mp, "signoff").description).toContain(SIGNOFF_INSTRUCTION);
     const dept = buildDepartmentCourse({ cycle: "2026-27", dept: DEPARTMENTS.find((d) => d.slug === "maal")!, roster: generateRoster(), plans: [plan("maal")], otherPlans: others, deadline: "Dec 1, 2026" });
     expect(desc(dept, "knowledge-check").description).toContain(QUIZ_INSTRUCTION); expect(desc(dept, "signoff").description).toContain(SIGNOFF_INSTRUCTION);
-    // the knowledge check is graded (button "Submit for grading"), the sign-off is not (button "Hand in my work")
+    // graded check and ungraded sign-off both end in the Submit button; the instructions never name the old "Submit for grading" / "Hand in my work" / "Save answers" labels
+    for (const old of ["Submit for grading", "Hand in my work", "Save answers"]) { expect(QUIZ_INSTRUCTION).not.toContain(old); expect(SIGNOFF_INSTRUCTION).not.toContain(old); }
     expect((allActs(dept as never).find((a) => a.key === "knowledge-check") as unknown as { ungraded: boolean }).ungraded).toBe(false);
     expect((allActs(dept as never).find((a) => a.key === "signoff") as unknown as { ungraded: boolean }).ungraded).toBe(true);
   });

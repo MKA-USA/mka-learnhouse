@@ -44,9 +44,9 @@ export const roundMinutes = (m: number): number => Math.max(5, Math.round(m / 5)
 export const READING_WPM = 200; // plain-text reading speed used for time estimates
 export const SECONDS_PER_QUESTION = 30;
 
-/** Instruction lines for assignment pages. The button labels are LearnHouse's own (apps/web/locales/en.json: assignments.submit_for_grading, assignments.hand_in, course.finish_course). */
-export const QUIZ_INSTRUCTION = "Answer each question, then press Submit for grading at the bottom. You can change your answers until you submit.";
-export const SIGNOFF_INSTRUCTION = "Answer the question, type your full name, then press Hand in my work. Then press Finish course.";
+/** Instruction lines for assignment pages. Deliberately label-neutral about the button text ("Submit" in both the current and the renamed UI): they must stay true across LearnHouse button renames. "Finish course" is course.finish_course in apps/web/locales/en.json. */
+export const QUIZ_INSTRUCTION = "Answer each question, then press the Submit button at the bottom of the page. You can change your answers until you submit.";
+export const SIGNOFF_INSTRUCTION = "Answer the question and type your full name, then press the Submit button at the bottom of the page. Then press Finish course.";
 
 export const COURSE_PREFIX = "MKA";
 export const courseName = (cycle: string, suffix: string) => `${COURSE_PREFIX} ${cycle} · ${suffix}`;
