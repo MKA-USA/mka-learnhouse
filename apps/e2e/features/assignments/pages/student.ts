@@ -110,7 +110,7 @@ export class AssignmentPage {
         break
       }
     }
-    const confirm = this.page.getByRole('button', { name: 'Submit', exact: true })
+    const confirm = this.page.getByRole('dialog').getByRole('button', { name: 'Submit', exact: true })
     await expect(confirm).toBeVisible({ timeout: 10_000 })
     await confirm.click()
     // Wait for the submit to round-trip and the confirm dialog to close.
@@ -175,7 +175,7 @@ export class AssignmentPage {
         break
       }
     }
-    const confirm = this.page.getByRole('button', { name: 'Submit', exact: true })
+    const confirm = this.page.getByRole('dialog').getByRole('button', { name: 'Submit', exact: true })
     await expect(confirm).toBeVisible({ timeout: 10_000 })
     await confirm.click()
     await expect(confirm).toBeHidden({ timeout: 15_000 })
