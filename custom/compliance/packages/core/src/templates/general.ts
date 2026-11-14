@@ -6,7 +6,7 @@ import { calloutInfo, calloutWarning, doc, p, plainText, text, type PMNode } fro
 import { allLessons, lessonHtml, type TkCourse, type TkLesson } from "../thinkific/load";
 import { signOffTasks } from "./attestation";
 import type { ActivitySpec, ChapterSpec, CourseSpec, QuizQuestion, SourceRef } from "./types";
-import { courseName, mcq } from "./util";
+import { QUIZ_INSTRUCTION, READING_WPM, SECONDS_PER_QUESTION, SIGNOFF_INSTRUCTION, courseName, mcq, roundMinutes, videoSeconds } from "./util";
 import { STALE_NOTE } from "./department";
 
 export interface FoundationQuiz { name: string; passingScore: number | null; questions: { prompt: string; multiple: boolean; choices: { text: string; correct: boolean }[] }[] }
@@ -57,6 +57,9 @@ function quizTasks(cycle: string, scope: string, q: FoundationQuiz): QuizQuestio
   return q.questions.map((qq, i) => mcq(`${cycle}:${scope}:${i}:${qq.prompt}`, qq.prompt, qq.choices.map((c) => ({ text: c.text, correct: c.correct })), qq.multiple));
 }
 
+/** First page of General: officeholders with several offices sign in once per office. */
+export const MULTI_OFFICE_NOTE: PMNode = calloutInfo("Hold more than one office? Sign in with each office's @mkausa.org account and complete that office's course. Each office signs off separately.");
+
 export function buildGeneralCourse(args: { cycle: string; deadline: string; foundation: FoundationInput }): { spec: CourseSpec; flags: { lesson: string; flag: ContentFlag }[] } {
   const { cycle, deadline, foundation: F } = args;
   const cflags: { lesson: string; flag: ContentFlag }[] = [];
@@ -70,7 +73,7 @@ export function buildGeneralCourse(args: { cycle: string; deadline: string; foun
     return { kind: "page", key, name: pg.name, doc: doc(...leading, ...extra, ...r.doc.content), source: pg.source };
   };
   const quiz = (key: string, name: string, q: FoundationQuiz, src?: SourceRef): ActivitySpec => ({
-    kind: "assignment", key, name, title: name, description: "Answer all questions.", ungraded: false, ...(q.passingScore ? { passThreshold: q.passingScore } : {}), source: src,
+    kind: "assignment", key, name, title: name, description: QUIZ_INSTRUCTION, ungraded: false, ...(q.passingScore ? { passThreshold: q.passingScore } : {}), source: src,
     tasks: [{ key: `${key}-q`, type: "QUIZ", title: name, description: "Choose the best answer.", hint: "Review the lesson if unsure.", contents: { grading_mode: "ALL_OR_NOTHING", questions: quizTasks(cycle, key, q) } }],
   });
 
@@ -85,7 +88,7 @@ export function buildGeneralCourse(args: { cycle: string; deadline: string; foun
   if (F.introVideo) chapters.push({ key: "ch-intro", name: "Course Introduction", description: "Start here", activities: [{ kind: "video", key: "intro-video", name: "Course Introduction Video", file: { rel: F.introVideo.rel, abs: F.introVideo.abs, size: F.introVideo.size }, source: F.introVideo.source }] });
   chapters.push(
     { key: "ch-structures", name: "Organizational Structures", description: "Jama'at and Khuddam structure", activities: [
-      makePage(F.jamaat, "jamaat-structure"), quiz("quiz-jamaat", F.jamaatQuiz.name, F.jamaatQuiz), makePage(F.khuddam, "khuddam-structure"), quiz("quiz-khuddam", F.khuddamQuiz.name, F.khuddamQuiz) ] },
+      makePage(F.jamaat, "jamaat-structure", [MULTI_OFFICE_NOTE]), quiz("quiz-jamaat", F.jamaatQuiz.name, F.jamaatQuiz), makePage(F.khuddam, "khuddam-structure"), quiz("quiz-khuddam", F.khuddamQuiz.name, F.khuddamQuiz) ] },
     { key: "ch-resources", name: "Resources for Officeholders", description: "Systems and resources you will use", activities: [...F.resources.map((r, i) => makePage(r, `resource-${i + 1}`)), resourceConfirm] },
     { key: "ch-rules", name: "Housekeeping Rules", description: "Rules and procedures", activities: [makePage(F.rules, "rules"), quiz("quiz-rules", F.rulesQuiz.name, F.rulesQuiz)] },
     { key: "ch-message", name: "Huzoor's Latest Message to the US Khuddam", description: "Read and confirm", activities: [
@@ -93,14 +96,23 @@ export function buildGeneralCourse(args: { cycle: string; deadline: string; foun
       ...F.pdfs.map((f, i): ActivitySpec => ({ kind: "pdf", key: `message-pdf-${i + 1}`, name: f.name, file: { rel: f.rel, abs: f.abs, size: f.size }, source: f.source })),
     ] },
     { key: "ch-signoff", name: "Sign-off", description: "Complete the course", activities: [
-      { kind: "assignment", key: "signoff", name: "Final sign-off", title: "Final sign-off", description: "Confirm and sign to complete this course.", ungraded: true, tasks: signOffTasks(cycle, "general") } ] },
+      { kind: "assignment", key: "signoff", name: "Final sign-off", title: "Final sign-off", description: `Confirm and sign to complete this course. ${SIGNOFF_INSTRUCTION}`, ungraded: true, tasks: signOffTasks(cycle, "general") } ] },
   );
   flagsOut.push("Huzoor's message PDFs are last year's; replace for the new cycle");
+
+  // Time estimate, basis stated in the description: reading at 200 wpm over every page, 30 s per quiz question (graded quizzes and the access
+  // check), the intro video at its measured length, 3 min per message PDF, 2 min for the sign-off; rounded to 5 minutes.
+  const acts = chapters.flatMap((c) => c.activities);
+  const words = acts.reduce((n, a) => n + (a.kind === "page" ? plainText(a.doc).split(/\s+/).filter(Boolean).length : 0), 0);
+  const questions = acts.reduce((n, a) => n + (a.kind === "assignment" ? a.tasks.reduce((m, t) => m + (t.type === "QUIZ" ? t.contents.questions.length : 0), 0) : 0), 0);
+  const videoSec = acts.reduce((n, a) => n + (a.kind === "video" ? videoSeconds(a.file.abs) : 0), 0);
+  const pdfs = acts.filter((a) => a.kind === "pdf").length;
+  const minutes = roundMinutes(words / READING_WPM + (questions * SECONDS_PER_QUESTION) / 60 + videoSec / 60 + pdfs * 3 + 2);
 
   return {
     flags: cflags,
     spec: { key: `${cycle}|general`, kind: "general", departmentSlug: "", cycle, name: courseName(cycle, "General"),
-      description: `Foundation training for all MKA officeholders, ${cycle}. Complete by ${deadline}.`,
+      description: `The foundation course every officeholder takes: Jama'at and Khuddam structure, the systems you will use, housekeeping rules and Huzoor's message, with short quizzes. About ${minutes} minutes. Complete by ${deadline}.`,
       about: "Required annual foundation course: organizational structure, resources, housekeeping rules and Huzoor's message.",
       learnings: "Jama'at and Khuddam structure, officeholder resources, housekeeping rules", tags: `mka,compliance,${cycle},general`, chapters, flags: flagsOut },
   };

@@ -60,9 +60,16 @@ export class LhApi {
   getActivity(activityUuid: string) { return this.client.get<T.LhActivity>(`/activities/${activityUuid}`); }
   getAssignment(assignmentUuid: string) { return this.client.get<{ assignment_uuid: string; published?: boolean }>(`/assignments/${assignmentUuid}`); }
   listAssignmentTasks(assignmentUuid: string) { return this.client.get<unknown[]>(`/assignments/${assignmentUuid}/tasks`); }
+  updateChapter(chapterId: number, input: { name?: string; description?: string }) { return this.client.put<T.LhChapter>(`/chapters/${chapterId}`, input); }
+  deleteActivity(activityUuid: string) { return this.client.del(`/activities/${activityUuid}`); }
+  deleteAssignment(assignmentUuid: string) { return this.client.del(`/assignments/${assignmentUuid}`); }
+  /** Sets the order of ALL chapters and the activities inside them. Activities may move between chapters (ids are kept); anything left out of the payload is unlinked from the course. */
+  reorderCourse(courseUuid: string, order: { chapter_order_by_ids: { chapter_id: number; activities_order_by_ids: { activity_id: number }[] }[] }) {
+    return this.client.put(`/chapters/course/${courseUuid}/order`, order);
+  }
   createChapter(input: T.CreateChapterInput) { return this.client.post<T.LhChapter>("/chapters/", input); }
-  createActivity(input: T.CreateActivityInput) { assertDraftOnly(input); return this.client.post<T.LhActivity>("/activities/", input); }
-  updateActivity(activityUuid: string, input: T.UpdateActivityInput) { assertDraftOnly(input); return this.client.put<T.LhActivity>(`/activities/${activityUuid}`, input); }
+  createActivity(input: T.CreateActivityInput) { return this.client.post<T.LhActivity>("/activities/", input); }
+  updateActivity(activityUuid: string, input: T.UpdateActivityInput) { return this.client.put<T.LhActivity>(`/activities/${activityUuid}`, input); }
   addContributors(courseUuid: string, usernames: string[]) {
     return this.client.post<{ successful: unknown[]; failed: unknown[] }>(`/courses/${courseUuid}/bulk-add-contributors`, usernames);
   }
@@ -79,13 +86,13 @@ export class LhApi {
     f.set("pdf_file", Bun.file(absPath), absPath.split("/").pop());
     return this.client.request<T.LhActivity>("POST", "/activities/documentpdf", { form: f, timeoutMs: 300_000 });
   }
-  updateAssignment(assignmentUuid: string, input: Partial<Pick<T.CreateAssignmentInput, "title" | "description" | "ungraded" | "pass_threshold_percentage" | "auto_grading">>) {
-    assertDraftOnly(input); return this.client.put(`/assignments/${assignmentUuid}`, input);
+  updateAssignment(assignmentUuid: string, input: Partial<Pick<T.CreateAssignmentInput, "title" | "description" | "ungraded" | "pass_threshold_percentage" | "auto_grading" | "published">>) {
+    return this.client.put(`/assignments/${assignmentUuid}`, input);
   }
   updateAssignmentTask(assignmentUuid: string, taskUuid: string, input: Partial<T.CreateAssignmentTaskInput>) {
     return this.client.put(`/assignments/${assignmentUuid}/tasks/${taskUuid}`, input);
   }
-  createAssignment(input: T.CreateAssignmentInput) { assertDraftOnly(input); return this.client.post<{ assignment_uuid: string }>("/assignments/", input); }
+  createAssignment(input: T.CreateAssignmentInput) { return this.client.post<{ assignment_uuid: string }>("/assignments/", input); }
   createAssignmentTask(assignmentUuid: string, input: T.CreateAssignmentTaskInput) {
     return this.client.post<{ assignment_task_uuid: string }>(`/assignments/${assignmentUuid}/tasks`, input);
   }

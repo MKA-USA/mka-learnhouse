@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { LhClient, SafetyError, identityStatus, syncIdentity } from "@mka/compliance-core";
 import { parseArgs } from "../src/args";
 import { cmdIdentityStatus, cmdSyncIdentity } from "../src/commands-push";
-import { OUT_DIR } from "../src/commands-data";
+import { outDir } from "../src/commands-data";
 
 const SYNC = { users_seen: 126, groups_created: 3, memberships_added: 400, memberships_removed: 0, roles_set: 20, roles_reverted: 0, errors: [], planned: [{ user: "x", op: "add_group" }] };
 function mock(payload: unknown = SYNC, status = 200) {
@@ -33,7 +33,7 @@ describe("identity client calls", () => {
 });
 
 describe("sync-identity / identity-status commands", () => {
-  const env = { ...process.env }; const report = join(OUT_DIR, "sync-identity-report.json");
+  const env = { ...process.env }; const report = join(outDir(), "sync-identity-report.json");
   let log: ReturnType<typeof spyOn>; let realFetch: typeof fetch;
   beforeEach(() => { realFetch = globalThis.fetch; log = spyOn(console, "log").mockImplementation(() => {}); process.exitCode = 0; if (existsSync(report)) rmSync(report); });
   afterEach(() => { globalThis.fetch = realFetch; log.mockRestore(); process.env = { ...env }; process.exitCode = 0; });

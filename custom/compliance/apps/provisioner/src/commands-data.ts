@@ -8,10 +8,13 @@ import {
 import type { Args } from "./args";
 import { configFrom } from "./config";
 import { DEFAULT_CYCLE, loadCycleDef } from "./cycles";
+import { outSubdir } from "./target";
 
-export const OUT_DIR = fileURLToPath(new URL("../../../out", import.meta.url));
-export function ensureOut() { mkdirSync(OUT_DIR, { recursive: true }); }
-export function writeOut(name: string, body: string) { mkdirSync(OUT_DIR, { recursive: true }); const p = join(OUT_DIR, name); mkdirSync(dirname(p), { recursive: true }); writeFileSync(p, body); return p; }
+const OUT_ROOT = fileURLToPath(new URL("../../../out", import.meta.url));
+/** out/ for dev, out/prod/ for prod: a prod run never reads or overwrites dev artefacts (cycle-courses.json, idmap.json, reports). */
+export const outDir = () => join(OUT_ROOT, outSubdir());
+export function ensureOut() { mkdirSync(outDir(), { recursive: true }); }
+export function writeOut(name: string, body: string) { mkdirSync(outDir(), { recursive: true }); const p = join(outDir(), name); mkdirSync(dirname(p), { recursive: true }); writeFileSync(p, body); return p; }
 const read = (p: string) => readFileSync(p, "utf8");
 const summarize = (issues: Issue[]) => { const c: Record<string, number> = {}; for (const i of issues) c[i.code] = (c[i.code] ?? 0) + 1; return JSON.stringify(c); };
 

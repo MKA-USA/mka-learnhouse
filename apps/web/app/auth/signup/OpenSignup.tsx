@@ -138,7 +138,7 @@ function OpenSignUpComponent({ org: propOrg }: OpenSignUpComponentProps = {}) {
           track(AnalyticsEvent.SignupFailed, { status_code: res.status })
           setError(getErrorMessage(message?.detail, t('common.something_went_wrong')))
           applyMkaServerErrors(res.status, message?.detail, formik.setFieldError) // MKA fork
-          // Turnstile tokens are single-use — fetch a fresh one for the retry.
+          // Turnstile tokens are single-use, so fetch a fresh one for the retry.
           turnstileRef.current?.reset()
         }
       } catch (err) {
@@ -207,7 +207,7 @@ function OpenSignUpComponent({ org: propOrg }: OpenSignUpComponentProps = {}) {
             {/* Resend, so a user whose email doesn't arrive isn't stuck. */}
             {resendState === 'sent' ? (
               <p className="text-xs font-medium text-green-700">
-                {t('auth.verification_email_resent', { defaultValue: 'Verification email sent again — check your inbox.' })}
+                {t('auth.verification_email_resent', { defaultValue: 'Verification email sent again. Check your inbox.' })}
               </p>
             ) : (
               <button
@@ -215,7 +215,7 @@ function OpenSignUpComponent({ org: propOrg }: OpenSignUpComponentProps = {}) {
                 disabled={resendState === 'sending'}
                 onClick={async () => {
                   setResendState('sending')
-                  // org?.id is undefined on the org-less apex — that's fine, the
+                  // org?.id is undefined on the org-less apex; that's fine, the
                   // backend resends by email without an org.
                   const res = await resendVerificationEmail(formik.values.email, org?.id)
                   setResendState(res.success ? 'sent' : 'error')
@@ -416,7 +416,7 @@ function OpenSignUpComponent({ org: propOrg }: OpenSignUpComponentProps = {}) {
         </FormLayout>
         )}
 
-        {/* Divider — only earns its place between two sets of options. */}
+        {/* Divider: only earns its place between two sets of options. */}
         {passwordAllowed && googleAllowed && (
           <div className="relative my-6">
             <div className="absolute inset-0 flex items-center">

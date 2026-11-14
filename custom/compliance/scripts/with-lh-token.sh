@@ -8,4 +8,6 @@ LH_API_TOKEN="$(security find-generic-password -s MKA_LH_DEV_API_TOKEN -w 2>/dev
   echo "with-lh-token: keychain item MKA_LH_DEV_API_TOKEN not found" >&2; exit 1; }
 [ -n "$LH_API_TOKEN" ] || { echo "with-lh-token: empty token" >&2; exit 1; }
 export LH_API_TOKEN
+# The tag is required: the provisioner refuses any token without LH_TOKEN_TARGET matching --target.
+export LH_TOKEN_TARGET=dev
 exec "$@"

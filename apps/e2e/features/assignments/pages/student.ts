@@ -9,7 +9,7 @@
  *   - Number answer -> input placeholder "Enter a number..."
  *   - Form blank    -> the assignment's only <input> without a placeholder.
  *   - "Save your progress" / "Submit for grading" are clickable text.
- *   - Confirm dialog has a "Submit Assignment" button.
+ *   - Confirm dialog has a "Submit" button.
  *   - Result modal shows "<n>/100" and a "Graded <n>/100" status chip.
  */
 import { Page, Locator, expect } from '@playwright/test'
@@ -56,7 +56,7 @@ export class AssignmentPage {
   /**
    * Upload a file for a FILE_SUBMISSION task. The "Submit File" button opens a
    * native file chooser; we satisfy it via Playwright's filechooser event
-   * (mirrors the real user gesture — the component uploads on selection).
+   * (mirrors the real user gesture; the component uploads on selection).
    */
   async uploadFile(filePath: string): Promise<void> {
     const [chooser] = await Promise.all([
@@ -74,7 +74,7 @@ export class AssignmentPage {
    */
   async saveProgress(): Promise<void> {
     // The page can render responsive duplicates (some hidden), so click only
-    // the visible "Save your progress" controls — one per task. Each click
+    // the visible "Save your progress" controls, one per task. Each click
     // PUTs the task submission; we settle the network after each so every
     // answer is persisted before we submit (otherwise a task can grade as
     // unanswered).
@@ -101,7 +101,7 @@ export class AssignmentPage {
 
   /** Submit the whole assignment and confirm the dialog. */
   async submitForGrading(): Promise<void> {
-    const submit = this.body().getByText('Submit for grading')
+    const submit = this.body().getByText('Submit', { exact: true })
     const count = await submit.count()
     for (let i = 0; i < count; i++) {
       const btn = submit.nth(i)
@@ -110,7 +110,7 @@ export class AssignmentPage {
         break
       }
     }
-    const confirm = this.page.getByRole('button', { name: 'Submit Assignment' })
+    const confirm = this.page.getByRole('dialog').getByRole('button', { name: 'Submit', exact: true })
     await expect(confirm).toBeVisible({ timeout: 10_000 })
     await confirm.click()
     // Wait for the submit to round-trip and the confirm dialog to close.
@@ -162,11 +162,11 @@ export class AssignmentPage {
 
   /**
    * Hand in a formative assignment. The trigger reads "Hand in my work" rather
-   * than "Submit for grading" — nothing downstream will grade it — but the
+   * than "Submit for grading" (nothing downstream will grade it), but the
    * confirmation dialog is the same one.
    */
   async handIn(): Promise<void> {
-    const trigger = this.body().getByText('Hand in my work')
+    const trigger = this.body().getByText('Submit', { exact: true })
     const count = await trigger.count()
     for (let i = 0; i < count; i++) {
       const btn = trigger.nth(i)
@@ -175,7 +175,7 @@ export class AssignmentPage {
         break
       }
     }
-    const confirm = this.page.getByRole('button', { name: 'Submit Assignment' })
+    const confirm = this.page.getByRole('dialog').getByRole('button', { name: 'Submit', exact: true })
     await expect(confirm).toBeVisible({ timeout: 10_000 })
     await confirm.click()
     await expect(confirm).toBeHidden({ timeout: 15_000 })

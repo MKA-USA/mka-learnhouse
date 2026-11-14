@@ -75,7 +75,7 @@ function InviteOnlySignUpComponent(props: InviteOnlySignUpProps) {
   const [isSubmitting, setIsSubmitting] = React.useState(false)
   // Prefer the client OrgContext, but fall back to the server-provided org so the
   // OAuth org cookies get written even during the react-query load window (an
-  // invite link opened cold) — otherwise a Google sign-up lands org-less instead
+  // invite link opened cold); otherwise a Google sign-up lands org-less instead
   // of joined to the invited org. Mirrors OpenSignup.
   const contextOrg = useOrg() as any
   const org = (contextOrg && (contextOrg.id || contextOrg.slug)) ? contextOrg : props.org
@@ -125,7 +125,7 @@ function InviteOnlySignUpComponent(props: InviteOnlySignUpProps) {
           track(AnalyticsEvent.SignupFailed, { status_code: res.status })
           setError(getErrorMessage(message?.detail, t('common.something_went_wrong')))
           applyMkaServerErrors(res.status, message?.detail, formik.setFieldError) // MKA fork
-          // Turnstile tokens are single-use — fetch a fresh one for the retry.
+          // Turnstile tokens are single-use, so fetch a fresh one for the retry.
           turnstileRef.current?.reset()
         }
       } catch (err) {

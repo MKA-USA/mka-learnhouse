@@ -17,6 +17,8 @@ from src.routers import mka_attributes as mka_attributes_router_module  # MKA fo
 from src.routers import mka_compliance as mka_compliance_router_module  # MKA fork
 from src.routers import mka_automation as mka_automation_router_module  # MKA fork
 from src.routers import mka_identity as mka_identity_router_module  # MKA fork
+from src.routers import mka_course_audience as mka_course_audience_router_module  # MKA fork
+from src.routers import mka_health as mka_health_router_module  # MKA fork
 from src.routers import monitoring
 from src.routers import nudges as nudges_router_module
 from src.routers import stream
@@ -56,7 +58,7 @@ from src.security.features_utils.plan_check import require_plan, require_plan_fo
 
 v1_router = APIRouter(prefix="/api/v1")
 
-# Helper dependency to reject API token access (still admits AnonymousUser —
+# Helper dependency to reject API token access (still admits AnonymousUser;
 # use on routers that contain at least one deliberately-public endpoint).
 async def get_non_api_token_user(user = Depends(get_current_user)):
     """Dependency that rejects API token access."""
@@ -106,12 +108,23 @@ v1_router.include_router(  # MKA fork: identity sync (role + groups); admin sess
     tags=["mka-identity"],
     dependencies=[Depends(require_authenticated_user_or_api_token)],
 )
+v1_router.include_router(  # MKA fork: course audience; session (author/admin of the course) or org API token, gated per handler
+    mka_course_audience_router_module.router,
+    prefix="/mka/courses",
+    tags=["mka-course-audience"],
+    dependencies=[Depends(require_authenticated_user_or_api_token)],
+)
+v1_router.include_router(  # MKA fork: schema health; deliberately unauthenticated (deploy checks), returns counts only
+    mka_health_router_module.router,
+    prefix="/mka/health",
+    tags=["mka-health"],
+)
 v1_router.include_router(
     usergroups.router,
     prefix="/usergroups",
     tags=["usergroups"],
     # Admit API tokens (headless enrollment/usergroup management) while still
-    # rejecting anonymous callers — same pattern as /assignments. `usergroups`
+    # rejecting anonymous callers, same pattern as /assignments. `usergroups`
     # is already an allowed API-token resource type in the RBAC layer
     # (rbac.py authorization_verify_api_token_permissions), and every handler
     # authorizes through usergroups.rbac_check, which has an APITokenUser branch
@@ -185,7 +198,7 @@ v1_router.include_router(
     prefix="/orgs",
     tags=["custom-domains"],
 )
-# Public unsubscribe endpoints (no auth — the HMAC token in the link is the
+# Public unsubscribe endpoints (no auth: the HMAC token in the link is the
 # authorisation; a nudge recipient may have no session at all)
 v1_router.include_router(
     nudges_router_module.public_router,
@@ -433,7 +446,7 @@ v1_router.include_router(
     dependencies=[Depends(get_non_api_token_user)],
 )
 
-# Plan limits (public, no auth — used by frontend pricing pages)
+# Plan limits (public, no auth; used by frontend pricing pages)
 v1_router.include_router(plans.router, prefix="/plans", tags=["plans"])
 
 # Register EE Routers if available

@@ -223,10 +223,12 @@ async def build_context(
         )
     ).all()
     my_depts = {r.department for r in rows if r.department}
+    needs_plan = any(cs.requires_majlis_plan(r.role_title, r.department) for r in rows)
     required = [
         (cc, course)
         for cc, course in pairs
-        if cc.signoff_assignment_id and (cc.kind == "general" or (cc.kind == "department" and cc.department in my_depts))
+        if cc.signoff_assignment_id
+        and (cc.kind == "general" or (cc.kind == "department" and cc.department in my_depts) or (cc.kind == cs.MAJLIS_PLAN_KIND and needs_plan))
     ]
     if link.id not in {cc.id for cc, _ in required}:
         return None, "course_not_required_of_user"
@@ -255,6 +257,7 @@ def is_all_set(ctx: Context) -> bool:
     config = cs.with_config({"attested_requires": "both"})
     by_kind_dept = {(cc.kind, cc.department or ""): cc for cc, _ in ctx.required}
     general = by_kind_dept.get(("general", ""))
+    plan_cc = by_kind_dept.get((cs.MAJLIS_PLAN_KIND, ""))
 
     def progress(cc: Optional[MkaComplianceCycleCourse]) -> Optional[dict]:
         if cc is None:
@@ -270,6 +273,8 @@ def is_all_set(ctx: Context) -> bool:
         record = {
             "signed_in": True, "department_slug": row.department, "general": progress(general),
             "dept_course": progress(dept), "dept_required": dept is not None, "general_required": general is not None,
+            "majlis_plan": progress(plan_cc),
+            "majlis_plan_required": plan_cc is not None and cs.requires_majlis_plan(row.role_title, row.department),
         }
         if cs.stage_of(record, config) != "attested":
             return False

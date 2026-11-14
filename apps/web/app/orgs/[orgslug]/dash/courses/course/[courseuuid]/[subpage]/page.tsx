@@ -125,7 +125,7 @@ function CourseOverviewPage(props: { params: Promise<CourseOverviewParams> }) {
     )
   }
 
-  // CourseProvider is always rendered so course meta fetches IN PARALLEL with rights —
+  // CourseProvider is always rendered so course meta fetches IN PARALLEL with rights,
   // no sequential waterfall. The tab content is gated by hasPermission() which returns
   // false (safe default) until rights finish loading.
   return (

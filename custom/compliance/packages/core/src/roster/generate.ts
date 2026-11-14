@@ -99,7 +99,16 @@ export function generateRoster(opts: GenerateOptions = {}): RosterRow[] {
   return rows;
 }
 
-/** Which courses a roster row should be enrolled in (General always; department course when it has one). */
-export function coursesFor(row: Pick<RosterRow, "departmentSlug">): { general: true; department: string | null } {
-  return { general: true, department: row.departmentSlug || null };
+/** Local Qaid / Naib Qaid, Regional Qaid, and the Muqami chapter Qaid (a national-level row on `muqami@`). */
+export function isQaidOffice(row: { role: string; level: string; departmentSlug: string; majlis?: string }): boolean {
+  if (row.role === "qaid" || row.role === "naib_qaid" || row.role === "regional_qaid") return true;
+  return row.role === "mohtamim" && row.level === "national" && !row.departmentSlug && row.majlis === "Muqami";
+}
+
+/**
+ * Which courses a roster row should be enrolled in: General always; the department course when it has one;
+ * the Majlis Plan for Qaideen and Naib Qaideen (Constitution cl. 145-146). National Sadr / Naib Sadr: General only.
+ */
+export function coursesFor(row: { role: string; level: string; departmentSlug: string; majlis?: string }): { general: true; department: string | null; majlisPlan: boolean } {
+  return { general: true, department: row.departmentSlug || null, majlisPlan: isQaidOffice(row) };
 }

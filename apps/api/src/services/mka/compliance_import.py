@@ -32,7 +32,7 @@ from src.services.mka.identity_parser import LEVELS
 
 MAX_EXPECTED_ROWS = 2000
 MAX_COURSE_ROWS = 100
-KINDS = ("general", "department")
+KINDS = ("general", "department", "majlis-plan")  # majlis-plan: one cycle course for Qaideen / Naib Qaideen (no department)
 # starts_on is not part of the provisioner file; when a NEW cycle arrives without one we assume a 30-day
 # cycle ending at the deadline (UNCONFIRMED) and keep whatever is stored on later imports.
 DEFAULT_CYCLE_LENGTH_DAYS = 30
@@ -162,11 +162,11 @@ async def upsert_cycle(db: AsyncSession, org_id: int, payload: dict) -> dict:
                 raise ValueError("course entry must be an object")
             kind = _text(raw.get("kind"), "kind", 20, required=True)
             if kind not in KINDS:
-                raise ValueError("kind must be 'general' or 'department'")
+                raise ValueError("kind must be 'general', 'department' or 'majlis-plan'")
             department = normalize_department(raw.get("department")) or None
             if kind == "department" and not department:
                 raise ValueError("department is required for a department course")
-            if kind == "general":
+            if kind in ("general", "majlis-plan"):
                 department = None
             course_uuid = _text(raw.get("course_uuid"), "course_uuid", 200, required=True)
             course = await _find_course(db, org_id, course_uuid)  # type: ignore[arg-type]

@@ -252,7 +252,7 @@ def _patches(seen, asked):
         return {"output": "ok"}
 
     return [
-        patch.object(ai_service, "check_resource_access", new_callable=AsyncMock),
+        patch.object(ai_service, "can_read_activity", new_callable=AsyncMock, return_value=True),
         patch(RATE_LIMIT_PATH),
         patch.object(ai_service, "reserve_ai_credit", new_callable=AsyncMock),
         patch.object(ai_service, "structure_activity_content_by_type", side_effect=spy),
@@ -260,6 +260,7 @@ def _patches(seen, asked):
         patch.object(ai_service, "get_chat_session_history", return_value={"aichat_uuid": "chat_1", "message_history": []}),
         patch.object(ai_service, "ask_ai", side_effect=fake_ask),
         patch.object(ai_service, "save_message_to_history"),
+        patch.object(ai_service, "chat_session_belongs_to_user", return_value=True),
     ]
 
 

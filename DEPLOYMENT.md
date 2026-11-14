@@ -79,7 +79,7 @@ Never push directly to `prod`, and never point prod at `#dev`.
 `mka-prod-deploy` runs at the top of every hour (`0 * * * *`, UTC) and on manual dispatch.
 
 - **Merge anytime.** Merging a `dev` -> `prod` PR never deploys by itself. Merging stays manual; no workflow merges PRs.
-- **Marker tag.** Git tag `prod-deployed` points at the last successfully deployed `prod` SHA. If `prod` HEAD equals the tag, the run exits with "nothing to deploy". If the tag is missing, it counts as never deployed and deploys. Otherwise the job summary lists `git log prod-deployed..prod` and warns if `apps/api/migrations/**` changed (informational; it still deploys). The tag moves only after the health check passes, so a failed deploy is retried next hour.
+- **Marker tag.** Git tag `prod-deployed` points at the last successfully deployed `prod` SHA. If `prod` HEAD equals the tag, the run exits with "nothing to deploy". If the tag is missing, it counts as never deployed and deploys. Otherwise the job summary lists `git log prod-deployed..prod` and warns if `apps/api/migrations/**` changed (informational; it still deploys). The tag moves only after the health check AND the schema check (`/api/v1/mka/health/schema`: no drift, Alembic at head) pass, so a failed deploy is retried next hour.
 - **Urgent deploy:** Actions > `mka-prod-deploy` > Run workflow with `urgent=true` (ignores the freeze). `force=true` redeploys even if prod HEAD equals the tag.
 - **Freeze:** `gh variable set PROD_FREEZE --body true` makes scheduled runs and non-urgent dispatches skip (green run, logged). Unfreeze with `gh variable delete PROD_FREEZE`. Freeze before MKA events.
 - **Setup:** a GitHub Environment named `production` with secrets `COOLIFY_URL`, `COOLIFY_TOKEN` and `COOLIFY_PROD_SERVICE_UUID`. The workflow needs `contents: write` only to move the tag.
@@ -122,7 +122,7 @@ Actions is enabled on this fork for deploying dev and prod.
 - Do not add or enable GitHub Actions workflows that build or push images, and do not re-enable the inherited `release`, `build-community`, `cli-publish` or `notify-infra` workflows. New workflows must be prefixed `mka-`.
 - Dev deploys itself when `dev` is pushed (`mka-dev-deploy`). Prod deploys hourly after the owner merges to `prod` (`mka-prod-deploy`). Never merge PRs or trigger prod deploys yourself. When you finish a change, say whether it needs a prod deploy (and note dev will auto-deploy on push).
 - If a change needs a new or changed environment variable, say so explicitly. It must be added in Coolify for each environment. It cannot be shipped through git.
-- Database migrations run against real prod data on the first prod start after the next hourly deploy. Flag any migration in your PR description and test it on dev first.
+- Database migrations (Alembic) run automatically against real prod data on container start (`docker/start.sh` -> `apps/api/scripts/mka-migrate.sh`). Flag any migration in your PR description, confirm the Coolify DB backup is recent, and let it run on dev first. Controls: `MKA_SKIP_MIGRATIONS=1` disables the step; `MKA_MIGRATE_BASELINE_REV` overrides the revision stamped on a DB that has tables but no `alembic_version` (default `mka_20261008_course_audience`). Failures never block startup: they log `MKA_MIGRATE_FAILED`, and the deploy workflows fail on the schema check. A Postgres advisory lock keeps two containers from migrating at once.
 
 ## Email and Google SSO environment variables (Coolify, per environment)
 
@@ -162,3 +162,14 @@ Set these in Coolify for each environment (dev and prod). Values and secrets nev
 - Fork: https://github.com/MKA-USA/mka-learnhouse
 - Dev: https://ilm-dev.mkausa.org
 - Prod: https://ilm.mkausa.org
+
+
+## Database migrations on deploy (MKA fork)
+
+Why: the API only runs `create_all` (new tables, never new columns), and upstream applies Alembic only from its own CLI
+`update` command, which our Coolify deploys bypass. A column added upstream (`assignmenttask.order`) therefore 500-ed dev.
+
+- `docker/start.sh` runs `apps/api/scripts/mka-migrate.sh` before pm2 starts the API. It waits for the DB, takes an advisory lock, then: fresh DB -> `create_all` + stamp heads; tables but no `alembic_version` -> stamp the baseline then `alembic upgrade heads`; stamped -> `alembic upgrade heads`. Ported from `ensureAlembicBaseline` / `runAlembicUpgrade` in `apps/cli/src/commands/update-ee.ts`, except the baseline is a fixed revision (the CLI stamps the OUTGOING image's heads before pulling; in-container only the new code is visible, and stamping its heads would skip the new migrations).
+- `src/services/mka/schema_drift.py` compares `SQLModel.metadata` with the live DB. Logged at start as `MKA_SCHEMA_DRIFT`; exposed unauthenticated as `GET /api/v1/mka/health/schema` -> `{"ok", "missing", "alembic_at_head"}` (counts only).
+- CI: `.github/workflows/mka-migrations.yaml` asserts one Alembic head and runs `scripts/mka/migration-sim.sh <base-sha>` (build the PR base's schema with `create_all` + stamp, run the PR's migrate logic, require zero drift).
+- Safety note: every migration after `b1c2d3e4f5a6` was verified idempotent against a `create_all` schema. Migrations before it are not guaranteed; never point an unstamped DB older than the baseline at this step.

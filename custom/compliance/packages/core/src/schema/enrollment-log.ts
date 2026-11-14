@@ -7,6 +7,7 @@ export const enrollmentLog = pgTable(
   {
     id: serial("id").primaryKey(),
     cycleId: integer("cycle_id").notNull().references(() => cycle.id, { onDelete: "cascade" }),
+    target: text("target").notNull().default("dev"),
     lhCourseUuid: text("lh_course_uuid").notNull(),
     learnerEmail: text("learner_email").notNull(),
     lhUserId: integer("lh_user_id"),
@@ -15,5 +16,5 @@ export const enrollmentLog = pgTable(
     detail: text("detail"),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [unique("enrollment_log_key").on(t.cycleId, t.lhCourseUuid, t.learnerEmail)],
+  (t) => [unique("enrollment_log_key").on(t.target, t.cycleId, t.lhCourseUuid, t.learnerEmail)],
 );

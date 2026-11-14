@@ -127,3 +127,22 @@ describe("overrides: appointed_on", () => {
     expect(roster.find((x) => x.learnerEmail === "maal.boston@mkausa.org")?.appointedOn ?? null).toBeNull();
   });
 });
+
+describe("stray quote sanitizer", () => {
+  test("drops an unmatched closing quote, keeps balanced pairs (straight and curly mixed)", async () => {
+    const { dropStrayQuotes, dropStrayQuotesInSegment } = await import("../src");
+    expect(dropStrayQuotesInSegment("minimum.\u201d").text).toBe("minimum.");
+    expect(dropStrayQuotesInSegment("one \"Misaali (Exemplary) Waqar-e-Amal\u201d Note").dropped).toBe(0);
+    expect(dropStrayQuotesInSegment("\u201cCleaning my Soul\u201d every Thursday").dropped).toBe(0);
+    expect(dropStrayQuotesInSegment("an \u201copen quote never closed").text).toBe("an open quote never closed");
+    expect(dropStrayQuotesInSegment("plain text").dropped).toBe(0);
+    const md = "| Develop materials, two meetings per year minimum.\u201d | National | Q4 (Aug - Oct 2027) |\n| ok \u201cfine\u201d | Local | Q1 |\nA line with stray\u201d quote";
+    const r = dropStrayQuotes(md);
+    expect(r.dropped).toBe(2); expect(r.text).toContain("minimum. | National"); expect(r.text).toContain("\u201cfine\u201d"); expect(r.text).toContain("stray quote");
+  });
+  test("parseDeptPlans cleans the three markdown columns and reports it as an info issue", () => {
+    const csv = "department,level,responsibilities_md,okrs_md,resources_md\nmaal,all,Duties.\u201d,\"Objective 1: Grow\\n\\n| a | b |\",\n";
+    const { rows, issues } = parseDeptPlans(csv);
+    expect(rows[0]!.responsibilitiesMd).toBe("Duties."); expect(issues.map((i) => i.code)).toContain("stray-quote");
+  });
+});

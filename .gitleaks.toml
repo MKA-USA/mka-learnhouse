@@ -1,0 +1,54 @@
+title = "MKA LearnHouse gitleaks config"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "coolify-api-token"
+description = "Coolify API token (<id>|<40+ alnum>)"
+regex = '''\b\d{1,6}\|[A-Za-z0-9]{40,}\b'''
+keywords = ["|"]
+
+[[rules]]
+id = "tinybird-token"
+description = "Tinybird token"
+regex = '''p\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+'''
+keywords = ["p.eyj"]
+
+[[rules]]
+id = "fireworks-api-key"
+description = "Fireworks AI API key"
+regex = '''\bfw_[A-Za-z0-9]{20,}'''
+keywords = ["fw_"]
+
+[[rules]]
+id = "db-url-inline-password"
+description = "postgres/redis URL with inline password"
+regex = '''(?i)(postgres(?:ql)?|redis)://[^:\s/'"]+:[^@\s'"]+@'''
+keywords = ["postgres", "redis"]
+
+  [[rules.allowlists]]
+  description = "Obvious local/dev placeholder credentials"
+  regexTarget = "match"
+  regexes = [
+    '''(?i)postgres(?:ql)?(?:\+\w+)?://postgres:postgres@''',
+    '''(?i)postgres(?:ql)?(?:\+\w+)?://learnhouse:learnhouse@''',
+    '''://[^:\s/]+:(u|p|pw|pass|passwd|password|changeme|change-me|secret|example|your[-_a-z]*|xxx+|\*+|<[^>]*>|\$\{[^}]*\}|\$[A-Za-z_]+)@''',
+    '''\}:\$\{[^}]*\}@''',
+  ]
+
+[allowlist]
+description = "Known false positives (upstream fixtures/docs, deleted fork history)"
+paths = [
+  '''apps/api/src/tests/security/test_security\.py$''',
+  '''apps/cli/tests/unit\.test\.ts$''',
+  '''docs/content/.*''',
+  '''docs/screens/audience/explore/real/real-results\.json$''',
+  '''\.codebase-memory/graph\.db\.zst$''',  # binary graph only; .md/.json siblings are scanned
+  # Untracked local tool state (also blocked from commits by scripts/check-forbidden-paths.sh)
+  '''(^|/)\.tinyb$''',
+  '''^\.(agents|hermes|kiro|serena|considered)/''',
+  '''^\.(claude|qwen)/(worktrees|tmp)/''',
+  '''(^|/)__pycache__/''',
+]
+commits = ["cbebb80cf1ccceb845bb1a41ec10f12154ca570f", "8aafafdf05b9929a5a316154ccb1a0c54fd19a29"]

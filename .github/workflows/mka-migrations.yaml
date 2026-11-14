@@ -1,0 +1,76 @@
+name: MKA Migrations
+
+# Catches "model has a column the deployed database lacks" before merge. Deploys build the root Dockerfile and the API
+# only runs create_all (never adds columns), so docker/start.sh runs Alembic via apps/api/scripts/mka-migrate.sh. This job:
+#   1. asserts exactly one Alembic head
+#   2. builds the PR BASE's schema the way dev/prod got there (create_all + stamp heads), runs the PR's migrate logic
+#      against it, then asserts zero schema drift (scripts/mka/migration-sim.sh).
+on:
+  pull_request:
+    branches: [dev, prod]
+    paths:
+      - "apps/api/**"
+      - "docker/start.sh"
+      - "scripts/mka/migration-sim.sh"
+      - ".github/workflows/mka-migrations.yaml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  migrations:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: lh
+          POSTGRES_PASSWORD: pw
+          POSTGRES_DB: lh
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lh -d lh"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      LEARNHOUSE_SQL_CONNECTION_STRING: postgresql://lh:pw@localhost:5432/lh
+      LEARNHOUSE_AUTH_JWT_SECRET_KEY: ci-secret-key-for-migration-sim-32chars!
+      LEARNHOUSE_DOMAIN: localhost
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          version: latest
+          enable-cache: true
+          cache-dependency-glob: "apps/api/uv.lock"
+
+      - name: Exactly one Alembic head
+        working-directory: apps/api
+        run: |
+          uv sync --quiet
+          heads=$(uv run alembic heads 2>/dev/null | grep -c '(head)' || true)
+          echo "alembic heads: $heads"
+          uv run alembic heads 2>/dev/null | grep '(head)' || true
+          if [ "$heads" != "1" ]; then
+            echo "::error::Expected exactly one Alembic head, found $heads. Add a merge migration."
+            exit 1
+          fi
+
+      - name: Upgrade simulation (PR base schema -> PR head code), zero drift
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: scripts/mka/migration-sim.sh "$BASE_SHA"

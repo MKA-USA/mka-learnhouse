@@ -164,3 +164,18 @@ Default five-label vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, 
 ### Domain docs
 
 Single-context: `GLOSSARY.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+
+## Syncing upstream
+
+- **Cadence:** `.github/workflows/mka-upstream-sync.yaml` runs Mon+Thu 14:00 UTC (and on demand: `gh workflow run mka-upstream-sync.yaml`). It merges `learnhouse/learnhouse` `dev` into a `sync/upstream-YYYY-MM-DD` branch and opens a PR into `dev`. PR-body/gating logic: `scripts/mka/upstream-sync-report.py`.
+- **Labels:** `upstream-sync` = automated sync PR. `needs-review` = carries migrations, config/env changes, workflow changes, or fork hook sites; auto-merge is off, review before merging. `ai-resolved` = Claude resolved conflicts (prompt: `.github/mka/upstream-conflict-prompt.md`); never auto-merged, read its resolution summary. `ready-for-agent` on the issue "Upstream sync blocked by conflicts" = the bot gave up; resolve by hand.
+- **Merge commits only.** Sync PRs and dev->prod use "Create a merge commit". Never squash/rebase a sync: it destroys the merge-base and the next sync re-conflicts on every file.
+- **rerere:** `git config rerere.enabled true` locally so repeated conflicts reuse earlier resolutions (the workflow's cache does not persist between runs).
+- **Resolve a blocked issue manually:** fetch `upstream`, branch `sync/upstream-manual` from `origin/dev`, run `git merge --no-ff upstream/dev`; take upstream as base and re-apply fork hooks per `.codebase-memory/upstream-modifications.md`; regenerate lockfiles (`cd apps/api && uv lock`, `cd apps/web && bun install`) instead of hand-merging; run api tests + web lint/typecheck; commit, push, open a PR into `dev` labeled `upstream-sync`, merge with a merge commit. Update `upstream-modifications.md` if a hook moved.
+- **Post-merge checklist (every sync PR, before and after it reaches dev):**
+  1. Read the "Schema changes" section of the sync report (migrations altering existing tables). Migrations run automatically at container start (`apps/api/scripts/mka-migrate.sh`); the `MKA Migrations` check simulates the upgrade from the PR base.
+  2. After the dev deploy, `curl https://ilm-dev.mkausa.org/api/v1/mka/health/schema` must return `ok: true` and `alembic_at_head: true` (the deploy workflow checks this and fails otherwise). On failure grep the service log for `MKA_MIGRATE_FAILED` / `MKA_SCHEMA_DRIFT`.
+  3. Authenticated smoke test of fork pages on dev: compliance dashboard, profile, course audience, AI chat.
+  4. Only then promote dev -> prod (confirm the Coolify DB backup is recent first).
+- **Keep the fork footprint small.** Prefer new `mka-` files and extension points over editing upstream files; every upstream-file edit is a future conflict and must be logged in `upstream-modifications.md`. Never edit upstream workflows (use `gh workflow disable`).
+- **Secrets/settings:** `MKA_SYNC_APP_ID`, `MKA_SYNC_APP_PRIVATE_KEY`, `ANTHROPIC_API_KEY` (or `CLAUDE_CODE_OAUTH_TOKEN`). Rulesets in `.github/mka/rulesets/`; the single required check is `MKA CI gate` (`mka-ci-gate.yaml`).

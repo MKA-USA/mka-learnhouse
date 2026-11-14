@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 /** Minimal ProseMirror JSON builders matching the LearnHouse (TipTap) editor schema. */
 export type PMMark = { type: string; attrs?: Record<string, unknown> };
 export type PMNode = { type: string; attrs?: Record<string, unknown>; content?: PMNode[]; text?: string; marks?: PMMark[] };
@@ -32,3 +34,19 @@ export function plainText(n: PMNode | PMDoc | undefined): string {
   const sep = ["doc", "bulletList", "orderedList", "table", "tableRow"].includes(n.type) || n.type === "listItem" ? "\n" : n.type === "tableCell" || n.type === "tableHeader" ? " | " : "";
   return kids.join(sep) + (["paragraph", "heading"].includes(n.type) ? "\n" : "");
 }
+
+/** Audience rule shape stored by the editor's `mkaAudience` node (apps/web/components/mka/audience/types.ts, v1). */
+export type AudienceRule = { v: 1; mode: "show" | "hide"; groups: Record<string, string[]>[]; label?: string };
+
+/** Deterministic UUID-v4-shaped id (the editor uses crypto.randomUUID) so re-applies produce identical content. */
+export function audienceId(...parts: string[]): string {
+  const b = createHash("sha256").update(parts.join("|")).digest();
+  b[6] = (b[6]! & 0x0f) | 0x40; b[8] = (b[8]! & 0x3f) | 0x80;
+  const x = b.subarray(0, 16).toString("hex");
+  return `${x.slice(0, 8)}-${x.slice(8, 12)}-${x.slice(12, 16)}-${x.slice(16, 20)}-${x.slice(20, 32)}`;
+};
+
+/** Wrap blocks in an `mkaAudience` section (show to any of `groups`). */
+export const audience = (id: string, groups: Record<string, string[]>[], label: string, content: PMNode[]): PMNode => ({
+  type: "mkaAudience", attrs: { id, rule: { v: 1, mode: "show", groups, label } satisfies AudienceRule }, content,
+});

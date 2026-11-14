@@ -43,6 +43,13 @@
       "when": 1791205269527,
       "tag": "0005_unusual_terrax",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794234244593,
+      "tag": "0006_overconfident_red_skull",
+      "breakpoints": true
     }
   ]
 }
