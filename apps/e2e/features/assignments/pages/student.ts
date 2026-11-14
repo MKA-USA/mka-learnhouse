@@ -9,7 +9,7 @@
  *   - Number answer -> input placeholder "Enter a number..."
  *   - Form blank    -> the assignment's only <input> without a placeholder.
  *   - "Save your progress" / "Submit for grading" are clickable text.
- *   - Confirm dialog has a "Submit Assignment" button.
+ *   - Confirm dialog has a "Submit" button.
  *   - Result modal shows "<n>/100" and a "Graded <n>/100" status chip.
  */
 import { Page, Locator, expect } from '@playwright/test'
@@ -101,7 +101,7 @@ export class AssignmentPage {
 
   /** Submit the whole assignment and confirm the dialog. */
   async submitForGrading(): Promise<void> {
-    const submit = this.body().getByText('Submit for grading')
+    const submit = this.body().getByText('Submit', { exact: true })
     const count = await submit.count()
     for (let i = 0; i < count; i++) {
       const btn = submit.nth(i)
@@ -110,7 +110,7 @@ export class AssignmentPage {
         break
       }
     }
-    const confirm = this.page.getByRole('button', { name: 'Submit Assignment' })
+    const confirm = this.page.getByRole('button', { name: 'Submit', exact: true })
     await expect(confirm).toBeVisible({ timeout: 10_000 })
     await confirm.click()
     // Wait for the submit to round-trip and the confirm dialog to close.
@@ -166,7 +166,7 @@ export class AssignmentPage {
    * confirmation dialog is the same one.
    */
   async handIn(): Promise<void> {
-    const trigger = this.body().getByText('Hand in my work')
+    const trigger = this.body().getByText('Submit', { exact: true })
     const count = await trigger.count()
     for (let i = 0; i < count; i++) {
       const btn = trigger.nth(i)
@@ -175,7 +175,7 @@ export class AssignmentPage {
         break
       }
     }
-    const confirm = this.page.getByRole('button', { name: 'Submit Assignment' })
+    const confirm = this.page.getByRole('button', { name: 'Submit', exact: true })
     await expect(confirm).toBeVisible({ timeout: 10_000 })
     await confirm.click()
     await expect(confirm).toBeHidden({ timeout: 15_000 })
