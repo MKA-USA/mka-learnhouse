@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import type { CourseSpec, QuizQuestion, FormQuestion } from "./types";
 
@@ -26,6 +27,26 @@ export function blankQ(key: string, text: string, placeholder: string): FormQues
 export function specHash(spec: CourseSpec): string {
   return sha(JSON.stringify(spec, (k, v) => (k === "abs" ? undefined : v)), 16);
 }
+
+/** "Maal (Finance)", but just "Amoomi" when the translation is the same word. */
+export const deptLabel = (name: string, translation: string): string => (translation && translation.trim().toLowerCase() !== name.trim().toLowerCase() ? `${name} (${translation})` : name);
+
+/** Seconds of a local video via ffprobe, or `fallback` when ffprobe is unavailable (estimates only; never throws). */
+export function videoSeconds(abs: string, fallback = 120): number {
+  try {
+    const out = execFileSync("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", abs], { encoding: "utf8", timeout: 10_000 }).trim();
+    const n = Number(out); return Number.isFinite(n) && n > 0 ? n : fallback;
+  } catch { return fallback; }
+}
+
+/** Round to the nearest 5 minutes (minimum 5) for course descriptions. */
+export const roundMinutes = (m: number): number => Math.max(5, Math.round(m / 5) * 5);
+export const READING_WPM = 200; // plain-text reading speed used for time estimates
+export const SECONDS_PER_QUESTION = 30;
+
+/** Instruction lines for assignment pages. Deliberately label-neutral about the button text ("Submit" in both the current and the renamed UI): they must stay true across LearnHouse button renames. "Finish course" is course.finish_course in apps/web/locales/en.json. */
+export const QUIZ_INSTRUCTION = "Answer each question, then press the Submit button at the bottom of the page. You can change your answers until you submit.";
+export const SIGNOFF_INSTRUCTION = "Answer the question and type your full name, then press the Submit button at the bottom of the page. Then press Finish course.";
 
 export const COURSE_PREFIX = "MKA";
 export const courseName = (cycle: string, suffix: string) => `${COURSE_PREFIX} ${cycle} · ${suffix}`;

@@ -20,6 +20,7 @@ function fakeApi(opts: { existing?: { name: string; course_uuid: string }[]; fai
     createAssignment: async (i: unknown) => { rec("createAssignment", i); n++; return { assignment_uuid: `assignment_${n}` }; },
     createAssignmentTask: async (_a: string, i: unknown) => { rec("createAssignmentTask", i); n++; return { assignment_task_uuid: `task_${n}` }; },
     getCourseMeta: async () => ({ published: "published" in opts ? opts.published : false, chapters: opts.chapters }),
+    reorderCourse: async (u: string, i: unknown) => { rec("reorderCourse", { u, i }); },
     getAssignment: async (u: string) => ({ assignment_uuid: u, published: opts.assignmentPublished ?? true }),
     updateChapter: async (id: number, i: unknown) => { rec("updateChapter", { id, i }); },
     deleteActivity: async (u: string) => { rec("deleteActivity", u); },
@@ -123,6 +124,39 @@ describe("provision idempotency", () => {
     await expect(applyCourse({ api: fakeApi({ failOn: "updateActivity" }).api, store: store2, orgId: 1 }, s)).rejects.toThrow("boom");
     const back = (await store2.get("department", "tabligh"))!.structure.activities.role!;
     expect(back.owner).toBeUndefined(); expect(back.hash).toBe("old");
+  });
+  test("moving activities between chapters keeps their ids: one reorder call, no create/delete, author-owned content untouched", async () => {
+    const store = memoryMapStore(); const first = fakeApi(); const s1 = spec(); await applyCourse({ api: first.api, store, orgId: 1 }, s1);
+    const before = (await store.get("department", "tabligh"))!.structure;
+    // spec 2: "directory" moves from ch-contacts to ch-plan, a NEW chapter is added in the middle, and the role page's source changes (author-owned: must be skipped)
+    const s2 = structuredClone(s1) as typeof s1;
+    const contacts = s2.chapters.find((c) => c.key === "ch-contacts")!; const plan = s2.chapters.find((c) => c.key === "ch-plan")!;
+    plan.activities.push(contacts.activities.shift()!);
+    s2.chapters.splice(2, 0, { key: "ch-extra", name: "Extra", description: "d", activities: [] });
+    const r0 = s2.chapters[0]!.activities[0]!; if (r0.kind !== "page") throw new Error("page"); r0.doc = { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "NEW SOURCE" }] }] };
+    const planned = planCourse(s2, await store.get("department", "tabligh"));
+    expect(planned.items.find((i) => i.key === "directory")).toMatchObject({ action: "update" });
+    expect(planned.items.find((i) => i.key === "directory")!.detail).toContain("move to chapter ch-plan (activity id and content kept)");
+    expect(planned.items.find((i) => i.key === "role")).toMatchObject({ action: "skip" });
+    const f = fakeApi(); const r = await applyCourse({ api: f.api, store, orgId: 1 }, s2);
+    expect(f.calls.map((c) => c.fn)).toEqual(["createChapter", "reorderCourse"]); // nothing recreated, nothing deleted, no content written
+    expect(r.created).toBe(1);
+    const order = (f.calls[1]!.arg as { i: { chapter_order_by_ids: { chapter_id: number; activities_order_by_ids: { activity_id: number }[] }[] } }).i.chapter_order_by_ids;
+    const after = (await store.get("department", "tabligh"))!.structure;
+    expect(order.map((o) => o.chapter_id)).toEqual(["ch-role", "ch-plan", "ch-extra", "ch-contacts", "ch-attest"].map((k) => after.chapters[k]!.id)); // spec order, new chapter in place
+    const planIds = order[1]!.activities_order_by_ids.map((a) => a.activity_id);
+    expect(planIds).toContain(before.activities.directory!.id); // same activity id, new chapter
+    expect(after.activities.directory!.id).toBe(before.activities.directory!.id); expect(after.activities.directory!.chapterKey).toBe("ch-plan");
+    expect(order.flatMap((o) => o.activities_order_by_ids).length).toBe(Object.keys(before.activities).length); // nothing left out (anything left out would be unlinked)
+    // converged: the next apply does nothing
+    const g = fakeApi(); const r2 = await applyCourse({ api: g.api, store, orgId: 1 }, s2);
+    expect(g.calls.length).toBe(0); expect(r2.updated + r2.created).toBe(0);
+  });
+  test("a move on a published course is refused before any write", async () => {
+    const store = memoryMapStore(); await applyCourse({ api: fakeApi().api, store, orgId: 1 }, spec());
+    const s2 = spec(); s2.chapters.find((c) => c.key === "ch-plan")!.activities.push(s2.chapters.find((c) => c.key === "ch-contacts")!.activities.shift()!);
+    const f = fakeApi({ published: true });
+    await expect(applyCourse({ api: f.api, store, orgId: 1 }, s2)).rejects.toBeInstanceOf(SafetyError); expect(f.calls.length).toBe(0);
   });
   test("chapter renames update in place", async () => {
     const store = memoryMapStore(); const { api, calls } = fakeApi(); const s = spec(); await applyCourse({ api, store, orgId: 1 }, s);

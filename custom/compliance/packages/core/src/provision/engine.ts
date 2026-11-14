@@ -51,6 +51,7 @@ export function planCourse(spec: CourseSpec, row: MapRow | null, existingByName?
       } else action = rec.hash === h ? "unchanged" : "update";
       if (action === "update" && (a.kind === "video" || a.kind === "pdf")) detail = "media changed; not re-uploaded";
       if (rec && opts.unpublishedKeys?.includes(a.key) && (action === "skip" || action === "unchanged")) { action = "update"; detail = "publish flag only (content untouched)"; }
+      if (rec && rec.chapterKey !== ch.key) { detail = `move to chapter ${ch.key} (activity id and content kept)${action === "skip" || action === "unchanged" ? "" : `; ${detail}`}`; action = "update"; }
       if (action === "update" || action === "create") changed = true;
       items.push({ level: "activity", key: a.key, action, detail });
     }
@@ -85,7 +86,7 @@ export async function applyCourse(env: ApplyEnv, spec: CourseSpec, thinkificCour
   let row = await store.get(spec.kind, spec.departmentSlug);
   let uuid: string; let st: CourseStructure;
   const liveActs = new Map<string, boolean | undefined>(); // existing course: the live published flag per activity (from the same meta read as the draft guard)
-  let flipped = 0;
+  let flipped = 0; let mustReorder = false;
 
   if (!row) {
     const clash = (await api.listCourses(1, 100, true)).find((c: LhCourse) => c.name === spec.name);
@@ -117,6 +118,7 @@ export async function applyCourse(env: ApplyEnv, spec: CourseSpec, thinkificCour
     if (!st.chapters[ch.key]) {
       const c = await api.createChapter({ name: ch.name, description: ch.description, org_id: env.orgId, course_id: st.courseId });
       st.chapters[ch.key] = { id: c.id, uuid: c.chapter_uuid, metaHash: chapterHash(ch) }; created++; await saveRow(env, spec, uuid, st);
+      if (row) mustReorder = true; // a chapter added to an existing course lands at the end: restore the spec's order
       const src = sourceOfChapter(ch);
       if (src) await store.addIdmap({ sourceSystem: src.system, sourceKind: "chapter", sourceId: src.chapterId, lhKind: "chapter", lhUuid: c.chapter_uuid });
     }
@@ -128,6 +130,7 @@ export async function applyCourse(env: ApplyEnv, spec: CourseSpec, thinkificCour
     }
     for (const a of ch.activities) {
       const h = actHash(a); const rec = st.activities[a.key]; const owner = a.owner ?? "generated";
+      if (rec && rec.chapterKey !== ch.key) mustReorder = true; // moved to another chapter in the spec: same activity, new chapter
       if (!rec) {
         const r = await createActivity(env, a, chRec.id, st.courseId, ch);
         st.activities[a.key] = { ...r, hash: h, chapterKey: ch.key, kind: a.kind, owner }; created++; await saveRow(env, spec, uuid, st);
@@ -146,6 +149,21 @@ export async function applyCourse(env: ApplyEnv, spec: CourseSpec, thinkificCour
         log(`  updated ${a.kind} ${a.key}${owner === "author" ? " (one-time seed; author-owned from now on)" : ""}`);
       }
     }
+  }
+  if (mustReorder) {
+    // One order call places every chapter and activity as the spec says. Activity ids (and so content, submissions and progress) are kept; activities that
+    // are about to be pruned stay in their old chapter until the removal below so nothing is unlinked by accident.
+    const specKeys1 = new Set(spec.chapters.flatMap((c) => c.activities.map((a) => a.key)));
+    const byChapter = new Map<string, number[]>();
+    for (const ch of spec.chapters) byChapter.set(ch.key, ch.activities.map((a) => st.activities[a.key]!.id));
+    for (const [key, rec] of Object.entries(st.activities)) if (!specKeys1.has(key)) byChapter.set(rec.chapterKey, [...(byChapter.get(rec.chapterKey) ?? []), rec.id]);
+    for (const k of Object.keys(st.chapters)) if (!byChapter.has(k)) byChapter.set(k, []); // retired chapters keep their place at the end
+    const specChapterKeys = spec.chapters.map((c) => c.key);
+    const orderKeys = [...specChapterKeys, ...[...byChapter.keys()].filter((k) => !specChapterKeys.includes(k))];
+    await api.reorderCourse(uuid, { chapter_order_by_ids: orderKeys.filter((k) => st.chapters[k]).map((k) => ({ chapter_id: st.chapters[k]!.id, activities_order_by_ids: (byChapter.get(k) ?? []).map((id) => ({ activity_id: id })) })) });
+    for (const ch of spec.chapters) for (const a of ch.activities) st.activities[a.key]!.chapterKey = ch.key;
+    await saveRow(env, spec, uuid, st); updated++;
+    log("  reordered chapters and activities (activity ids kept)");
   }
   // Lessons and assignments live PUBLISHED inside the unpublished course (LearnHouse hides unpublished activities from everyone who cannot edit the
   // course). Existing ones that are still unpublished get a FLAG-ONLY update ({published:true}): never name, never content, so author-owned pages are safe.
