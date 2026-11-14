@@ -62,9 +62,16 @@ export async function cmdPlan(a: Args) {
     for (const { spec: s0 } of w.specs) {
       const row = await store.get(s0.kind, s0.departmentSlug);
       const spec = await seedSpec(s0, row, prev, planApi, (m) => console.log(m));
-      let published: boolean | null = null;
-      if (row && planApi) { try { published = ((await planApi.getCourseMeta(row.lhCourseUuid)) as { published?: boolean }).published ?? null; } catch { /* leave unknown */ } }
-      const p = planCourse(spec, row, existing?.find((c) => c.name === spec.name)?.course_uuid ?? null, { published });
+      let published: boolean | null = null; let unpublishedKeys: string[] = [];
+      if (row && planApi) {
+        try {
+          const meta = (await planApi.getCourseMeta(row.lhCourseUuid)) as { published?: boolean; chapters?: { activities?: { activity_uuid?: string; published?: boolean }[] }[] };
+          published = meta.published ?? null;
+          const off = new Set((meta.chapters ?? []).flatMap((c) => c.activities ?? []).filter((x) => x.published === false).map((x) => x.activity_uuid));
+          unpublishedKeys = Object.entries(row.structure.activities).filter(([, r]) => off.has(r.uuid)).map(([k]) => k);
+        } catch { /* leave unknown */ }
+      }
+      const p = planCourse(spec, row, existing?.find((c) => c.name === spec.name)?.course_uuid ?? null, { published, unpublishedKeys });
       out.push(p); console.log(formatPlan(p));
     }
     const tally = out.reduce<Record<string, number>>((m, p) => ((m[p.action] = (m[p.action] ?? 0) + 1), m), {});
@@ -87,14 +94,14 @@ export async function cmdApply(a: Args) {
     const courses = await api.listCourses(1, 1, true);
     const orgId = courses[0]?.org_id ?? 1;
     console.log(`APPLY on ${currentTarget().host}, cycle ${cycle}, selection: ${sel.label}; all courses stay DRAFT`);
-    const results: { name: string; uuid: string; created: number; updated: number; removed: number; verify: string }[] = [];
+    const results: { name: string; uuid: string; created: number; updated: number; removed: number; published: number; verify: string }[] = [];
     const prev = await prevStore(db, a); const refused: { name: string; reason: string }[] = [];
     for (const { spec: s0, thinkificCourseId } of w.specs) {
       try {
         const spec = await seedSpec(s0, await store.get(s0.kind, s0.departmentSlug), prev, api, (m) => console.log(m));
         const r = await applyCourse({ api, store, orgId, log: (s) => console.log(s) }, spec, thinkificCourseId);
         const v = await verifyCourse(api, r.courseUuid, spec);
-        results.push({ name: spec.name, uuid: r.courseUuid, created: r.created, updated: r.updated, removed: r.removed, verify: `${v.ok ? "OK" : "MISMATCH"} ${v.detail}` });
+        results.push({ name: spec.name, uuid: r.courseUuid, created: r.created, updated: r.updated, removed: r.removed, published: r.published, verify: `${v.ok ? "OK" : "MISMATCH"} ${v.detail}` });
       } catch (e) {
         if (e instanceof ConflictError) { console.error(`CONFLICT ${s0.name}: ${e.message}`); continue; }
         if (e instanceof SafetyError) { console.error(`REFUSED ${s0.name}: ${e.message}`); refused.push({ name: s0.name, reason: e.message }); continue; }
@@ -106,8 +113,8 @@ export async function cmdApply(a: Args) {
     ensureOut();
     writeFileSync(join(outDir(), "idmap.json"), JSON.stringify(rows.map(({ id, createdAt, ...r }) => r), null, 1)) ;
     const base = currentTarget().apiBase.replace(/\/api\/v1$/, "");
-    for (const r of results) console.log(`${r.name}: ${r.uuid} created=${r.created} updated=${r.updated} removed=${r.removed} readback ${r.verify}\n   ${base}/course/${r.uuid.replace(/^course_/, "")}`);
-    writeOut("apply-report.md", ["# Apply report", "", ...results.map((r) => `- ${r.name}: \`${r.uuid}\` (created ${r.created}, updated ${r.updated}, removed ${r.removed}); readback ${r.verify}`), ...(refused.length ? ["", "## Refused (nothing written for these)", ...refused.map((r) => `- ${r.name}: ${r.reason}`)] : []), ""].join("\n"));
+    for (const r of results) console.log(`${r.name}: ${r.uuid} created=${r.created} updated=${r.updated} removed=${r.removed} published-flags=${r.published} readback ${r.verify}\n   ${base}/course/${r.uuid.replace(/^course_/, "")}`);
+    writeOut("apply-report.md", ["# Apply report", "", ...results.map((r) => `- ${r.name}: \`${r.uuid}\` (created ${r.created}, updated ${r.updated}, removed ${r.removed}, lessons published ${r.published}); readback ${r.verify}`), ...(refused.length ? ["", "## Refused (nothing written for these)", ...refused.map((r) => `- ${r.name}: ${r.reason}`)] : []), ""].join("\n"));
     if (refused.length) console.error(`${refused.length} course(s) refused (published or state unknown); see out/apply-report.md`);
   } finally { await sql.end(); }
 }
