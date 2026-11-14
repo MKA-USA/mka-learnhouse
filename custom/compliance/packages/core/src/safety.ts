@@ -62,7 +62,11 @@ export function assertStaging(base: string | undefined): URL {
   return u;
 }
 
-/** Throws if a payload tries to publish anything. */
+/**
+ * Course-level invariant: the provisioner never sets course.published=true (only the explicit `publish` command does).
+ * Lessons (activities) and assignments ARE created published inside the unpublished course: LearnHouse hides unpublished
+ * activities from everyone who cannot edit the course (v1.4.0), so reviewers would otherwise see empty chapters.
+ */
 export function assertDraftOnly(body: unknown): void {
   const b = body as { published?: unknown } | null;
   if (b && typeof b === "object" && b.published === true) throw new SafetyError("refusing: payload sets published=true (drafts only)");

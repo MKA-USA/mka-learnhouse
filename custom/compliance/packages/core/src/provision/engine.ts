@@ -21,7 +21,7 @@ function countsOf(spec: CourseSpec) {
 }
 
 /** Pure plan: no network. `existingByName` (uuid) detects a same-named course that is not in course_map. */
-export function planCourse(spec: CourseSpec, row: MapRow | null, existingByName?: string | null, opts: { published?: boolean | null } = {}): CoursePlan {
+export function planCourse(spec: CourseSpec, row: MapRow | null, existingByName?: string | null, opts: { published?: boolean | null; /** keys of recorded activities that are live but unpublished (apply flips the flag only) */ unpublishedKeys?: readonly string[] } = {}): CoursePlan {
   const items: PlanItem[] = [];
   const base = { courseKey: spec.key, name: spec.name, counts: countsOf(spec), flags: spec.flags };
   if (!row) {
@@ -49,8 +49,9 @@ export function planCourse(spec: CourseSpec, row: MapRow | null, existingByName?
         if (rec.owner === "author") { action = "skip"; detail = "author-owned (skip)"; }
         else { action = "update"; detail = "one-time: content seeded from the spec, then author-owned"; }
       } else action = rec.hash === h ? "unchanged" : "update";
-      if (action === "update" || action === "create") changed = true;
       if (action === "update" && (a.kind === "video" || a.kind === "pdf")) detail = "media changed; not re-uploaded";
+      if (rec && opts.unpublishedKeys?.includes(a.key) && (action === "skip" || action === "unchanged")) { action = "update"; detail = "publish flag only (content untouched)"; }
+      if (action === "update" || action === "create") changed = true;
       items.push({ level: "activity", key: a.key, action, detail });
     }
   }
@@ -78,11 +79,13 @@ function sourceOfChapter(ch: ChapterSpec): { system: string; chapterId: string }
 }
 
 /** Executes the plan. Every created uuid is persisted immediately (resumable). Never publishes. */
-export async function applyCourse(env: ApplyEnv, spec: CourseSpec, thinkificCourseId?: number): Promise<{ courseUuid: string; created: number; updated: number; removed: number }> {
+export async function applyCourse(env: ApplyEnv, spec: CourseSpec, thinkificCourseId?: number): Promise<{ courseUuid: string; created: number; updated: number; removed: number; published: number }> {
   const { api, store } = env; const log = env.log ?? (() => {});
   let created = 0, updated = 0, removed = 0;
   let row = await store.get(spec.kind, spec.departmentSlug);
   let uuid: string; let st: CourseStructure;
+  const liveActs = new Map<string, boolean | undefined>(); // existing course: the live published flag per activity (from the same meta read as the draft guard)
+  let flipped = 0;
 
   if (!row) {
     const clash = (await api.listCourses(1, 100, true)).find((c: LhCourse) => c.name === spec.name);
@@ -98,7 +101,8 @@ export async function applyCourse(env: ApplyEnv, spec: CourseSpec, thinkificCour
     // Draft guard BEFORE any write: a published (or unknown-state) course is never modified, and activities are never removed from one.
     const specKeys0 = new Set(spec.chapters.flatMap((c) => c.activities.map((a) => a.key)));
     const gone0 = env.prune === false ? [] : Object.keys(st.activities).filter((k) => !specKeys0.has(k));
-    const meta = (await api.getCourseMeta(uuid)) as { published?: boolean };
+    const meta = (await api.getCourseMeta(uuid)) as { published?: boolean; chapters?: { activities?: { activity_uuid?: string; published?: boolean }[] }[] };
+    for (const c of meta.chapters ?? []) for (const x of c.activities ?? []) if (x.activity_uuid) liveActs.set(x.activity_uuid, x.published);
     if (meta.published !== false) {
       if (gone0.length) throw new SafetyError(`refusing to remove activities from ${spec.name}: the course is published (or its state is unknown)`);
       if (!env.allowPublished) throw new SafetyError(`refusing to write to ${spec.name}: the course is published (or its state is unknown)`);
@@ -138,10 +142,18 @@ export async function applyCourse(env: ApplyEnv, spec: CourseSpec, thinkificCour
         if (owner === "author") { rec.hash = h; rec.owner = owner; await saveRow(env, spec, uuid, st); }
         try { await updateActivity(env, a, rec); }
         catch (e) { if (owner === "author") { rec.hash = before.hash; if (before.owner) rec.owner = before.owner; else delete rec.owner; await saveRow(env, spec, uuid, st); } throw e; }
-        rec.hash = h; rec.owner = owner; updated++; await saveRow(env, spec, uuid, st);
+        rec.hash = h; rec.owner = owner; updated++; liveActs.set(rec.uuid, true); await saveRow(env, spec, uuid, st);
         log(`  updated ${a.kind} ${a.key}${owner === "author" ? " (one-time seed; author-owned from now on)" : ""}`);
       }
     }
+  }
+  // Lessons and assignments live PUBLISHED inside the unpublished course (LearnHouse hides unpublished activities from everyone who cannot edit the
+  // course). Existing ones that are still unpublished get a FLAG-ONLY update ({published:true}): never name, never content, so author-owned pages are safe.
+  for (const [key, rec] of Object.entries(st.activities)) {
+    if (!spec.chapters.some((c) => c.activities.some((a) => a.key === key)) || liveActs.get(rec.uuid) !== false) continue;
+    await api.updateActivity(rec.uuid, { published: true }); liveActs.set(rec.uuid, true); flipped++;
+    if (rec.assignmentUuid) { const asg = await api.getAssignment(rec.assignmentUuid); if (asg.published === false) await api.updateAssignment(rec.assignmentUuid, { published: true }); }
+    log(`  published ${rec.kind} ${key} (flag only)`);
   }
   if (env.prune !== false) {
     const specKeys = new Set(spec.chapters.flatMap((c) => c.activities.map((a) => a.key)));
@@ -155,7 +167,7 @@ export async function applyCourse(env: ApplyEnv, spec: CourseSpec, thinkificCour
       }
     }
   }
-  return { courseUuid: uuid, created, updated, removed };
+  return { courseUuid: uuid, created, updated, removed, published: flipped };
 }
 
 async function ignore404(f: () => Promise<unknown>) { try { await f(); } catch (e) { if (!(e instanceof LhHttpError && e.status === 404)) throw e; } }
@@ -165,15 +177,15 @@ const taskBody = (t: TaskSpec) => ({ title: t.title, description: t.description,
 async function createActivity(env: ApplyEnv, a: ActivitySpec, chapterId: number, courseId: number, ch: ChapterSpec) {
   const { api } = env;
   if (a.kind === "page") {
-    const act = await api.createActivity({ chapter_id: chapterId, name: a.name, activity_type: "TYPE_DYNAMIC", activity_sub_type: "SUBTYPE_DYNAMIC_PAGE" });
-    await api.updateActivity(act.activity_uuid, { content: a.doc as unknown as Record<string, unknown> });
+    const act = await api.createActivity({ chapter_id: chapterId, name: a.name, activity_type: "TYPE_DYNAMIC", activity_sub_type: "SUBTYPE_DYNAMIC_PAGE", published: true });
+    await api.updateActivity(act.activity_uuid, { content: a.doc as unknown as Record<string, unknown>, published: true });
     return { id: act.id, uuid: act.activity_uuid };
   }
-  if (a.kind === "video") { const act = await api.createVideoActivity(chapterId, a.name, a.file.abs); return { id: act.id, uuid: act.activity_uuid }; }
-  if (a.kind === "pdf") { const act = await api.createPdfActivity(chapterId, a.name, a.file.abs); return { id: act.id, uuid: act.activity_uuid }; }
-  const act = await api.createActivity({ chapter_id: chapterId, name: a.name, activity_type: "TYPE_ASSIGNMENT", activity_sub_type: "SUBTYPE_ASSIGNMENT_ANY" });
+  if (a.kind === "video") { const act = await api.createVideoActivity(chapterId, a.name, a.file.abs); await api.updateActivity(act.activity_uuid, { published: true }); return { id: act.id, uuid: act.activity_uuid }; }
+  if (a.kind === "pdf") { const act = await api.createPdfActivity(chapterId, a.name, a.file.abs); await api.updateActivity(act.activity_uuid, { published: true }); return { id: act.id, uuid: act.activity_uuid }; }
+  const act = await api.createActivity({ chapter_id: chapterId, name: a.name, activity_type: "TYPE_ASSIGNMENT", activity_sub_type: "SUBTYPE_ASSIGNMENT_ANY", published: true });
   const asg = await api.createAssignment({ title: a.title, description: a.description, grading_type: "PERCENTAGE", org_id: env.orgId, course_id: courseId, chapter_id: chapterId, activity_id: act.id,
-    ungraded: a.ungraded, auto_grading: !a.ungraded, pass_threshold_percentage: a.passThreshold ?? null, published: false });
+    ungraded: a.ungraded, auto_grading: !a.ungraded, pass_threshold_percentage: a.passThreshold ?? null, published: true });
   const tasks: Record<string, { uuid: string; hash: string }> = {};
   for (const t of a.tasks) { const r = await api.createAssignmentTask(asg.assignment_uuid, taskBody(t)); tasks[t.key] = { uuid: r.assignment_task_uuid, hash: taskHash(t) }; }
   void ch;
@@ -182,9 +194,9 @@ async function createActivity(env: ApplyEnv, a: ActivitySpec, chapterId: number,
 
 async function updateActivity(env: ApplyEnv, a: ActivitySpec, rec: import("./types").ActivityRecord) {
   const { api } = env;
-  if (a.kind === "page") { await api.updateActivity(rec.uuid, { name: a.name, content: a.doc as unknown as Record<string, unknown> }); return; }
+  if (a.kind === "page") { await api.updateActivity(rec.uuid, { name: a.name, content: a.doc as unknown as Record<string, unknown>, published: true }); return; }
   if (a.kind === "assignment" && rec.assignmentUuid) {
-    await api.updateAssignment(rec.assignmentUuid, { title: a.title, description: a.description, ungraded: a.ungraded, pass_threshold_percentage: a.passThreshold ?? null });
+    await api.updateAssignment(rec.assignmentUuid, { title: a.title, description: a.description, ungraded: a.ungraded, pass_threshold_percentage: a.passThreshold ?? null, published: true });
     rec.tasks ??= {};
     for (const t of a.tasks) {
       const ex = rec.tasks[t.key];

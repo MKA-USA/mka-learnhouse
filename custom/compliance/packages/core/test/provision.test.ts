@@ -8,7 +8,7 @@ const roster = generateRoster();
 const plan = (md: string): PlanInput => ({ departmentSlug: "tabligh", level: "all", responsibilitiesDoc: markdownToProseMirror(md).doc, okrsDoc: markdownToProseMirror("Objective 1: Grow\n\nObjective 2: Pray").doc, resourcesDoc: null, stale: false, source: "csv" });
 const spec = (md = "# Duties\n- a"): CourseSpec => buildDepartmentCourse({ cycle: "2026-27", dept: DEPARTMENTS.find((d) => d.slug === "tabligh")!, roster, plans: [plan(md)], otherPlans: [], deadline: "Dec 1, 2026" });
 
-function fakeApi(opts: { existing?: { name: string; course_uuid: string }[]; failOn?: string; published?: boolean } = {}) {
+function fakeApi(opts: { existing?: { name: string; course_uuid: string }[]; failOn?: string; published?: boolean; chapters?: unknown; assignmentPublished?: boolean } = {}) {
   const calls: { fn: string; arg: unknown }[] = []; let n = 0;
   const rec = (fn: string, arg: unknown) => { calls.push({ fn, arg }); if (opts.failOn === fn) { opts.failOn = undefined; throw new Error("boom"); } };
   const api = {
@@ -19,7 +19,8 @@ function fakeApi(opts: { existing?: { name: string; course_uuid: string }[]; fai
     updateActivity: async (u: string, i: unknown) => { rec("updateActivity", { u, i }); },
     createAssignment: async (i: unknown) => { rec("createAssignment", i); n++; return { assignment_uuid: `assignment_${n}` }; },
     createAssignmentTask: async (_a: string, i: unknown) => { rec("createAssignmentTask", i); n++; return { assignment_task_uuid: `task_${n}` }; },
-    getCourseMeta: async () => ({ published: "published" in opts ? opts.published : false }),
+    getCourseMeta: async () => ({ published: "published" in opts ? opts.published : false, chapters: opts.chapters }),
+    getAssignment: async (u: string) => ({ assignment_uuid: u, published: opts.assignmentPublished ?? true }),
     updateChapter: async (id: number, i: unknown) => { rec("updateChapter", { id, i }); },
     deleteActivity: async (u: string) => { rec("deleteActivity", u); },
     deleteAssignment: async (u: string) => { rec("deleteAssignment", u); },
@@ -144,12 +145,63 @@ describe("provision idempotency", () => {
     expect(f.calls.filter((c) => c.fn === "createCourse").length).toBe(1);
     expect(planCourse(s, await store.get(s.kind, s.departmentSlug)).action).toBe("unchanged");
   });
-  test("records idmap for sourced lessons and never sends published=true", async () => {
+  test("lessons and assignments are created published; the course is never published by apply", async () => {
+    const store = memoryMapStore(); const { api, calls } = fakeApi(); await applyCourse({ api, store, orgId: 1 }, spec());
+    const of = (fn: string) => calls.filter((c) => c.fn === fn).map((c) => c.arg as { published?: boolean });
+    expect(of("createActivity").length).toBe(5); expect(of("createActivity").every((x) => x.published === true)).toBe(true);
+    expect(of("createAssignment").length).toBe(2); expect(of("createAssignment").every((x) => x.published === true)).toBe(true);
+    expect(JSON.stringify(of("createCourse"))).not.toContain("published");
+    expect(calls.filter((c) => c.fn === "updateCourse").length).toBe(0);
+    // a later metadata change still never publishes the course
+    const s2 = spec(); s2.description = "changed"; calls.length = 0; await applyCourse({ api, store, orgId: 1 }, s2);
+    expect(JSON.stringify(calls.filter((c) => c.fn === "updateCourse"))).not.toContain("published");
+  });
+  async function appliedWithLiveState(published: boolean) {
+    const store = memoryMapStore(); const first = fakeApi(); const s = spec(); await applyCourse({ api: first.api, store, orgId: 1 }, s);
+    const row = (await store.get("department", "tabligh"))!;
+    const chapters = [{ activities: Object.values(row.structure.activities).map((r) => ({ activity_uuid: r.uuid, published })) }];
+    return { store, s, row, chapters };
+  }
+  test("existing unpublished lessons and assignments get a FLAG-ONLY update, author-owned page included, and its content is never sent", async () => {
+    const { store, s, row, chapters } = await appliedWithLiveState(false);
+    const plan = planCourse(s, row, null, { published: false, unpublishedKeys: Object.keys(row.structure.activities) });
+    expect(plan.action).toBe("update");
+    expect(plan.items.find((i) => i.key === "role")).toMatchObject({ action: "update", detail: "publish flag only (content untouched)" }); // author-owned: flag only, not "skip"
+    const f = fakeApi({ chapters, assignmentPublished: false });
+    const r = await applyCourse({ api: f.api, store, orgId: 1 }, s);
+    expect(r.published).toBe(5); expect(r.updated).toBe(0);
+    const acts = f.calls.filter((c) => c.fn === "updateActivity").map((c) => (c.arg as { u: string; i: Record<string, unknown> }).i);
+    expect(acts.length).toBe(5); for (const i of acts) expect(i).toEqual({ published: true }); // no name, no content
+    const asg = f.calls.filter((c) => c.fn === "updateAssignment").map((c) => (c.arg as { i: unknown }).i);
+    expect(asg).toEqual([{ published: true }, { published: true }]);
+    expect(JSON.stringify(f.calls)).not.toContain('"content"');
+    expect(f.calls.filter((c) => c.fn === "updateCourse" || c.fn === "createCourse").length).toBe(0);
+    // already published: nothing to do
+    const g = fakeApi({ chapters: (await appliedWithLiveState(true)).chapters.map((c) => c) , assignmentPublished: true });
+    expect(g.calls.length).toBe(0);
+  });
+  test("the flag flip still goes through the published-course refusal: zero calls", async () => {
+    const { store, s, chapters } = await appliedWithLiveState(false);
+    for (const published of [true, undefined as unknown as boolean]) {
+      const f = fakeApi({ published, chapters, assignmentPublished: false });
+      await expect(applyCourse({ api: f.api, store, orgId: 1 }, s)).rejects.toBeInstanceOf(SafetyError);
+      expect(f.calls.length).toBe(0);
+    }
+  });
+  test("a lesson update (content change) is sent published, name and content together", async () => {
+    const store = memoryMapStore(); const { api } = fakeApi(); await applyCourse({ api, store, orgId: 1 }, spec());
+    const s2 = spec(); const plan2 = s2.chapters[1]!.activities[0]; if (plan2?.kind !== "page") throw new Error("page");
+    plan2.doc = { type: "doc", content: [...plan2.doc.content, { type: "paragraph", content: [{ type: "text", text: "changed" }] }] };
+    const f = fakeApi(); await applyCourse({ api: f.api, store, orgId: 1 }, s2);
+    const put = f.calls.find((c) => c.fn === "updateActivity")!.arg as { i: Record<string, unknown> };
+    expect(put.i.published).toBe(true); expect(put.i.content).toBeDefined();
+  });
+  test("records idmap for sourced lessons and never publishes the course", async () => {
     const store = memoryMapStore(); const { api, calls } = fakeApi(); const s = spec();
     (s.chapters[0]!.activities[0] as { source?: unknown }).source = { system: "thinkific", courseId: 1, chapterId: "c1", lessonId: "l1", path: "x.json" };
     await applyCourse({ api, store, orgId: 1 }, s, 3255556);
     expect(store.idmap.map((e) => `${e.sourceKind}:${e.sourceId}`).sort()).toEqual(["chapter:c1", "course:3255556", "lesson:l1"]);
-    expect(JSON.stringify(calls)).not.toContain('"published":true');
+    expect(JSON.stringify(calls.filter((c) => c.fn === "createCourse" || c.fn === "updateCourse"))).not.toContain("published");
     expect(calls.find((c) => c.fn === "createCourse")).toBeDefined();
   });
 });
@@ -160,14 +212,19 @@ describe("safety guards", () => {
     for (const bad of ["https://ilm.mkausa.org/api/v1", "http://ilm-dev.mkausa.org/api/v1", "https://ilm-dev.mkausa.org.evil.com/api/v1", "https://evil.com/ilm-dev.mkausa.org", "", "nonsense", undefined])
       expect(() => assertStaging(bad as string)).toThrow(SafetyError);
   });
-  test("refuses to publish: guard and API wrappers", async () => {
+  test("course-level guard: a course is never published through the API wrappers; lessons and assignments may be", async () => {
     expect(() => assertDraftOnly({ published: true })).toThrow(SafetyError);
-    const client = new LhClient({ baseUrl: "https://ilm-dev.mkausa.org/api/v1", token: "t", orgSlug: "o", fetch: (async () => { throw new Error("must not be called"); }) as unknown as typeof fetch });
+    const client = new LhClient({ baseUrl: "https://ilm-dev.mkausa.org/api/v1", token: "t", orgSlug: "o", fetch: (async () => { throw new Error("network disabled in test"); }) as unknown as typeof fetch, maxRetries: 0 });
     const api = new LhApi(client);
     expect(() => api.updateCourse("course_1", { published: true })).toThrow(SafetyError);
-    expect(() => api.updateActivity("a", { published: true })).toThrow(SafetyError);
-    expect(() => api.createActivity({ chapter_id: 1, name: "x", published: true })).toThrow(SafetyError);
-    expect(() => api.createAssignment({ title: "t", description: "d", grading_type: "PERCENTAGE", org_id: 1, course_id: 1, chapter_id: 1, activity_id: 1, published: true })).toThrow(SafetyError);
+    // not refused by the guard: they reach the (failing) client instead
+    const reason = async (f: () => Promise<unknown>) => f().then(() => null, (e: unknown) => e);
+    for (const r of [
+      await reason(() => api.updateActivity("a", { published: true })),
+      await reason(() => api.createActivity({ chapter_id: 1, name: "x", published: true })),
+      await reason(() => api.updateAssignment("a", { published: true })),
+      await reason(() => api.createAssignment({ title: "t", description: "d", grading_type: "PERCENTAGE", org_id: 1, course_id: 1, chapter_id: 1, activity_id: 1, published: true })),
+    ]) { expect(r).not.toBeNull(); expect(r).not.toBeInstanceOf(SafetyError); } // reached the (failing) client: the guard let them through
   });
 });
 
