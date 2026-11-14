@@ -5,7 +5,6 @@ import React, { useMemo, memo, useState, useRef, useEffect, useCallback } from '
 import ToolTip from '@components/Objects/StyledElements/Tooltip/Tooltip'
 import { getUriWithOrg } from '@services/config/config'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import { useTranslation } from 'react-i18next'
 import { useCourseCertification } from '@components/Hooks/useCourseCertification'
 
@@ -298,13 +297,29 @@ const MobileChapterSelector = memo(({
 
 MobileChapterSelector.displayName = 'MobileChapterSelector';
 
+// Prev/next arrow: a Link when there is somewhere to go, an inert disabled
+// button otherwise.
+function NavArrow({ href, className, label, children }: { href: string | null, className: string, label: string, children: React.ReactNode }) {
+  if (!href) {
+    return (
+      <button type="button" disabled className={className} aria-label={label}>
+        {children}
+      </button>
+    )
+  }
+  return (
+    <Link href={href} prefetch={false} className={`inline-flex items-center justify-center ${className}`} aria-label={label}>
+      {children}
+    </Link>
+  )
+}
+
 function ActivityIndicators(props: Props) {
   const { t } = useTranslation();
   const course = props.course
   const orgslug = props.orgslug
   const courseid = props.course_uuid.replace('course_', '')
   const enableNavigation = props.enableNavigation || false
-  const router = useRouter()
 
   // The trophy promises a certificate, so it only makes sense on a course that
   // actually has certification. A definitive "no certification" hides it; a
@@ -330,8 +345,9 @@ function ActivityIndicators(props: Props) {
   // Find current activity index
   const currentActivityIndex = useMemo(() => {
     if (!props.current_activity) return -1
+    const currentId = props.current_activity.replace('activity_', '')
     return allActivities.findIndex((activity: any) =>
-      activity.activity_uuid.replace('activity_', '') === props.current_activity
+      activity.activity_uuid.replace('activity_', '') === currentId
     )
   }, [allActivities, props.current_activity])
 
@@ -374,28 +390,27 @@ function ActivityIndicators(props: Props) {
     return `${black_activity_style}`
   }, [isActivityDone, isActivityCurrent]);
 
-  // Keep the allActivities array for navigation purposes only
-  const navigateToPrevious = () => {
-    if (currentActivityIndex > 0) {
-      const prevActivity = allActivities[currentActivityIndex - 1]
-      const activityId = prevActivity.activity_uuid.replace('activity_', '')
-      router.push(getUriWithOrg(orgslug, '') + `/course/${courseid}/activity/${activityId}`)
-    }
-  }
+  // Prev/next are real links (like the segments below them) rather than
+  // router.push handlers, so a click always navigates to the sibling activity.
+  const activityHref = (activity: any) =>
+    getUriWithOrg(orgslug, '') +
+    `/course/${courseid}/activity/${activity.activity_uuid.replace('activity_', '')}`
 
   const isOnLastActivity =
     allActivities.length > 0 && currentActivityIndex === allActivities.length - 1
 
-  const navigateToNext = () => {
-    if (currentActivityIndex < allActivities.length - 1) {
-      const nextActivity = allActivities[currentActivityIndex + 1]
-      const activityId = nextActivity.activity_uuid.replace('activity_', '')
-      router.push(getUriWithOrg(orgslug, '') + `/course/${courseid}/activity/${activityId}`)
-    } else if (isOnLastActivity) {
-      // Same destination as the trophy badge: the course-end/certificate view.
-      router.push(getUriWithOrg(orgslug, '') + `/course/${courseid}/activity/end`)
-    }
-  }
+  const previousHref =
+    currentActivityIndex > 0 ? activityHref(allActivities[currentActivityIndex - 1]) : null
+  // Same destination as the trophy badge on the last activity: the
+  // course-end/certificate view.
+  const nextHref =
+    currentActivityIndex < 0
+      ? null
+      : currentActivityIndex < allActivities.length - 1
+        ? activityHref(allActivities[currentActivityIndex + 1])
+        : isOnLastActivity
+          ? getUriWithOrg(orgslug, '') + `/course/${courseid}/activity/end`
+          : null
 
   // Add function to count completed activities in a chapter
   const getChapterProgress = useMemo(() => (chapterActivities: any[]) => {
@@ -437,14 +452,9 @@ function ActivityIndicators(props: Props) {
       {/* Mobile compact view */}
       <div className="flex sm:hidden items-center gap-2">
         {enableNavigation && (
-          <button
-            onClick={navigateToPrevious}
-            disabled={currentActivityIndex <= 0}
-            className="p-1.5 rounded-full bg-gray-50 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shrink-0"
-            aria-label={t('activities.previous_activity')}
-          >
+          <NavArrow href={previousHref} className="p-1.5 rounded-full bg-gray-50 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shrink-0" label={t('activities.previous_activity')}>
             <ChevronLeft size={16} className="text-gray-500" />
-          </button>
+          </NavArrow>
         )}
 
         <div className="flex-1 flex flex-col gap-1.5 min-w-0 relative">
@@ -477,28 +487,18 @@ function ActivityIndicators(props: Props) {
         )}
 
         {enableNavigation && (
-          <button
-            onClick={navigateToNext}
-            disabled={currentActivityIndex > allActivities.length - 1}
-            className="p-1.5 rounded-full bg-gray-50 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shrink-0"
-            aria-label={t('activities.next_activity')}
-          >
+          <NavArrow href={nextHref} className="p-1.5 rounded-full bg-gray-50 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shrink-0" label={t('activities.next_activity')}>
             <ChevronRight size={16} className="text-gray-500" />
-          </button>
+          </NavArrow>
         )}
       </div>
 
       {/* Desktop full view */}
       <div className="hidden sm:flex items-center gap-4">
         {enableNavigation && (
-          <button
-            onClick={navigateToPrevious}
-            disabled={currentActivityIndex <= 0}
-            className="p-1 rounded-full hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shrink-0"
-            aria-label={t('activities.previous_activity')}
-          >
+          <NavArrow href={previousHref} className="p-1 rounded-full hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shrink-0" label={t('activities.previous_activity')}>
             <ChevronLeft size={18} className="text-gray-600" />
-          </button>
+          </NavArrow>
         )}
 
         <div className="flex items-center w-full min-w-0 overflow-x-auto scrollbar-hide gap-2">
@@ -603,14 +603,9 @@ function ActivityIndicators(props: Props) {
         </div>
 
         {enableNavigation && (
-          <button
-            onClick={navigateToNext}
-            disabled={currentActivityIndex > allActivities.length - 1}
-            className="p-1 rounded-full hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shrink-0"
-            aria-label={t('activities.next_activity')}
-          >
+          <NavArrow href={nextHref} className="p-1 rounded-full hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shrink-0" label={t('activities.next_activity')}>
             <ChevronRight size={18} className="text-gray-600" />
-          </button>
+          </NavArrow>
         )}
       </div>
     </>

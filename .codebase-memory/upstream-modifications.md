@@ -1872,3 +1872,14 @@ Why: deploys build the root Dockerfile and nothing runs Alembic (the API only do
 ```
 
 Re-apply: `grep -n "mka-migrate" docker/start.sh` (1 line) and `grep -n "mka_health" apps/api/src/router.py` (2 lines + the include block).
+
+## Learner activity navigation and submit labels (fix/mka-lesson-nav-ui)
+
+Why: usability test found the top Next arrow unreliable, bottom NEXT looking disabled, and three different final-submit labels. No extension point exists for these upstream components, so each edit is minimal.
+
+- `apps/web/components/Pages/Courses/ActivityIndicators.tsx`: prev/next arrows are now `next/link` anchors (new local `NavArrow`) instead of `router.push` buttons; current-activity match tolerates an `activity_` prefix; Next is disabled (no href) when the current activity is not found (was: jumped to activity 1). `useRouter` import removed.
+- `apps/web/app/orgs/[orgslug]/(withmenu)/course/[courseuuid]/activity/[activityid]/activity.tsx` (`NextActivityButton`): class swap `bg-gray-200 ... text-gray-600 ... hover:bg-gray-200` -> `bg-gray-800 ... nice-shadow text-white ... hover:bg-gray-700`, label `text-gray-500` -> `text-gray-300`.
+- `apps/web/locales/en.json` (English only): `activities.save_answers` "Save answers" -> "Save draft"; `assignments.submit_for_grading`, `assignments.hand_in`, `assignments.submit_assignment` -> "Submit".
+- `apps/e2e/features/assignments/pages/student.ts`: selectors follow the new labels (`getByText('Submit', { exact: true })`, button `Submit` exact).
+
+Re-apply: after a sync, re-check those four en.json keys and the `NextActivityButton` class string; re-run `git diff origin/dev -- <files>` from the PR.
