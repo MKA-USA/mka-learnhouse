@@ -2,16 +2,19 @@
 
 Even if the model never calls a Brand Center tool (or MCP is down), every system prompt
 carries a compact brand/culture block. The block is a built-in baseline plus the latest
-guardrails fetched from the Brand Center, cached for 1h with the last good copy kept
-indefinitely. ``augment`` is synchronous (``_agent`` is sync), so refreshes run on a
-background thread and never block a request.
+culture guardrails fetched from the Brand Center (rendered as compact rules, cached for 1h,
+last good copy kept indefinitely). ``augment`` is synchronous (``_agent`` is sync), so
+refreshes run on a background thread and never block a request.
+
+Note: the Brand Center culture layer is itself "Draft v0.1, pending community review"; its
+notice and per-rule confidence labels are kept visible in the rendered block.
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
-import re
 import threading
 import time
 from typing import Optional
@@ -31,23 +34,62 @@ MKA USA brand and culture rules (always apply):
 - Use MKA USA naming and terminology consistently. Do not invent facts about the organization; if unsure, say so.
 - Brand tools (if available): use check_copy on user-facing copy you write, get_culture_guardrails before describing visuals, and get_brand_context before making claims about the organization. Skip them for pure transcription or translation. If a tool errors, continue without it."""
 
-_DRAFT_RE = re.compile(r"""confidence["']?\s*[:=]\s*["']?draft""", re.IGNORECASE)
-
 _lock = threading.Lock()
-_cache: dict = {"text": "", "at": 0.0}  # text is the last good fetched content
+_cache: dict = {"text": "", "at": 0.0}  # text is the last good rendered content
 _refreshing = False
 
 
-def _clean(text: str) -> str:
-    """Drop unreviewed (draft) paragraphs; keep reviewed / unlabelled ones."""
-    paras = [p for p in re.split(r"\n\s*\n", text) if p.strip() and not _DRAFT_RE.search(p)]
-    return "\n\n".join(paras).strip()
+def _fit(text: str, room: int) -> str:
+    """Cut ``text`` to ``room`` chars at a line boundary (never mid-line)."""
+    if len(text) <= room:
+        return text
+    lines: list[str] = []
+    used = 0
+    for line in text.split("\n"):
+        cost = len(line) + (1 if lines else 0)
+        if used + cost > room:
+            break
+        lines.append(line)
+        used += cost
+    return "\n".join(lines)
+
+
+def render_guardrails(raw: str) -> str:
+    """Render the ``get_culture_guardrails`` JSON as compact plain-text rules.
+
+    Falls back to the raw text when it is not the expected JSON (``_fit`` then cuts it at a
+    line boundary when the block is built).
+    """
+    try:
+        data = json.loads(raw)
+        guardrails = data["guardrails"]
+        if not isinstance(guardrails, list):
+            raise TypeError("guardrails is not a list")
+    except (ValueError, KeyError, TypeError):
+        return raw.strip()
+    lines: list[str] = []
+    version = data.get("version")
+    notice = data.get("notice")
+    if version or notice:
+        lines.append(f"(Culture layer v{version or '?'}: {notice or 'no notice'})")
+    if data.get("precedence"):
+        lines.append(str(data["precedence"]).strip())
+    for g in guardrails:
+        if not isinstance(g, dict):
+            continue
+        rules = g.get("rules")
+        if isinstance(rules, (list, tuple)):
+            rules = "; ".join(str(r).strip() for r in rules if str(r).strip())
+        title = g.get("title") or g.get("id") or "Guardrail"
+        conf = str(g.get("confidence") or "").strip()
+        label = (f" {conf}" if conf.startswith("[") else f" [{conf}]") if conf else ""
+        lines.append(f"- {title}{label}: {str(rules or '').strip()}")
+    return "\n".join(lines)
 
 
 async def _fetch() -> str:
-    guardrails = await toolset.call_tool_text("get_culture_guardrails", {})
-    context = await toolset.call_tool_text("get_brand_context", {"brand": config.brand()})
-    return _clean(f"{guardrails}\n\n{context}")
+    # Only the culture guardrails: get_brand_context is tool-only (without a topic it is just an index).
+    return render_guardrails(await toolset.call_tool_text("get_culture_guardrails", {}))
 
 
 async def refresh() -> None:
@@ -89,10 +131,11 @@ def build_block() -> str:
         _schedule_refresh()
     block = BASELINE
     fetched = _cache["text"]
-    room = MAX_BLOCK_CHARS - len(block) - 40
+    header = "\n\nBrand Center guardrails:\n"
+    room = MAX_BLOCK_CHARS - len(block) - len(header)
     if fetched and room > 200:
-        block = f"{block}\n\nBrand Center guardrails:\n{fetched[:room]}"
-    return block[:MAX_BLOCK_CHARS]
+        block = f"{block}{header}{_fit(fetched, room)}"
+    return block
 
 
 def augment(system_prompt: Optional[str]) -> Optional[str]:

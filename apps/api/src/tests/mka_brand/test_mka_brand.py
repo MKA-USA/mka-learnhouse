@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from pydantic_ai.mcp import MCPToolset
 from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart
@@ -183,9 +185,98 @@ def test_augment_size_cap_and_fidelity_clause():
     assert "preserve the source meaning verbatim" in mka_brand.augment(None)
 
 
-def test_floor_drops_draft_entries():
-    cleaned = floor._clean('keep me\n\nconfidence: "draft" unreviewed\n\nconfidence: reviewed ok')
-    assert "unreviewed" not in cleaned and "keep me" in cleaned and "reviewed ok" in cleaned
+REAL_SHAPE = json.dumps(
+    {
+        "version": "0.1",
+        "notice": "Draft culture layer v0.1, pending community review",
+        "precedence": "Culture guardrails override everything; Brand Center wins for logos, colors, fonts.",
+        "guardrails": [
+            {
+                "id": f"G{i}",
+                "title": f"Guardrail title {i}",
+                "confidence": "[C] inference (verify)" if i == 3 else "[A] official",
+                "default": "avoid",
+                "rules": [f"rule {i} a " + "x" * 600, f"rule {i} b"],
+            }
+            for i in range(1, 13)
+        ],
+        "globalNegativePrompt": "no faces of prophets, no Arabic script",
+        "confidence": "[A] official / [B] observed / [C] inference (verify)",
+    }
+)
+
+
+def test_render_guardrails_compact_plain_text():
+    out = floor.render_guardrails(REAL_SHAPE)
+    assert "{" not in out and "}" not in out and '"' not in out
+    lines = out.split("\n")
+    assert lines[0] == "(Culture layer v0.1: Draft culture layer v0.1, pending community review)"
+    assert lines[1].startswith("Culture guardrails override everything")
+    assert len(lines) == 2 + 12
+    assert lines[2].startswith("- Guardrail title 1 [A] official: rule 1 a")
+    assert "; rule 1 b" in lines[2]
+    assert "[C] inference (verify)" in lines[4]  # [C] rules kept, label visible
+
+
+def test_render_guardrails_rules_as_string():
+    raw = json.dumps({"version": "1", "guardrails": [{"title": "T", "confidence": "A", "rules": "just text"}]})
+    assert floor.render_guardrails(raw).endswith("- T [A]: just text")
+
+
+async def test_fetch_calls_only_culture_guardrails(monkeypatch):
+    names = []
+
+    async def fake(name, args):
+        names.append(name)
+        return REAL_SHAPE
+
+    monkeypatch.setattr(toolset, "call_tool_text", fake)
+    out = await floor._fetch()
+    assert names == ["get_culture_guardrails"] and "Guardrail title 12" in out
+
+
+def test_block_respects_cap_and_truncates_on_whole_lines():
+    full = floor.render_guardrails(REAL_SHAPE)
+    floor._cache["text"] = full
+    floor._cache["at"] = 10**12
+    block = floor.build_block()
+    assert len(block) <= floor.MAX_BLOCK_CHARS
+    rendered = block.split("Brand Center guardrails:\n", 1)[1]
+    assert rendered and rendered.split("\n")[-1] in full.split("\n")  # last line is a whole line
+    assert len(rendered.split("\n")) < len(full.split("\n"))  # something was dropped from the end
+    assert "{" not in block
+
+
+def test_parse_failure_falls_back_to_raw_cut_at_line_boundary():
+    raw = "\n".join(f"line {i} " + "y" * 100 for i in range(200))
+    assert floor.render_guardrails(raw) == raw.strip()
+    floor._cache["text"] = floor.render_guardrails(raw)
+    floor._cache["at"] = 10**12
+    block = floor.build_block()
+    assert len(block) <= floor.MAX_BLOCK_CHARS
+    assert block.split("\n")[-1].endswith("y" * 100)
+
+
+def test_floor_sample_block_prefix():
+    floor._cache["text"] = floor.render_guardrails(REAL_SHAPE)
+    floor._cache["at"] = 10**12
+    assert "(Culture layer v0.1:" in floor.build_block()
+
+
+async def test_image_prompt_appends_global_negative_once(monkeypatch):
+    async def fake(name, args):
+        return REAL_SHAPE if name == "get_culture_guardrails" else "BUILT"
+
+    monkeypatch.setattr(toolset, "call_tool_text", fake)
+    out = await mka_brand.brand_image_prompt("subject")
+    assert out.count("no faces of prophets, no Arabic script") == 1
+
+    async def fake_dup(name, args):
+        return REAL_SHAPE if name == "get_culture_guardrails" else "BUILT, no faces of prophets, no Arabic script"
+
+    monkeypatch.setattr(toolset, "call_tool_text", fake_dup)
+    out = await mka_brand.brand_image_prompt("subject")
+    assert out.count("no faces of prophets, no Arabic script") == 1
 
 
 def test_floor_prepends_to_system_prompt():
