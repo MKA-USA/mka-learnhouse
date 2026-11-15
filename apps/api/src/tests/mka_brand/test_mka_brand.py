@@ -235,7 +235,8 @@ async def test_fetch_calls_only_culture_guardrails(monkeypatch):
     assert names == ["get_culture_guardrails"] and "Guardrail title 12" in out
 
 
-def test_block_respects_cap_and_truncates_on_whole_lines():
+def test_block_respects_cap_and_truncates_on_whole_lines(monkeypatch):
+    monkeypatch.setattr(floor, "MAX_BLOCK_CHARS", 3000)  # force overflow regardless of the real cap
     full = floor.render_guardrails(REAL_SHAPE)
     floor._cache["text"] = full
     floor._cache["at"] = 10**12

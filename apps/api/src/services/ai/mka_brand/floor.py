@@ -24,8 +24,8 @@ from src.services.ai.mka_brand import breaker, config, toolset
 logger = logging.getLogger(__name__)
 
 CACHE_TTL_S = 3600.0
-# ~1.5k tokens at ~4 chars/token.
-MAX_BLOCK_CHARS = 6000
+# ~2.5k tokens at ~4 chars/token: sized so all 12 live culture guardrails (v0.1) fit.
+MAX_BLOCK_CHARS = 10000
 
 BASELINE = """\
 MKA USA brand and culture rules (always apply):
