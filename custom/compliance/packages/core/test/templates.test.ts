@@ -80,6 +80,31 @@ describe("directory", () => {
   });
 });
 
+describe("completion instructions and empty levels", () => {
+  const build = (plans: PlanInput[]) => buildDepartmentCourse({ cycle: "2026-27", dept: dept("tabligh"), roster, plans, otherPlans: others, deadline: "Dec 1, 2026" });
+  const pageText = (c: ReturnType<typeof build>, key: string) => { const a = c.chapters.flatMap((ch) => ch.activities).find((y) => y.key === key)!; if (a.kind !== "page") throw new Error("page"); return plainText(a.doc); };
+  test("generated pages end with the Mark as complete line; the author-owned role page does not; descriptions and sign-off say so", () => {
+    const c = build([plan("tabligh", { level: "national" })]);
+    for (const k of ["plan", "directory"]) expect(pageText(c, k).trimEnd().endsWith("tick Mark as complete, then press Next.")).toBe(true);
+    expect(pageText(c, "role")).not.toContain("Mark as complete");
+    expect(c.description).toContain("tick Mark as complete");
+    expect(SIGNOFF_INSTRUCTION).toContain("shows as complete");
+  });
+  test("a department with no regional or local key results still shows both sections with the empty message", () => {
+    const c = build([plan("tabligh", { level: "national" })]);
+    const a = c.chapters.flatMap((ch) => ch.activities).find((y) => y.key === "plan")!; if (a.kind !== "page") throw new Error("page");
+    const auds = a.doc.content.filter((n) => n.type === "mkaAudience");
+    const labels = auds.map((n) => (n.attrs as any).rule.label);
+    expect(labels).toEqual(["National team", "Regional officeholders", "Local officeholders"]);
+    expect(plainText(a.doc).match(/This department has no key results at this level/g)?.length).toBe(2);
+  });
+  test("Majlis Plan and General pages also carry the line", () => {
+    const mp = buildMajlisPlanCourse({ cycle: "2026-27", deadline: "Dec 1, 2026", departments: DEPARTMENTS.slice(0, 2), plansFor: (s) => [plan(s)] }).spec;
+    for (const a of mp.chapters.flatMap((ch) => ch.activities)) if (a.kind === "page") expect(plainText(a.doc)).toContain("tick Mark as complete");
+    expect(mp.description).toContain("tick Mark as complete");
+  });
+});
+
 describe("department course", () => {
   const build = (plans: PlanInput[]) => buildDepartmentCourse({ cycle: "2026-27", dept: dept("tabligh"), roster, plans, otherPlans: others, deadline: "Dec 1, 2026" });
   test("deterministic names, keys and hash", () => {
@@ -255,7 +280,7 @@ describe("course content polish (usability findings)", () => {
   test("knowledge checks and sign-offs say which button to press (LearnHouse's own labels)", () => {
     expect(QUIZ_INSTRUCTION(60)).toBe("Answer each question, then press the Submit button at the bottom of the page. You need 60% to pass, and you have 3 attempts.");
     expect(QUIZ_INSTRUCTION(null)).toBe("Answer each question, then press the Submit button at the bottom of the page. You have 3 attempts.");
-    expect(SIGNOFF_INSTRUCTION).toBe("Answer the question and type your full name, then press the Submit button at the bottom of the page. Then press Finish course.");
+    expect(SIGNOFF_INSTRUCTION).toContain("every page, video and PDF"); expect(SIGNOFF_INSTRUCTION).toContain("Finish course");
     const desc = (spec: { chapters: { activities: any[] }[] }, key: string) => allActs(spec as never).find((a) => a.key === key) as unknown as { description: string };
     expect(desc(mp, "knowledge-check").description).toContain(QUIZ_INSTRUCTION(60)); expect(desc(mp, "signoff").description).toContain(SIGNOFF_INSTRUCTION);
     const dept = buildDepartmentCourse({ cycle: "2026-27", dept: DEPARTMENTS.find((d) => d.slug === "maal")!, roster: generateRoster(), plans: [plan("maal")], otherPlans: others, deadline: "Dec 1, 2026" });

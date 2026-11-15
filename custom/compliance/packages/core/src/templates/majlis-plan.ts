@@ -4,7 +4,7 @@ import { signOffTasks } from "./attestation";
 import { generatedNote } from "./department";
 import { buildMajlisQuiz, extractObjectives } from "./quiz";
 import type { ChapterSpec, CourseSpec, PlanInput, QuizQuestion } from "./types";
-import { QUIZ_INSTRUCTION, QUIZ_MAX_ATTEMPTS, SIGNOFF_INSTRUCTION, courseName, deptLabel } from "./util";
+import { COMPLETION_SENTENCE, QUIZ_INSTRUCTION, QUIZ_MAX_ATTEMPTS, SIGNOFF_INSTRUCTION, courseName, deptLabel, withCompletion } from "./util";
 
 const MKA_DOMAIN = "mkausa.org";
 
@@ -59,13 +59,13 @@ export function buildMajlisPlanCourse(a: MajlisPlanInput): { spec: CourseSpec } 
   };
   const deptPages = per.map((x) => ({
     kind: "page" as const, key: `dept-${x.d.slug}`, name: x.d.name,
-    doc: doc(
+    doc: doc(...withCompletion([
       generatedNote(`${cycle} Department Plan`, "update the plan with Aitmad"),
       h(2, deptLabel(x.d.name, x.d.translation)),
       ...(x.objectives.length ? [p("Objectives this year:"), ul(x.objectives)] : [calloutWarning(`Content pending: the ${cycle} ${x.d.name} plan has not been provided yet.`)]),
       ...section(x.d.slug, "majlis", "Local key results", x.local, [{ level: ["local"] }, { level: ["national"] }], "Local officeholders"),
       ...section(x.d.slug, "region", "Regional key results", x.regional, [{ level: ["regional"] }, { level: ["national"] }], "Regional officeholders"),
-    ),
+    ])),
   }));
 
   const quiz = buildMajlisQuiz({ cycle, items: per.map((x) => ({ slug: x.d.slug, name: x.d.name, objectives: x.objectives })) });
@@ -78,7 +78,7 @@ export function buildMajlisPlanCourse(a: MajlisPlanInput): { spec: CourseSpec } 
     return out.filter((x) => x.acts.length).map((x): ChapterSpec => ({ key: x.g.key, name: x.g.name, description: x.g.description, activities: x.acts }));
   };
   const chapters: ChapterSpec[] = [
-    { key: "ch-overview", name: "Overview", description: "What the Majlis Plan is and who owns each department", activities: [{ kind: "page", key: "overview", name: "Majlis Plan overview", doc: doc(...overview) }] },
+    { key: "ch-overview", name: "Overview", description: "What the Majlis Plan is and who owns each department", activities: [{ kind: "page", key: "overview", name: "Majlis Plan overview", doc: doc(...withCompletion(overview)) }] },
     ...groupChapters(deptPages),
     { key: "ch-finish", name: "Finish", description: "Knowledge check and sign-off", activities: [
       { kind: "assignment", key: "knowledge-check", name: "Knowledge check: department plans", title: "Knowledge check: department plans", description: `Check that you know which department owns which objective. ${QUIZ_INSTRUCTION(60)}`, ungraded: false, maxAttempts: QUIZ_MAX_ATTEMPTS, passThreshold: 60,
@@ -88,7 +88,7 @@ export function buildMajlisPlanCourse(a: MajlisPlanInput): { spec: CourseSpec } 
   ];
   return { spec: {
     key: `${cycle}|majlis-plan`, kind: "majlis-plan", departmentSlug: "", cycle, name: courseName(cycle, "Majlis Plan"),
-    description: `Every department's Local and Regional key results for your Majlis and region, then a knowledge check and sign-off. About ${MAJLIS_PLAN_MINUTES} minutes. Complete by ${a.deadline}.`,
+    description: `Every department's Local and Regional key results for your Majlis and region, then a knowledge check and sign-off. About ${MAJLIS_PLAN_MINUTES} minutes. ${COMPLETION_SENTENCE} Complete by ${a.deadline}.`,
     about: "Required annual training for Qaideen and Naib Qaideen: all departments' Local and Regional key results, a knowledge check and a sign-off.",
     learnings: "Each department's objectives and key results, who owns them, what your Majlis and region must deliver", tags: `mka,compliance,${cycle},majlis-plan`, chapters, flags,
   } };

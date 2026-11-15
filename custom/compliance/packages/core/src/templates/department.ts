@@ -7,7 +7,7 @@ import type { DepartmentSeed } from "../seed/departments";
 import { signOffTasks } from "./attestation";
 import { buildPlanQuiz, extractObjectives } from "./quiz";
 import type { ActivitySpec, ChapterSpec, CourseSpec, PlanInput, QuizQuestion, SourceRef } from "./types";
-import { QUIZ_INSTRUCTION, QUIZ_MAX_ATTEMPTS, SIGNOFF_INSTRUCTION, courseName, deptLabel } from "./util";
+import { COMPLETION_SENTENCE, QUIZ_INSTRUCTION, withCompletion, QUIZ_MAX_ATTEMPTS, SIGNOFF_INSTRUCTION, courseName, deptLabel } from "./util";
 
 /** Estimated time for a department course: ~4 short pages (about 1,500 words at 200 wpm, about 8 min), 3 quiz questions (about 2 min), contacts lookup and sign-off (about 5 min), plus margin. */
 export const DEPT_COURSE_MINUTES = 20;
@@ -27,7 +27,7 @@ function pendingCallout(deptName: string, cycle: string): PMNode {
 }
 
 /** Render a plan section across levels; stale content gets a visible callout. */
-export function renderPlanSection(plans: PlanInput[], pick: (p: PlanInput) => PMDoc | null, deptName: string, cycle: string): PMNode[] {
+export function renderPlanSection(plans: PlanInput[], pick: (p: PlanInput) => PMDoc | null, deptName: string, cycle: string, opts: { fillMissingLevels?: boolean } = {}): PMNode[] {
   const rows = plans.filter((x) => pick(x)).sort((a, b) => LEVEL_ORDER.indexOf(a.level) - LEVEL_ORDER.indexOf(b.level));
   if (!rows.length) return [pendingCallout(deptName, cycle)];
   const out: PMNode[] = [];
@@ -37,6 +37,15 @@ export function renderPlanSection(plans: PlanInput[], pick: (p: PlanInput) => PM
     const section: PMNode[] = [...(title ? [h(2, title)] : []), ...pick(r)!.content];
     const aud = LEVEL_AUDIENCE[r.level];
     out.push(...(aud ? [audience(audienceId(cycle, r.departmentSlug, r.level), aud.groups, aud.label, section)] : section));
+  }
+  // A level with no key results still gets its (audience-gated) section, so regional and local officeholders are told so instead of seeing nothing.
+  // Skipped when an `all`-level plan exists: that content already applies to every level.
+  if (opts.fillMissingLevels && !rows.some((r) => r.level === "all")) {
+    for (const lvl of ["region", "majlis"]) {
+      if (rows.some((r) => r.level === lvl)) continue;
+      const aud = LEVEL_AUDIENCE[lvl]!;
+      out.push(audience(audienceId(cycle, plans[0]?.departmentSlug ?? deptName, lvl), aud.groups, aud.label, [h(2, LEVEL_TITLE[lvl]!), p("This department has no key results at this level.")]));
+    }
   }
   return out;
 }
@@ -105,7 +114,7 @@ export function buildDepartmentCourse(a: DepartmentCourseInput): CourseSpec {
 
   const roleTitle = dept.slug === "aitmad" ? "Motamid" : `Nazim ${dept.name}`;
   const goals = renderPlanSection(a.plans, (x) => x.responsibilitiesDoc, dept.name, cycle);
-  const okrs = renderPlanSection(a.plans, (x) => x.okrsDoc, dept.name, cycle);
+  const okrs = renderPlanSection(a.plans, (x) => x.okrsDoc, dept.name, cycle, { fillMissingLevels: true });
   const resources = a.plans.map((x) => x.resourcesDoc).filter((d): d is PMDoc => !!d);
 
   // ONE author-owned page: role at a glance, responsibilities, resources. Apply seeds it once; Mohtamims edit it from then on.
@@ -127,12 +136,12 @@ export function buildDepartmentCourse(a: DepartmentCourseInput): CourseSpec {
       { kind: "page", key: "role", name: "Your role and resources", doc: doc(...rolePage), owner: "author", ...(a.sources?.goals ? { source: a.sources.goals } : {}) },
     ] },
     { key: "ch-plan", name: `Your ${cycle} plan`, description: "This cycle's plan and objectives", activities: [
-      { kind: "page", key: "plan", name: "Annual department plan and OKRs", doc: doc(generatedNote(`${cycle} Department Plan`, "update the plan with Aitmad"), ...okrs), ...(a.sources?.plan ? { source: a.sources.plan } : {}) },
+      { kind: "page", key: "plan", name: "Annual department plan and OKRs", doc: doc(...withCompletion([generatedNote(`${cycle} Department Plan`, "update the plan with Aitmad"), ...okrs])), ...(a.sources?.plan ? { source: a.sources.plan } : {}) },
       { kind: "assignment", key: "knowledge-check", name: "Knowledge check: department plan", title: "Knowledge check: department plan", description: `Check your understanding of the ${dept.name} plan. ${QUIZ_INSTRUCTION(60)}`, ungraded: false, maxAttempts: QUIZ_MAX_ATTEMPTS, passThreshold: 60,
         tasks: [{ key: "plan-quiz", type: "QUIZ", title: "Department plan", description: "Choose the best answer.", hint: "Review the plan lesson if unsure.", contents: { grading_mode: "ALL_OR_NOTHING", questions: quiz.questions as QuizQuestion[] } }] },
     ] },
     { key: "ch-contacts", name: "Contacts", description: "Your national, regional and local counterparts", activities: [
-      { kind: "page", key: "directory", name: "Contacts directory", doc: doc(generatedNote(`${cycle} officeholder roster`, "contact Aitmad"), ...renderDirectory({ cycle, dept, roster: a.roster }).content) },
+      { kind: "page", key: "directory", name: "Contacts directory", doc: doc(...withCompletion([generatedNote(`${cycle} officeholder roster`, "contact Aitmad"), ...renderDirectory({ cycle, dept, roster: a.roster }).content])) },
     ] },
     { key: "ch-attest", name: "Finish", description: "Final sign-off", activities: [
       { kind: "assignment", key: "signoff", name: "Final sign-off", title: "Final sign-off", description: `Confirm and sign to complete this course. ${SIGNOFF_INSTRUCTION}`, ungraded: true, tasks: signOffTasks(cycle, dept.slug) },
@@ -142,7 +151,7 @@ export function buildDepartmentCourse(a: DepartmentCourseInput): CourseSpec {
   return {
     key: `${cycle}|dept:${dept.slug}`, kind: "department", departmentSlug: dept.slug, cycle,
     name: courseName(cycle, dept.name),
-    description: `Your role, this year's ${dept.name} plan and the people to contact, then a short knowledge check and sign-off. About ${DEPT_COURSE_MINUTES} minutes. Complete by ${a.deadline}.`,
+    description: `Your role, this year's ${dept.name} plan and the people to contact, then a short knowledge check and sign-off. About ${DEPT_COURSE_MINUTES} minutes. ${COMPLETION_SENTENCE} Complete by ${a.deadline}.`,
     about: `Required annual training for ${roleTitle} and counterparts: goals, the annual plan, your contacts and a final sign-off.`,
     learnings: "Your responsibilities, this year's plan, who to contact, attestation",
     tags: `mka,compliance,${cycle},${dept.slug}`, chapters, flags,
