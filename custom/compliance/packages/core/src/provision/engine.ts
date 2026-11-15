@@ -190,6 +190,9 @@ export async function applyCourse(env: ApplyEnv, spec: CourseSpec, thinkificCour
 
 async function ignore404(f: () => Promise<unknown>) { try { await f(); } catch (e) { if (!(e instanceof LhHttpError && e.status === 404)) throw e; } }
 
+/** Graded assignments cap total attempts via max_retries (0 = unlimited upstream). Ungraded sign-offs send nothing. */
+export const retryFields = (maxAttempts?: number) => (maxAttempts ? { allow_retries: true, max_retries: maxAttempts } : {});
+
 const taskBody = (t: TaskSpec) => ({ title: t.title, description: t.description, hint: t.hint, assignment_type: t.type, contents: t.contents as Record<string, unknown> });
 
 async function createActivity(env: ApplyEnv, a: ActivitySpec, chapterId: number, courseId: number, ch: ChapterSpec) {
@@ -203,7 +206,7 @@ async function createActivity(env: ApplyEnv, a: ActivitySpec, chapterId: number,
   if (a.kind === "pdf") { const act = await api.createPdfActivity(chapterId, a.name, a.file.abs); await api.updateActivity(act.activity_uuid, { published: true }); return { id: act.id, uuid: act.activity_uuid }; }
   const act = await api.createActivity({ chapter_id: chapterId, name: a.name, activity_type: "TYPE_ASSIGNMENT", activity_sub_type: "SUBTYPE_ASSIGNMENT_ANY", published: true });
   const asg = await api.createAssignment({ title: a.title, description: a.description, grading_type: "PERCENTAGE", org_id: env.orgId, course_id: courseId, chapter_id: chapterId, activity_id: act.id,
-    ungraded: a.ungraded, auto_grading: !a.ungraded, pass_threshold_percentage: a.passThreshold ?? null, published: true });
+    ungraded: a.ungraded, auto_grading: !a.ungraded, pass_threshold_percentage: a.passThreshold ?? null, ...retryFields(a.maxAttempts), published: true });
   const tasks: Record<string, { uuid: string; hash: string }> = {};
   for (const t of a.tasks) { const r = await api.createAssignmentTask(asg.assignment_uuid, taskBody(t)); tasks[t.key] = { uuid: r.assignment_task_uuid, hash: taskHash(t) }; }
   void ch;
@@ -214,7 +217,7 @@ async function updateActivity(env: ApplyEnv, a: ActivitySpec, rec: import("./typ
   const { api } = env;
   if (a.kind === "page") { await api.updateActivity(rec.uuid, { name: a.name, content: a.doc as unknown as Record<string, unknown>, published: true }); return; }
   if (a.kind === "assignment" && rec.assignmentUuid) {
-    await api.updateAssignment(rec.assignmentUuid, { title: a.title, description: a.description, ungraded: a.ungraded, pass_threshold_percentage: a.passThreshold ?? null, published: true });
+    await api.updateAssignment(rec.assignmentUuid, { title: a.title, description: a.description, ungraded: a.ungraded, pass_threshold_percentage: a.passThreshold ?? null, ...retryFields(a.maxAttempts), published: true });
     rec.tasks ??= {};
     for (const t of a.tasks) {
       const ex = rec.tasks[t.key];

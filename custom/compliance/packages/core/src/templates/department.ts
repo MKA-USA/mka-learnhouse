@@ -7,7 +7,7 @@ import type { DepartmentSeed } from "../seed/departments";
 import { signOffTasks } from "./attestation";
 import { buildPlanQuiz, extractObjectives } from "./quiz";
 import type { ActivitySpec, ChapterSpec, CourseSpec, PlanInput, QuizQuestion, SourceRef } from "./types";
-import { QUIZ_INSTRUCTION, SIGNOFF_INSTRUCTION, courseName, deptLabel } from "./util";
+import { QUIZ_INSTRUCTION, QUIZ_MAX_ATTEMPTS, SIGNOFF_INSTRUCTION, courseName, deptLabel } from "./util";
 
 /** Estimated time for a department course: ~4 short pages (about 1,500 words at 200 wpm, about 8 min), 3 quiz questions (about 2 min), contacts lookup and sign-off (about 5 min), plus margin. */
 export const DEPT_COURSE_MINUTES = 20;
@@ -113,7 +113,7 @@ export function buildDepartmentCourse(a: DepartmentCourseInput): CourseSpec {
     ] },
     { key: "ch-plan", name: `Your ${cycle} plan`, description: "This cycle's plan and objectives", activities: [
       { kind: "page", key: "plan", name: "Annual department plan and OKRs", doc: doc(generatedNote(`${cycle} Department Plan`, "update the plan with Aitmad"), ...okrs), ...(a.sources?.plan ? { source: a.sources.plan } : {}) },
-      { kind: "assignment", key: "knowledge-check", name: "Knowledge check: department plan", title: "Knowledge check: department plan", description: `Check your understanding of the ${dept.name} plan. ${QUIZ_INSTRUCTION}`, ungraded: false, passThreshold: 60,
+      { kind: "assignment", key: "knowledge-check", name: "Knowledge check: department plan", title: "Knowledge check: department plan", description: `Check your understanding of the ${dept.name} plan. ${QUIZ_INSTRUCTION(60)}`, ungraded: false, maxAttempts: QUIZ_MAX_ATTEMPTS, passThreshold: 60,
         tasks: [{ key: "plan-quiz", type: "QUIZ", title: "Department plan", description: "Choose the best answer.", hint: "Review the plan lesson if unsure.", contents: { grading_mode: "ALL_OR_NOTHING", questions: quiz.questions as QuizQuestion[] } }] },
     ] },
     { key: "ch-contacts", name: "Contacts", description: "Your national, regional and local counterparts", activities: [

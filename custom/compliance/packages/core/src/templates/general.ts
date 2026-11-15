@@ -6,7 +6,7 @@ import { calloutInfo, calloutWarning, doc, p, plainText, text, type PMNode } fro
 import { allLessons, lessonHtml, type TkCourse, type TkLesson } from "../thinkific/load";
 import { signOffTasks } from "./attestation";
 import type { ActivitySpec, ChapterSpec, CourseSpec, QuizQuestion, SourceRef } from "./types";
-import { QUIZ_INSTRUCTION, READING_WPM, SECONDS_PER_QUESTION, SIGNOFF_INSTRUCTION, courseName, mcq, roundMinutes, videoSeconds } from "./util";
+import { QUIZ_INSTRUCTION, QUIZ_MAX_ATTEMPTS, READING_WPM, SECONDS_PER_QUESTION, SIGNOFF_INSTRUCTION, courseName, mcq, roundMinutes, videoSeconds } from "./util";
 import { STALE_NOTE } from "./department";
 
 export interface FoundationQuiz { name: string; passingScore: number | null; questions: { prompt: string; multiple: boolean; choices: { text: string; correct: boolean }[] }[] }
@@ -73,7 +73,7 @@ export function buildGeneralCourse(args: { cycle: string; deadline: string; foun
     return { kind: "page", key, name: pg.name, doc: doc(...leading, ...extra, ...r.doc.content), source: pg.source };
   };
   const quiz = (key: string, name: string, q: FoundationQuiz, src?: SourceRef): ActivitySpec => ({
-    kind: "assignment", key, name, title: name, description: QUIZ_INSTRUCTION, ungraded: false, ...(q.passingScore ? { passThreshold: q.passingScore } : {}), source: src,
+    kind: "assignment", key, name, title: name, description: QUIZ_INSTRUCTION(q.passingScore), ungraded: false, maxAttempts: QUIZ_MAX_ATTEMPTS, ...(q.passingScore ? { passThreshold: q.passingScore } : {}), source: src,
     tasks: [{ key: `${key}-q`, type: "QUIZ", title: name, description: "Choose the best answer.", hint: "Review the lesson if unsure.", contents: { grading_mode: "ALL_OR_NOTHING", questions: quizTasks(cycle, key, q) } }],
   });
 

@@ -39,6 +39,7 @@ export interface CreateAssignmentInput {
   title: string; description: string; grading_type: string; org_id: number; course_id: number;
   chapter_id: number; activity_id: number; due_date?: string | null; published?: boolean;
   auto_grading?: boolean; ungraded?: boolean; pass_threshold_percentage?: number | null;
+  allow_retries?: boolean; max_retries?: number;
 }
 export interface CreateAssignmentTaskInput {
   title: string; description: string; hint: string; assignment_type: AssignmentTaskType;

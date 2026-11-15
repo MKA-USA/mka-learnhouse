@@ -86,7 +86,7 @@ export class LhApi {
     f.set("pdf_file", Bun.file(absPath), absPath.split("/").pop());
     return this.client.request<T.LhActivity>("POST", "/activities/documentpdf", { form: f, timeoutMs: 300_000 });
   }
-  updateAssignment(assignmentUuid: string, input: Partial<Pick<T.CreateAssignmentInput, "title" | "description" | "ungraded" | "pass_threshold_percentage" | "auto_grading" | "published">>) {
+  updateAssignment(assignmentUuid: string, input: Partial<Pick<T.CreateAssignmentInput, "title" | "description" | "ungraded" | "pass_threshold_percentage" | "auto_grading" | "allow_retries" | "max_retries" | "published">>) {
     return this.client.put(`/assignments/${assignmentUuid}`, input);
   }
   updateAssignmentTask(assignmentUuid: string, taskUuid: string, input: Partial<T.CreateAssignmentTaskInput>) {

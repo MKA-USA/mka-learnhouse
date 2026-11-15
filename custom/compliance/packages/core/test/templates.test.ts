@@ -126,6 +126,11 @@ describe("department course", () => {
 describe.skipIf(!existsSync(DEFAULT_THINKIFIC_DIR))("general course from Foundation export", () => {
   const F = loadFoundation(foundationCourse(listTkCourses(DEFAULT_THINKIFIC_DIR))!);
   const { spec, flags } = buildGeneralCourse({ cycle: "2026-27", deadline: "Dec 1, 2026", foundation: F });
+  test("General quizzes get 3 attempts; ungraded activities get none", () => {
+    const asg = spec.chapters.flatMap((c) => c.activities).filter((a) => a.kind === "assignment") as unknown as { ungraded: boolean; maxAttempts?: number; description: string; passThreshold?: number }[];
+    expect(asg.some((a) => !a.ungraded)).toBe(true);
+    for (const a of asg) { expect(a.maxAttempts).toBe(a.ungraded ? undefined : 3); if (!a.ungraded) expect(a.description).toContain("3 attempts"); }
+  });
   test("structure and quiz sizes preserved from source (10, 12, 2 questions)", () => {
     expect(spec.name).toBe("MKA 2026-27 · General");
     expect(spec.chapters.map((c) => c.key)).toEqual(["ch-intro", "ch-structures", "ch-resources", "ch-rules", "ch-message", "ch-signoff"]);
@@ -233,16 +238,20 @@ describe("course content polish (usability findings)", () => {
     expect(qs.length).toBe(4); expect(new Set(qs.map((q) => q.questionText.replace(/"[^"]*"/, "OBJ"))).size).toBe(4);
   });
   test("knowledge checks and sign-offs say which button to press (LearnHouse's own labels)", () => {
-    expect(QUIZ_INSTRUCTION).toBe("Answer each question, then press the Submit button at the bottom of the page. You can change your answers until you submit.");
+    expect(QUIZ_INSTRUCTION(60)).toBe("Answer each question, then press the Submit button at the bottom of the page. You need 60% to pass, and you have 3 attempts.");
+    expect(QUIZ_INSTRUCTION(null)).toBe("Answer each question, then press the Submit button at the bottom of the page. You have 3 attempts.");
     expect(SIGNOFF_INSTRUCTION).toBe("Answer the question and type your full name, then press the Submit button at the bottom of the page. Then press Finish course.");
     const desc = (spec: { chapters: { activities: any[] }[] }, key: string) => allActs(spec as never).find((a) => a.key === key) as unknown as { description: string };
-    expect(desc(mp, "knowledge-check").description).toContain(QUIZ_INSTRUCTION); expect(desc(mp, "signoff").description).toContain(SIGNOFF_INSTRUCTION);
+    expect(desc(mp, "knowledge-check").description).toContain(QUIZ_INSTRUCTION(60)); expect(desc(mp, "signoff").description).toContain(SIGNOFF_INSTRUCTION);
     const dept = buildDepartmentCourse({ cycle: "2026-27", dept: DEPARTMENTS.find((d) => d.slug === "maal")!, roster: generateRoster(), plans: [plan("maal")], otherPlans: others, deadline: "Dec 1, 2026" });
-    expect(desc(dept, "knowledge-check").description).toContain(QUIZ_INSTRUCTION); expect(desc(dept, "signoff").description).toContain(SIGNOFF_INSTRUCTION);
+    expect(desc(dept, "knowledge-check").description).toContain(QUIZ_INSTRUCTION(60)); expect(desc(dept, "signoff").description).toContain(SIGNOFF_INSTRUCTION);
     // graded check and ungraded sign-off both end in the Submit button; the instructions never name the old "Submit for grading" / "Hand in my work" / "Save answers" labels
-    for (const old of ["Submit for grading", "Hand in my work", "Save answers"]) { expect(QUIZ_INSTRUCTION).not.toContain(old); expect(SIGNOFF_INSTRUCTION).not.toContain(old); }
+    for (const old of ["Submit for grading", "Hand in my work", "Save answers"]) { expect(QUIZ_INSTRUCTION(60)).not.toContain(old); expect(SIGNOFF_INSTRUCTION).not.toContain(old); }
     expect((allActs(dept as never).find((a) => a.key === "knowledge-check") as unknown as { ungraded: boolean }).ungraded).toBe(false);
     expect((allActs(dept as never).find((a) => a.key === "signoff") as unknown as { ungraded: boolean }).ungraded).toBe(true);
+    // graded knowledge checks get exactly 3 attempts; ungraded sign-offs and self-checks get no retry cap
+    const att = (spec: unknown) => allActs(spec as never).filter((a) => a.kind === "assignment").map((a) => a as unknown as { ungraded: boolean; maxAttempts?: number });
+    for (const spec of [dept, mp]) for (const a of att(spec)) expect(a.maxAttempts).toBe(a.ungraded ? undefined : 3);
   });
   test("course descriptions: one or two sentences, the time estimate and the deadline", () => {
     const dept = buildDepartmentCourse({ cycle: "2026-27", dept: DEPARTMENTS.find((d) => d.slug === "amoomi")!, roster: generateRoster(), plans: [plan("amoomi")], otherPlans: others, deadline: "Dec 1, 2026" });
