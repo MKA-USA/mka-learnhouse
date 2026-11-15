@@ -15,7 +15,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import MkaProfileFields from './MkaProfileFields'
-import './mka-quiz-options.css' // quiz option rows grow with wrapped text (fork-only override)
+import './mka-learner-fixes.css' // learner-view CSS overrides (quiz rows, content tables); fork-only
 import {
   emptyMkaProfile,
   getMyMkaProfile,
