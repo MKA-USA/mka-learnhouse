@@ -45,29 +45,44 @@ export function renderPlanSection(plans: PlanInput[], pick: (p: PlanInput) => PM
 export const generatedNote = (source: string, how: string): PMNode =>
   calloutInfo(`This page is generated from the ${source}. To change it, ${how}, not this page.`);
 
+/** National officeholders have no region/majlis attribute, so a region-only rule would hide everything from them: always add this group. */
+const NATIONAL_VIEWERS = { level: ["national"] };
 const dash = (s: string | null | undefined) => s || "—";
 
 export function renderDirectory(args: { cycle: string; dept: DepartmentSeed; roster: RosterRow[] }): PMDoc {
-  const { dept, roster } = args;
+  const { cycle, dept, roster } = args;
   const mine = roster.filter((r) => r.departmentSlug === dept.slug);
   const nat = mine.filter((r) => r.level === "national");
   const local = mine.filter((r) => r.level === "majlis");
   const qaids = new Map(roster.filter((r) => r.role === "qaid").map((r) => [r.majlis, r]));
   const regionalQaids = roster.filter((r) => r.role === "regional_qaid");
   const regionalDept = mine.filter((r) => r.level === "region");
+  const byMajlis = new Map<string, RosterRow[]>();
+  for (const r of local) byMajlis.set(r.majlis, [...(byMajlis.get(r.majlis) ?? []), r]);
+  const localByMajlis = [...byMajlis.entries()].sort(([a], [b]) => a.localeCompare(b));
   const blocks: PMNode[] = [
     p([text("Find your counterparts below. Mailboxes are role mailboxes: they pass to the next officeholder. A dash means the name has not been recorded yet.")]),
     h(2, "National"),
     table(["Role", "Mailbox", "Name"], nat.map((r) => [r.roleTitle, r.learnerEmail, dash(r.personName)])),
     h(2, "Regional"),
-    table(["Region", "Role", "Mailbox", "Name"], REGION_NAMES.flatMap((rg) => {
+    p([text("Regional contacts are shown for your own region only.")]),
+    ...REGION_NAMES.map((rg) => {
       const rd = regionalDept.find((x) => x.region === rg); const q = regionalQaids.find((x) => x.region === rg);
-      return [[rg, rd?.roleTitle ?? `Regional ${dept.name}`, dash(rd?.learnerEmail), dash(rd?.personName)], [rg, "Regional Qaid", dash(q?.learnerEmail), dash(q?.personName)]];
-    })),
+      return audience(audienceId(cycle, dept.slug, "directory", "region", rg), [{ region: [rg] }, NATIONAL_VIEWERS], `${rg} region`, [
+        h(3, rg),
+        table(["Role", "Mailbox", "Name"], [
+          [rd?.roleTitle ?? `Regional ${dept.name}`, dash(rd?.learnerEmail), dash(rd?.personName)],
+          ["Regional Qaid", dash(q?.learnerEmail), dash(q?.personName)],
+        ]),
+      ]);
+    }),
     h(2, `Local: ${dept.name}`),
-    table(["Region", "Majlis", "Role", "Mailbox", "Name", "Majlis Qaid mailbox"],
-      local.sort((a, b) => a.region.localeCompare(b.region) || a.majlis.localeCompare(b.majlis) || a.role.localeCompare(b.role))
-        .map((r) => [r.region, r.majlis, r.roleTitle, r.learnerEmail, dash(r.personName), dash(qaids.get(r.majlis)?.learnerEmail)])),
+    p([text("Local contacts are shown for your own Majlis, or for every Majlis in your region if you are a regional officeholder.")]),
+    ...localByMajlis.map(([mj, rows]) => audience(audienceId(cycle, dept.slug, "directory", "majlis", mj), [{ majlis: [mj] }, { level: ["regional"], region: [rows[0]!.region] }, NATIONAL_VIEWERS], `${mj} Majlis`, [
+      h(3, `${mj} (${rows[0]!.region})`),
+      table(["Role", "Mailbox", "Name", "Majlis Qaid mailbox"],
+        rows.sort((a, b) => a.role.localeCompare(b.role)).map((r) => [r.roleTitle, r.learnerEmail, dash(r.personName), dash(qaids.get(r.majlis)?.learnerEmail)])),
+    ])),
   ];
   return doc(...blocks);
 }
