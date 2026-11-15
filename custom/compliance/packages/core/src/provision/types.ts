@@ -16,4 +16,4 @@ export interface MapStore {
 /** `remove`: recorded in course_map but no longer in the spec. `skip`: author-owned, apply leaves it alone. */
 export type Action = "create" | "update" | "unchanged" | "conflict" | "remove" | "skip";
 export interface PlanItem { level: "course" | "chapter" | "activity" | "task"; key: string; action: Action; detail?: string }
-export interface CoursePlan { courseKey: string; name: string; action: Action; counts: { chapters: number; pages: number; assignments: number; tasks: number; media: number }; items: PlanItem[]; flags: string[]; conflict?: string }
+export interface CoursePlan { courseKey: string; name: string; action: Action; counts: { chapters: number; pages: number; assignments: number; tasks: number; media: number }; items: PlanItem[]; flags: string[]; conflict?: string; /** live course is published (plan only knows this when it could read LearnHouse) */ published?: boolean }

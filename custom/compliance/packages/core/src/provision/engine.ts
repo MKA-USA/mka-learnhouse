@@ -23,7 +23,7 @@ function countsOf(spec: CourseSpec) {
 /** Pure plan: no network. `existingByName` (uuid) detects a same-named course that is not in course_map. */
 export function planCourse(spec: CourseSpec, row: MapRow | null, existingByName?: string | null, opts: { published?: boolean | null; /** keys of recorded activities that are live but unpublished (apply flips the flag only) */ unpublishedKeys?: readonly string[] } = {}): CoursePlan {
   const items: PlanItem[] = [];
-  const base = { courseKey: spec.key, name: spec.name, counts: countsOf(spec), flags: spec.flags };
+  const base = { courseKey: spec.key, name: spec.name, counts: countsOf(spec), flags: spec.flags, ...(opts.published === true ? { published: true } : {}) };
   if (!row) {
     if (existingByName) return { ...base, action: "conflict", items, conflict: `a course named "${spec.name}" already exists in LearnHouse (${existingByName}) but is not in course_map; refusing to create a duplicate` };
     items.push({ level: "course", key: spec.key, action: "create" });
@@ -85,6 +85,7 @@ export async function applyCourse(env: ApplyEnv, spec: CourseSpec, thinkificCour
   let created = 0, updated = 0, removed = 0;
   let row = await store.get(spec.kind, spec.departmentSlug);
   let uuid: string; let st: CourseStructure;
+  let keepPublishState = false; // writing to a published course (allowPublished): content only, no publish flag is ever sent or flipped, nothing added or removed
   const liveActs = new Map<string, boolean | undefined>(); // existing course: the live published flag per activity (from the same meta read as the draft guard)
   let flipped = 0; let mustReorder = false;
 
@@ -107,6 +108,8 @@ export async function applyCourse(env: ApplyEnv, spec: CourseSpec, thinkificCour
     if (meta.published !== false) {
       if (gone0.length) throw new SafetyError(`refusing to remove activities from ${spec.name}: the course is published (or its state is unknown)`);
       if (!env.allowPublished) throw new SafetyError(`refusing to write to ${spec.name}: the course is published (or its state is unknown)`);
+      if (spec.chapters.some((c) => !st.chapters[c.key] || c.activities.some((a) => !st.activities[a.key]))) throw new SafetyError(`refusing to add chapters or activities to ${spec.name}: the course is published (only content updates are allowed)`);
+      keepPublishState = true;
     }
     if (st.metaHash !== metaOf(spec)) {
       await api.updateCourse(uuid, { name: spec.name, description: spec.description, about: spec.about, learnings: spec.learnings, tags: spec.tags });
@@ -143,9 +146,9 @@ export async function applyCourse(env: ApplyEnv, spec: CourseSpec, thinkificCour
         // Stamp ownership BEFORE the PUT so a failed save afterwards can never re-seed and wipe the author's edits; undo the stamp if the PUT itself fails.
         const before = { hash: rec.hash, owner: rec.owner };
         if (owner === "author") { rec.hash = h; rec.owner = owner; await saveRow(env, spec, uuid, st); }
-        try { await updateActivity(env, a, rec); }
+        try { await updateActivity(env, a, rec, keepPublishState); }
         catch (e) { if (owner === "author") { rec.hash = before.hash; if (before.owner) rec.owner = before.owner; else delete rec.owner; await saveRow(env, spec, uuid, st); } throw e; }
-        rec.hash = h; rec.owner = owner; updated++; liveActs.set(rec.uuid, true); await saveRow(env, spec, uuid, st);
+        rec.hash = h; rec.owner = owner; updated++; if (!keepPublishState) liveActs.set(rec.uuid, true); await saveRow(env, spec, uuid, st);
         log(`  updated ${a.kind} ${a.key}${owner === "author" ? " (one-time seed; author-owned from now on)" : ""}`);
       }
     }
@@ -168,7 +171,7 @@ export async function applyCourse(env: ApplyEnv, spec: CourseSpec, thinkificCour
   // Lessons and assignments live PUBLISHED inside the unpublished course (LearnHouse hides unpublished activities from everyone who cannot edit the
   // course). Existing ones that are still unpublished get a FLAG-ONLY update ({published:true}): never name, never content, so author-owned pages are safe.
   for (const [key, rec] of Object.entries(st.activities)) {
-    if (!spec.chapters.some((c) => c.activities.some((a) => a.key === key)) || liveActs.get(rec.uuid) !== false) continue;
+    if (keepPublishState || !spec.chapters.some((c) => c.activities.some((a) => a.key === key)) || liveActs.get(rec.uuid) !== false) continue;
     await api.updateActivity(rec.uuid, { published: true }); liveActs.set(rec.uuid, true); flipped++;
     if (rec.assignmentUuid) { const asg = await api.getAssignment(rec.assignmentUuid); if (asg.published === false) await api.updateAssignment(rec.assignmentUuid, { published: true }); }
     log(`  published ${rec.kind} ${key} (flag only)`);
@@ -213,11 +216,12 @@ async function createActivity(env: ApplyEnv, a: ActivitySpec, chapterId: number,
   return { id: act.id, uuid: act.activity_uuid, assignmentUuid: asg.assignment_uuid, tasks };
 }
 
-async function updateActivity(env: ApplyEnv, a: ActivitySpec, rec: import("./types").ActivityRecord) {
+async function updateActivity(env: ApplyEnv, a: ActivitySpec, rec: import("./types").ActivityRecord, keepPublishState = false) {
   const { api } = env;
-  if (a.kind === "page") { await api.updateActivity(rec.uuid, { name: a.name, content: a.doc as unknown as Record<string, unknown>, published: true }); return; }
+  const pub = keepPublishState ? {} : { published: true }; // on a published course the flag is never sent
+  if (a.kind === "page") { await api.updateActivity(rec.uuid, { name: a.name, content: a.doc as unknown as Record<string, unknown>, ...pub }); return; }
   if (a.kind === "assignment" && rec.assignmentUuid) {
-    await api.updateAssignment(rec.assignmentUuid, { title: a.title, description: a.description, ungraded: a.ungraded, pass_threshold_percentage: a.passThreshold ?? null, ...retryFields(a.maxAttempts), published: true });
+    await api.updateAssignment(rec.assignmentUuid, { title: a.title, description: a.description, ungraded: a.ungraded, pass_threshold_percentage: a.passThreshold ?? null, ...retryFields(a.maxAttempts), ...pub });
     rec.tasks ??= {};
     for (const t of a.tasks) {
       const ex = rec.tasks[t.key];
@@ -229,12 +233,12 @@ async function updateActivity(env: ApplyEnv, a: ActivitySpec, rec: import("./typ
 }
 
 /** Read back one course and compare structure counts with the spec. */
-export async function verifyCourse(api: LhApi, uuid: string, spec: CourseSpec): Promise<{ ok: boolean; detail: string }> {
+export async function verifyCourse(api: LhApi, uuid: string, spec: CourseSpec, allowPublished = false): Promise<{ ok: boolean; detail: string }> {
   try {
     const meta = (await api.getCourseMeta(uuid)) as { published?: boolean; chapters?: { activities?: unknown[] }[] };
     const ch = meta.chapters ?? []; const acts = ch.reduce((n, c) => n + (c.activities?.length ?? 0), 0);
     const want = spec.chapters.reduce((n, c) => n + c.activities.length, 0);
-    const ok = meta.published === false && ch.length === spec.chapters.length && acts === want;
+    const ok = (meta.published === false || (allowPublished && meta.published === true)) && ch.length === spec.chapters.length && acts === want;
     return { ok, detail: `published=${meta.published} chapters ${ch.length}/${spec.chapters.length} activities ${acts}/${want}` };
   } catch (e) { return { ok: false, detail: e instanceof LhHttpError ? `HTTP ${e.status}` : "error" }; }
 }

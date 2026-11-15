@@ -128,6 +128,31 @@ describe("provision idempotency", () => {
     const r = await applyCourse({ api: f.api, store, orgId: 1, allowPublished: true }, s2);
     expect(r.updated).toBe(1); expect(f.calls.map((c) => c.fn)).toEqual(["updateCourse"]);
   });
+  test("allowPublished never sends a publish field, flips nothing, and refuses additions", async () => {
+    const store = memoryMapStore(); const s = spec(); await applyCourse({ api: fakeApi().api, store, orgId: 1 }, s);
+    const s2 = spec(); s2.description = "changed";
+    const dir = s2.chapters.flatMap((c) => c.activities).find((a) => a.key === "directory");
+    if (dir?.kind !== "page") throw new Error("directory page"); dir.doc = { type: "doc", content: [...dir.doc.content, { type: "paragraph", content: [{ type: "text", text: "changed" }] }] };
+    const f = fakeApi({ published: true });
+    const seen: unknown[] = [];
+    for (const fn of ["updateActivity", "updateAssignment", "updateCourse", "updateChapter"] as const) {
+      const orig = (f.api as any)[fn]; (f.api as any)[fn] = async (...args: unknown[]) => { seen.push(args[args.length - 1]); return orig(...args); };
+    }
+    const r = await applyCourse({ api: f.api, store, orgId: 1, allowPublished: true }, s2);
+    expect(f.calls.map((c) => c.fn)).toContain("updateActivity"); expect(r.updated).toBeGreaterThan(1); expect(r.published).toBe(0); expect(r.removed).toBe(0);
+    for (const body of seen) expect(Object.keys(body as object)).not.toContain("published");
+    expect(f.calls.map((c) => c.fn)).not.toContain("createActivity");
+    // an added activity is refused with zero writes
+    const s3 = spec(); s3.chapters[0]!.activities.push({ ...(s3.chapters[0]!.activities[0] as any), key: "brand-new" });
+    const f2 = fakeApi({ published: true });
+    await expect(applyCourse({ api: f2.api, store, orgId: 1, allowPublished: true }, s3)).rejects.toBeInstanceOf(SafetyError);
+    expect(f2.calls.length).toBe(0);
+  });
+  test("plan marks a published course UPDATE (published)", async () => {
+    const store = memoryMapStore(); const s = spec(); await applyCourse({ api: fakeApi().api, store, orgId: 1 }, s);
+    const p = planCourse(Object.assign(spec(), { description: "changed" }), await store.get("department", "tabligh"), null, { published: true });
+    expect(p.action).toBe("update"); expect(p.published).toBe(true);
+  });
   test("one-time seed: ownership is saved BEFORE the PUT, and undone if the PUT fails", async () => {
     const store = memoryMapStore(); const events: string[] = []; const s = spec(); await applyCourse({ api: fakeApi().api, store, orgId: 1 }, s);
     const row = (await store.get("department", "tabligh"))!; delete row.structure.activities.role!.owner; row.structure.activities.role!.hash = "old"; await store.save(row);

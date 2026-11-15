@@ -27,7 +27,7 @@ function clientFromEnv(delayMs = 1200, maxRetries = 2) {
 
 export function formatPlan(p: CoursePlan): string {
   const c = p.counts;
-  const lines = [`${p.action.toUpperCase().padEnd(9)} ${p.name}  (${c.chapters} chapters, ${c.pages} pages, ${c.assignments} assignments/${c.tasks} tasks, ${c.media} media)`];
+  const lines = [`${(p.action.toUpperCase() + (p.published && p.action === "update" ? " (published)" : "")).padEnd(9)} ${p.name}  (${c.chapters} chapters, ${c.pages} pages, ${c.assignments} assignments/${c.tasks} tasks, ${c.media} media)`];
   if (p.conflict) lines.push(`    CONFLICT: ${p.conflict}`);
   for (const f of p.flags) lines.push(`    flag: ${f}`);
   if (p.action === "update" || p.items.some((x) => x.action === "skip")) for (const i of p.items.filter((x) => ["update", "create", "remove", "skip"].includes(x.action))) lines.push(`    ${i.action === "skip" ? "author-owned (skip)" : i.action} ${i.level} ${i.key}${i.detail && i.action !== "skip" ? ` (${i.detail})` : ""}`);
@@ -96,11 +96,19 @@ export async function cmdApply(a: Args) {
     console.log(`APPLY on ${currentTarget().host}, cycle ${cycle}, selection: ${sel.label}; all courses stay DRAFT`);
     const results: { name: string; uuid: string; created: number; updated: number; removed: number; published: number; verify: string }[] = [];
     const prev = await prevStore(db, a); const refused: { name: string; reason: string }[] = [];
+    const allowPublished = a.has("allow-published");
+    if (allowPublished) {
+      // Name every published course this run may write to BEFORE writing; prod needs the exact hostname as a second confirmation.
+      const touched: string[] = [];
+      for (const { spec: s0 } of w.specs) { const row = await store.get(s0.kind, s0.departmentSlug); if (!row) continue; const m = (await api.getCourseMeta(row.lhCourseUuid)) as { published?: boolean }; if (m.published !== false) touched.push(s0.name); }
+      console.log(`--allow-published: content updates only (no publish flag changes, no additions, no removals) may be written to ${touched.length} published course(s):${touched.length ? "\n  " + touched.join("\n  ") : " none"}`);
+      if (currentTarget().name === "prod" && a.str("confirm-published") !== currentTarget().host) throw new SafetyError(`--allow-published on prod also needs --confirm-published ${currentTarget().host}`);
+    } else if (a.str("confirm-published")) console.log("(--confirm-published ignored without --allow-published)");
     for (const { spec: s0, thinkificCourseId } of w.specs) {
       try {
         const spec = await seedSpec(s0, await store.get(s0.kind, s0.departmentSlug), prev, api, (m) => console.log(m));
-        const r = await applyCourse({ api, store, orgId, log: (s) => console.log(s) }, spec, thinkificCourseId);
-        const v = await verifyCourse(api, r.courseUuid, spec);
+        const r = await applyCourse({ api, store, orgId, allowPublished, log: (s) => console.log(s) }, spec, thinkificCourseId);
+        const v = await verifyCourse(api, r.courseUuid, spec, allowPublished);
         results.push({ name: spec.name, uuid: r.courseUuid, created: r.created, updated: r.updated, removed: r.removed, published: r.published, verify: `${v.ok ? "OK" : "MISMATCH"} ${v.detail}` });
       } catch (e) {
         if (e instanceof ConflictError) { console.error(`CONFLICT ${s0.name}: ${e.message}`); continue; }
