@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import {
   DEFAULT_THINKIFIC_DIR, DEPARTMENTS, STALE_NOTE, buildDepartmentCourse, buildGeneralCourse, buildMajlisPlanCourse, buildMajlisQuiz, countKeyResults, MULTI_OFFICE_NOTE, buildPlanQuiz, deptLabel, QUIZ_INSTRUCTION, SIGNOFF_INSTRUCTION, DEPT_COURSE_MINUTES, MAJLIS_PLAN_MINUTES, extractObjectives, foundationCourse,
-  generateRoster, htmlToProseMirror, listTkCourses, loadFoundation, markdownToProseMirror, plainText, renderDirectory, specHash, type PlanInput,
+  generateRoster, htmlToProseMirror, listTkCourses, loadFoundation, markdownToProseMirror, plainText, renderDirectory, MAJLIS_TO_REGION, specHash, type PlanInput,
 } from "../src";
 
 const dept = (slug: string) => DEPARTMENTS.find((d) => d.slug === slug)!;
@@ -64,9 +64,11 @@ describe("directory", () => {
     const auds = d.content.filter((n) => n.type === "mkaAudience");
     expect(auds.length).toBe(62);
     const rules = auds.map((a) => (a.attrs as any).rule.groups as Record<string, string[]>[]);
-    for (const g of rules) expect(g[1]).toEqual({ level: ["national"] });
+    for (const g of rules) expect(g[g.length - 1]).toEqual({ level: ["national"] });
     expect(rules.filter((g) => g[0]!.region).length).toBe(10);
     expect(rules.filter((g) => g[0]!.majlis).length).toBe(52);
+    const bos = rules.find((g) => g[0]!.majlis?.[0] === "Boston")!;
+    expect(bos[1]).toEqual({ level: ["regional"], region: [MAJLIS_TO_REGION["Boston"]!] });
     const boston = auds.find((a) => (a.attrs as any).rule.groups[0].majlis?.[0] === "Boston")!;
     expect(plainText({ type: "doc", content: [boston] } as any)).toContain("tabligh.boston@mkausa.org");
     // national table is never gated

@@ -77,8 +77,8 @@ export function renderDirectory(args: { cycle: string; dept: DepartmentSeed; ros
       ]);
     }),
     h(2, `Local: ${dept.name}`),
-    p([text("Local contacts are shown for your own Majlis only.")]),
-    ...localByMajlis.map(([mj, rows]) => audience(audienceId(cycle, dept.slug, "directory", "majlis", mj), [{ majlis: [mj] }, NATIONAL_VIEWERS], `${mj} Majlis`, [
+    p([text("Local contacts are shown for your own Majlis, or for every Majlis in your region if you are a regional officeholder.")]),
+    ...localByMajlis.map(([mj, rows]) => audience(audienceId(cycle, dept.slug, "directory", "majlis", mj), [{ majlis: [mj] }, { level: ["regional"], region: [rows[0]!.region] }, NATIONAL_VIEWERS], `${mj} Majlis`, [
       h(3, `${mj} (${rows[0]!.region})`),
       table(["Role", "Mailbox", "Name", "Majlis Qaid mailbox"],
         rows.sort((a, b) => a.role.localeCompare(b.role)).map((r) => [r.roleTitle, r.learnerEmail, dash(r.personName), dash(qaids.get(r.majlis)?.learnerEmail)])),
