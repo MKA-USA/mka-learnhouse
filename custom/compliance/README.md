@@ -57,6 +57,17 @@ bun run lh publish --course <name|uuid> --execute --confirm-staging     # sets p
 ```
 Courses stay `public: false` (visible to enrolled learners only).
 
+## Updating published courses (`apply --allow-published`)
+By default `apply` refuses any write to a course that is published (or whose state is unknown). `plan` marks those as `UPDATE (published)`.
+Use `--allow-published` when a published course needs a generated-page fix (e.g. the Contacts directory) and you must not unpublish it:
+```
+bun run lh apply --only maal --allow-published --confirm-staging        # dev
+bun run lh:prod apply --only maal --allow-published --confirm-published ilm.mkausa.org --confirm-prod ilm.mkausa.org --write    # prod: the extra --confirm-published <exact host> is required
+```
+Before writing it prints every published course it may touch. On a published course it only updates course/chapter metadata and generated page or assignment content:
+it never sends a `published` field or flips one, never adds chapters/activities (refused), and never removes any (refused). Author-owned pages stay untouched.
+Drafts in the same run behave as before. Re-run `plan --all`: it should show everything unchanged.
+
 ## Cycle -> courses mapping
 `bun run start export-courses` (also run by `apply`) writes `out/cycle-courses.json`: cycle, deadline, and per course the activity uuids plus the
 assignment/task uuids of the final sign-off and the contact self-check, for the in-LearnHouse analytics view.
