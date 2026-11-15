@@ -6,7 +6,7 @@ import { calloutInfo, calloutWarning, doc, p, plainText, text, type PMNode } fro
 import { allLessons, lessonHtml, type TkCourse, type TkLesson } from "../thinkific/load";
 import { signOffTasks } from "./attestation";
 import type { ActivitySpec, ChapterSpec, CourseSpec, QuizQuestion, SourceRef } from "./types";
-import { QUIZ_INSTRUCTION, QUIZ_MAX_ATTEMPTS, READING_WPM, SECONDS_PER_QUESTION, SIGNOFF_INSTRUCTION, courseName, mcq, roundMinutes, videoSeconds } from "./util";
+import { COMPLETION_SENTENCE, QUIZ_INSTRUCTION, withCompletion, QUIZ_MAX_ATTEMPTS, READING_WPM, SECONDS_PER_QUESTION, SIGNOFF_INSTRUCTION, courseName, mcq, roundMinutes, videoSeconds } from "./util";
 import { STALE_NOTE } from "./department";
 
 export interface FoundationQuiz { name: string; passingScore: number | null; questions: { prompt: string; multiple: boolean; choices: { text: string; correct: boolean }[] }[] }
@@ -70,7 +70,7 @@ export function buildGeneralCourse(args: { cycle: string; deadline: string; foun
     for (const f of scanContent({ text: plainText(r.doc), links: r.links, imagesDropped: r.imagesDropped })) cflags.push({ lesson: pg.name, flag: f });
     const leading: PMNode[] = PREV_YEAR_RE.test(plainText(r.doc)) ? [calloutWarning(`${STALE_NOTE}: this lesson mentions a previous year.`)] : [];
     if (leading.length) flagsOut.push(`${pg.name}: mentions a previous year`);
-    return { kind: "page", key, name: pg.name, doc: doc(...leading, ...extra, ...r.doc.content), source: pg.source };
+    return { kind: "page", key, name: pg.name, doc: doc(...withCompletion([...leading, ...extra, ...r.doc.content])), source: pg.source };
   };
   const quiz = (key: string, name: string, q: FoundationQuiz, src?: SourceRef): ActivitySpec => ({
     kind: "assignment", key, name, title: name, description: QUIZ_INSTRUCTION(q.passingScore), ungraded: false, maxAttempts: QUIZ_MAX_ATTEMPTS, ...(q.passingScore ? { passThreshold: q.passingScore } : {}), source: src,
@@ -92,7 +92,7 @@ export function buildGeneralCourse(args: { cycle: string; deadline: string; foun
     { key: "ch-resources", name: "Resources for Officeholders", description: "Systems and resources you will use", activities: [...F.resources.map((r, i) => makePage(r, `resource-${i + 1}`)), resourceConfirm] },
     { key: "ch-rules", name: "Housekeeping Rules", description: "Rules and procedures", activities: [makePage(F.rules, "rules"), quiz("quiz-rules", F.rulesQuiz.name, F.rulesQuiz)] },
     { key: "ch-message", name: "Huzoor's Latest Message to the US Khuddam", description: "Read and confirm", activities: [
-      { kind: "page", key: "message-intro", name: "Read Huzoor's message", doc: doc(calloutWarning(`${STALE_NOTE}: the PDFs below are last year's message. The ${cycle} message will replace them.`), p("Read the message and its translation, then continue.")) },
+      { kind: "page", key: "message-intro", name: "Read Huzoor's message", doc: doc(...withCompletion([calloutWarning(`${STALE_NOTE}: the PDFs below are last year's message. The ${cycle} message will replace them.`), p("Read the message and its translation, then continue.")])) },
       ...F.pdfs.map((f, i): ActivitySpec => ({ kind: "pdf", key: `message-pdf-${i + 1}`, name: f.name, file: { rel: f.rel, abs: f.abs, size: f.size }, source: f.source })),
     ] },
     { key: "ch-signoff", name: "Sign-off", description: "Complete the course", activities: [
@@ -112,7 +112,7 @@ export function buildGeneralCourse(args: { cycle: string; deadline: string; foun
   return {
     flags: cflags,
     spec: { key: `${cycle}|general`, kind: "general", departmentSlug: "", cycle, name: courseName(cycle, "General"),
-      description: `The foundation course every officeholder takes: Jama'at and Khuddam structure, the systems you will use, housekeeping rules and Huzoor's message, with short quizzes. About ${minutes} minutes. Complete by ${deadline}.`,
+      description: `The foundation course every officeholder takes: Jama'at and Khuddam structure, the systems you will use, housekeeping rules and Huzoor's message, with short quizzes. About ${minutes} minutes. ${COMPLETION_SENTENCE} Complete by ${deadline}.`,
       about: "Required annual foundation course: organizational structure, resources, housekeeping rules and Huzoor's message.",
       learnings: "Jama'at and Khuddam structure, officeholder resources, housekeeping rules", tags: `mka,compliance,${cycle},general`, chapters, flags: flagsOut },
   };

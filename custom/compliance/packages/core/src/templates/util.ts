@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import { bold, p, text, type PMNode } from "../content/pm";
 import type { CourseSpec, QuizQuestion, FormQuestion } from "./types";
 
 export const sha = (s: string, n = 12) => createHash("sha256").update(s).digest("hex").slice(0, n);
@@ -49,7 +50,13 @@ export const SECONDS_PER_QUESTION = 30;
 export const QUIZ_MAX_ATTEMPTS = 3;
 export const QUIZ_INSTRUCTION = (passThreshold?: number | null): string =>
   `Answer each question, then press the Submit button at the bottom of the page. ${passThreshold ? `You need ${passThreshold}% to pass, and you have` : "You have"} ${QUIZ_MAX_ATTEMPTS} attempts.`;
-export const SIGNOFF_INSTRUCTION = "Answer the question and type your full name, then press the Submit button at the bottom of the page. Then press Finish course.";
+export const SIGNOFF_INSTRUCTION = "Before you finish, check that every page, video and PDF in this course shows as complete. Then answer the question and type your full name, press the Submit button at the bottom of the page, and press Finish course.";
+
+/** LearnHouse shows a "Mark as complete" control (activities.mark_as_complete in apps/web/locales/en.json) on every non-assignment activity: pages, videos and PDFs. Course progress only counts activities the learner ticked. */
+export const COMPLETION_SENTENCE = "To finish this course, every page must show as complete: tick Mark as complete on each page, video and PDF, then press Next.";
+export const completionLine = (): PMNode => p([text("When you have read this page, tick "), bold("Mark as complete"), text(", then press "), bold("Next"), text(".")]);
+/** Append the completion line to a generated page's content. */
+export const withCompletion = (content: PMNode[]): PMNode[] => [...content, completionLine()];
 
 export const COURSE_PREFIX = "MKA";
 export const courseName = (cycle: string, suffix: string) => `${COURSE_PREFIX} ${cycle} · ${suffix}`;
