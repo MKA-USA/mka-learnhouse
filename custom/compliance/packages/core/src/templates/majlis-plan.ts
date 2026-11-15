@@ -4,7 +4,7 @@ import { signOffTasks } from "./attestation";
 import { generatedNote } from "./department";
 import { buildMajlisQuiz, extractObjectives } from "./quiz";
 import type { ChapterSpec, CourseSpec, PlanInput, QuizQuestion } from "./types";
-import { QUIZ_INSTRUCTION, SIGNOFF_INSTRUCTION, courseName, deptLabel } from "./util";
+import { QUIZ_INSTRUCTION, QUIZ_MAX_ATTEMPTS, SIGNOFF_INSTRUCTION, courseName, deptLabel } from "./util";
 
 const MKA_DOMAIN = "mkausa.org";
 
@@ -81,7 +81,7 @@ export function buildMajlisPlanCourse(a: MajlisPlanInput): { spec: CourseSpec } 
     { key: "ch-overview", name: "Overview", description: "What the Majlis Plan is and who owns each department", activities: [{ kind: "page", key: "overview", name: "Majlis Plan overview", doc: doc(...overview) }] },
     ...groupChapters(deptPages),
     { key: "ch-finish", name: "Finish", description: "Knowledge check and sign-off", activities: [
-      { kind: "assignment", key: "knowledge-check", name: "Knowledge check: department plans", title: "Knowledge check: department plans", description: `Check that you know which department owns which objective. ${QUIZ_INSTRUCTION}`, ungraded: false, passThreshold: 60,
+      { kind: "assignment", key: "knowledge-check", name: "Knowledge check: department plans", title: "Knowledge check: department plans", description: `Check that you know which department owns which objective. ${QUIZ_INSTRUCTION(60)}`, ungraded: false, maxAttempts: QUIZ_MAX_ATTEMPTS, passThreshold: 60,
         tasks: [{ key: "plan-quiz", type: "QUIZ", title: "Department plans", description: "Choose the best answer.", hint: "Review the department pages if unsure.", contents: { grading_mode: "ALL_OR_NOTHING", questions: quiz.questions as QuizQuestion[] } }] },
       { kind: "assignment", key: "signoff", name: "Final sign-off", title: "Final sign-off", description: `Confirm and sign to complete this course. ${SIGNOFF_INSTRUCTION}`, ungraded: true, tasks: signOffTasks(cycle, "majlis-plan") },
     ] },

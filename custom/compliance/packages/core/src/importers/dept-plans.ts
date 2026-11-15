@@ -10,30 +10,46 @@ export interface DeptPlanInput {
   updatedBy: string | null; stale: boolean; source: string;
 }
 /**
- * Drops unmatched quote marks from one line of text: a closing quote with no opener, an opener never closed. Straight and curly quotes pair with
- * each other (a straight opener closed by a curly mark is balanced). Pure; returns the cleaned text and how many marks were dropped.
+ * Cleans quote marks in one line of text: a closing quote with no opener and an opener never closed are dropped. Straight and curly quotes pair with
+ * each other, and a mismatched pair (straight opener closed by a curly mark, or the reverse) is normalized to a matched curly pair. Two straight
+ * quotes are left alone. Pure; `dropped` counts removed marks, `normalized` counts pairs rewritten.
  */
-export function dropStrayQuotesInSegment(seg: string): { text: string; dropped: number } {
-  const stack: number[] = []; const drop = new Set<number>();
-  for (let i = 0; i < seg.length; i++) {
-    const c = seg[i];
+export function dropStrayQuotesInSegment(seg: string): { text: string; dropped: number; normalized: number } {
+  const chars = [...seg];
+  const stack: number[] = []; const drop = new Set<number>(); let normalized = 0;
+  for (let i = 0; i < chars.length; i++) {
+    const c = chars[i];
     if (c === "“") stack.push(i);
-    else if (c === "”") { if (stack.length) stack.pop(); else drop.add(i); }
-    else if (c === '"') { if (stack.length) stack.pop(); else stack.push(i); }
+    else if (c === "”") {
+      const open = stack.pop();
+      if (open === undefined) drop.add(i);
+      else if (chars[open] === '"') { chars[open] = "“"; normalized++; }
+    } else if (c === '"') {
+      const open = stack.pop();
+      if (open === undefined) stack.push(i);
+      else if (chars[open] === "“") { chars[i] = "”"; normalized++; }
+    }
   }
   for (const i of stack) drop.add(i);
-  return drop.size ? { text: [...seg].filter((_, i) => !drop.has(i)).join(""), dropped: drop.size } : { text: seg, dropped: 0 };
+  const text = chars.filter((_, i) => !drop.has(i)).join("");
+  return { text, dropped: drop.size, normalized };
 }
 
 /** Markdown-aware: table rows are cleaned cell by cell, every other line whole. */
-export function dropStrayQuotes(md: string): { text: string; dropped: number } {
-  let dropped = 0;
+export function dropStrayQuotes(md: string): { text: string; dropped: number; normalized: number } {
+  let dropped = 0, normalized = 0;
   const text = md.split("\n").map((line) => {
     const parts = line.trimStart().startsWith("|") ? line.split("|") : [line];
-    return parts.map((p) => { const r = dropStrayQuotesInSegment(p); dropped += r.dropped; return r.text; }).join("|");
+    return parts.map((p) => { const r = dropStrayQuotesInSegment(p); dropped += r.dropped; normalized += r.normalized; return r.text; }).join("|");
   }).join("\n");
-  return { text, dropped };
+  return { text, dropped, normalized };
 }
+
+/** Upgrades `http://` to `https://` in link targets and bare URLs (every host we link to serves https). */
+export const upgradeHttpLinks = (md: string): { text: string; upgraded: number } => {
+  let upgraded = 0;
+  return { text: md.replace(/\bhttp:\/\//gi, () => { upgraded++; return "https://"; }), upgraded };
+};
 
 export const PLAN_LEVELS = ["all", "national", "region", "majlis"];
 const FILE = "dept_plans.csv";
@@ -60,7 +76,10 @@ export function parseDeptPlans(csv: string, file = FILE): { rows: DeptPlanInput[
     const level = (get("level") || "all").toLowerCase();
     if (!PLAN_LEVELS.includes(level)) { issues.push({ file, line: r.line, severity: "error", code: "bad-level", message: `level "${level}" not in ${PLAN_LEVELS.join("/")}; row skipped` }); continue; }
     const clean = (n: string) => {
-      const q = dropStrayQuotes(get(n));
+      const h = upgradeHttpLinks(get(n));
+      if (h.upgraded) issues.push({ file, line: r.line, severity: "info", code: "http-link", message: `${dept}/${level} ${n}: upgraded ${h.upgraded} http:// link(s) to https://` });
+      const q = dropStrayQuotes(h.text);
+      if (q.normalized) issues.push({ file, line: r.line, severity: "info", code: "mismatched-quote", message: `${dept}/${level} ${n}: normalized ${q.normalized} mismatched quote pair(s)` });
       if (q.dropped) issues.push({ file, line: r.line, severity: "info", code: "stray-quote", message: `${dept}/${level} ${n}: dropped ${q.dropped} unmatched quote mark(s)` });
       return q.text;
     };

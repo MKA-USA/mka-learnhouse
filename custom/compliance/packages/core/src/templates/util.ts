@@ -45,7 +45,10 @@ export const READING_WPM = 200; // plain-text reading speed used for time estima
 export const SECONDS_PER_QUESTION = 30;
 
 /** Instruction lines for assignment pages. Deliberately label-neutral about the button text ("Submit" in both the current and the renamed UI): they must stay true across LearnHouse button renames. "Finish course" is course.finish_course in apps/web/locales/en.json. */
-export const QUIZ_INSTRUCTION = "Answer each question, then press the Submit button at the bottom of the page. You can change your answers until you submit.";
+/** Total attempts a learner gets on a graded knowledge check. LearnHouse semantics: `max_retries` is the cap on total attempts (the first submission is attempt 1; the retry endpoint refuses once attempt_number >= max_retries), so 3 means initial + 2 retries. */
+export const QUIZ_MAX_ATTEMPTS = 3;
+export const QUIZ_INSTRUCTION = (passThreshold?: number | null): string =>
+  `Answer each question, then press the Submit button at the bottom of the page. ${passThreshold ? `You need ${passThreshold}% to pass, and you have` : "You have"} ${QUIZ_MAX_ATTEMPTS} attempts.`;
 export const SIGNOFF_INSTRUCTION = "Answer the question and type your full name, then press the Submit button at the bottom of the page. Then press Finish course.";
 
 export const COURSE_PREFIX = "MKA";

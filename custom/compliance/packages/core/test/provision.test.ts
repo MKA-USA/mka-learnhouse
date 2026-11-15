@@ -43,6 +43,25 @@ describe("provision idempotency", () => {
     const r2 = await applyCourse({ api, store, orgId: 1 }, s);
     expect(r2.created + r2.updated).toBe(0); expect(calls.length).toBe(before);
   });
+  test("graded assignments are created with a 3-attempt cap, sign-offs without; existing assignments get it on re-apply", async () => {
+    const store = memoryMapStore(); const { api, calls } = fakeApi();
+    const old = spec(); const kc0 = old.chapters.flatMap((c) => c.activities).find((a) => a.kind === "assignment" && !a.ungraded); if (kc0?.kind !== "assignment") throw new Error("kc");
+    delete kc0.maxAttempts; // what dev has today: no retry fields
+    await applyCourse({ api, store, orgId: 1 }, old);
+    const created = calls.filter((c) => c.fn === "createAssignment").map((c) => c.arg as { ungraded: boolean; allow_retries?: boolean; max_retries?: number });
+    expect(created.find((x) => x.ungraded)).not.toHaveProperty("allow_retries");
+    const s2 = spec();
+    const p = planCourse(s2, await store.get(s2.kind, s2.departmentSlug));
+    expect(p.items.filter((i) => i.action === "update").map((i) => i.key)).toEqual(["knowledge-check"]);
+    calls.length = 0; await applyCourse({ api, store, orgId: 1 }, s2);
+    const upd = calls.filter((c) => c.fn === "updateAssignment").map((c) => (c.arg as { i: Record<string, unknown> }).i);
+    expect(upd.length).toBe(1); expect(upd[0]).toMatchObject({ ungraded: false, allow_retries: true, max_retries: 3, published: true });
+    expect(planCourse(s2, await store.get(s2.kind, s2.departmentSlug)).action).toBe("unchanged");
+    const fresh = fakeApi(); await applyCourse({ api: fresh.api, store: memoryMapStore(), orgId: 1 }, spec());
+    const c2 = fresh.calls.filter((c) => c.fn === "createAssignment").map((c) => c.arg as { ungraded: boolean; allow_retries?: boolean; max_retries?: number });
+    expect(c2.find((x) => !x.ungraded)).toMatchObject({ allow_retries: true, max_retries: 3 });
+    expect(c2.find((x) => x.ungraded)).not.toHaveProperty("max_retries");
+  });
   test("a content change updates only the changed activity, in place", async () => {
     const store = memoryMapStore(); const { api, calls } = fakeApi(); await applyCourse({ api, store, orgId: 1 }, spec());
     const s2 = spec(); const plan2 = s2.chapters[1]!.activities[0]; if (plan2?.kind !== "page") throw new Error("page");

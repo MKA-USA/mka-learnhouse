@@ -12,7 +12,7 @@ export interface SourceRef { system: "thinkific"; courseId: number; chapterId?: 
 export type ActivityOwner = "author" | "generated";
 export type ActivitySpec =
   | { kind: "page"; key: string; name: string; doc: PMDoc; source?: SourceRef; owner?: ActivityOwner }
-  | { kind: "assignment"; key: string; name: string; title: string; description: string; ungraded: boolean; passThreshold?: number; tasks: TaskSpec[]; source?: SourceRef; owner?: ActivityOwner }
+  | { kind: "assignment"; key: string; name: string; title: string; description: string; ungraded: boolean; passThreshold?: number; maxAttempts?: number; tasks: TaskSpec[]; source?: SourceRef; owner?: ActivityOwner }
   | { kind: "video"; key: string; name: string; file: { rel: string; abs: string; size: number }; source?: SourceRef; owner?: ActivityOwner }
   | { kind: "pdf"; key: string; name: string; file: { rel: string; abs: string; size: number }; source?: SourceRef; owner?: ActivityOwner };
 
