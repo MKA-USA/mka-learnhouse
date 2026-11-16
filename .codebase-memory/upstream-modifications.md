@@ -1990,4 +1990,4 @@ Why no extension point: `generate_image` hardcodes the Google path and `routers/
 ```
 
 The hook sits after `mka_brand.brand_image_prompt` so MUAPI gets the branded prompt too. `fallback_config` turns `AINotConfiguredError` into a plain `RuntimeError` only when MUAPI was tried (router then returns 502 plus refund, not 403).
-Env: `MKA_IMAGE_VENDOR`, `MUAPI_API_KEY`, `MUAPI_IMAGE_MODEL`, `MUAPI_IMAGE_EDIT_MODEL`, `MUAPI_IMAGE_ASPECT_RATIO`, `MUAPI_TIMEOUT_SECONDS`, `MUAPI_BASE_URL`.
+Env: `MKA_IMAGE_VENDOR`, `MUAPI_API_KEY`, `MUAPI_IMAGE_MODEL`, `MUAPI_IMAGE_EDIT_MODEL`, `MUAPI_IMAGE_ASPECT_RATIO`, `MUAPI_TIMEOUT_SECONDS` (default 60, one overall deadline), `MUAPI_OUTPUT_HOSTS` (default `muapi.ai`, comma-separated, exact host or subdomain), `MUAPI_BASE_URL`.

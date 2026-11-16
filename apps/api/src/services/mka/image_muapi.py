@@ -5,8 +5,11 @@ Fork-owned. Enabled per deployment with ``MKA_IMAGE_VENDOR=muapi`` plus
 single upstream hook lives in ``services/ai/image/generator.py::generate_image``.
 
 Flow: submit ``POST /{model}`` -> poll ``GET /predictions/{id}/result`` -> download
-the hosted output (SSRF-guarded) -> normalise to PNG (the router stores ``.png``).
+the hosted output (SSRF-guarded; hosts from ``MUAPI_OUTPUT_HOSTS``, default ``muapi.ai``) -> normalise to PNG (the router stores ``.png``).
 Refine uploads the source image(s) to MUAPI first (``POST /upload_file``).
+
+One overall deadline (``MUAPI_TIMEOUT_SECONDS``, default 60) spans upload, submit, poll
+and download; each HTTP call gets min(remaining, 30s).
 
 Logging: exception type and HTTP status only. Never the key, URLs or prompts.
 """
@@ -33,9 +36,10 @@ DEFAULT_BASE_URL = "https://api.muapi.ai/api/v1"
 DEFAULT_MODEL = "bytedance-seedream-v4.5"
 DEFAULT_EDIT_MODEL = "bytedance-seedream-v4.5-edit"
 DEFAULT_ASPECT_RATIO = "4:3"
-DEFAULT_TIMEOUT_SECONDS = 90.0
+DEFAULT_TIMEOUT_SECONDS = 60.0  # one overall deadline; leaves room for Gemini under a ~100s proxy limit
+MAX_CALL_TIMEOUT_SECONDS = 30.0
+DEFAULT_OUTPUT_HOSTS = "muapi.ai"
 
-ALLOWED_OUTPUT_DOMAIN = "muapi.ai"
 MAX_OUTPUT_BYTES = 20 * 1024 * 1024
 MAX_OUTPUT_PIXELS = 64_000_000
 MAX_REDIRECTS = 3
@@ -79,8 +83,22 @@ def _sniff_mime(data: bytes) -> str:
     return "image/png"
 
 
+def _output_hosts() -> list[str]:
+    raw = _env("MUAPI_OUTPUT_HOSTS", DEFAULT_OUTPUT_HOSTS)
+    hosts = [h.strip().lower().strip(".") for h in raw.split(",")]
+    return [h for h in hosts if h and "/" not in h and ":" not in h and "@" not in h]
+
+
+def _remaining(deadline: float) -> float:
+    """Per-call timeout: min(time left, 30s). Raises when the budget is spent."""
+    left = deadline - time.monotonic()
+    if left <= 0:
+        raise MuapiError("time budget exhausted")
+    return min(left, MAX_CALL_TIMEOUT_SECONDS)
+
+
 def _is_allowed_output_url(url: str) -> bool:
-    """https only; host is ``muapi.ai`` or a subdomain; default port only."""
+    """https only; host equals or is a subdomain of a ``MUAPI_OUTPUT_HOSTS`` entry; port 443 only."""
     try:
         parsed = urlparse(url)
         host = (parsed.hostname or "").lower()
@@ -91,7 +109,7 @@ def _is_allowed_output_url(url: str) -> bool:
         return False
     if port not in (None, 443):
         return False
-    return host == ALLOWED_OUTPUT_DOMAIN or host.endswith("." + ALLOWED_OUTPUT_DOMAIN)
+    return any(host == h or host.endswith("." + h) for h in _output_hosts())
 
 
 def _extract_url(payload: Any) -> Optional[str]:
@@ -107,11 +125,12 @@ def _extract_url(payload: Any) -> Optional[str]:
     return None
 
 
-async def _upload(client: httpx.AsyncClient, base: str, data: bytes) -> str:
+async def _upload(client: httpx.AsyncClient, base: str, data: bytes, deadline: float) -> str:
     mime = _sniff_mime(data)
     ext = mime.split("/")[-1].replace("jpeg", "jpg")
     resp = await client.post(
-        f"{base}/upload_file", files={"file": (f"source.{ext}", data, mime)}
+        f"{base}/upload_file", files={"file": (f"source.{ext}", data, mime)},
+        timeout=_remaining(deadline),
     )
     if resp.status_code >= 400:
         raise MuapiError(f"upload failed with HTTP {resp.status_code}")
@@ -121,8 +140,10 @@ async def _upload(client: httpx.AsyncClient, base: str, data: bytes) -> str:
     return url
 
 
-async def _submit(client: httpx.AsyncClient, base: str, model: str, body: dict) -> str:
-    resp = await client.post(f"{base}/{model}", json=body)
+async def _submit(
+    client: httpx.AsyncClient, base: str, model: str, body: dict, deadline: float
+) -> str:
+    resp = await client.post(f"{base}/{model}", json=body, timeout=_remaining(deadline))
     if resp.status_code >= 400:
         raise MuapiError(f"submit failed with HTTP {resp.status_code}")
     request_id = resp.json().get("request_id")
@@ -134,7 +155,9 @@ async def _submit(client: httpx.AsyncClient, base: str, model: str, body: dict) 
 async def _poll(client: httpx.AsyncClient, base: str, request_id: str, deadline: float) -> str:
     """Poll until completed; return the first output URL."""
     while True:
-        resp = await client.get(f"{base}/predictions/{request_id}/result")
+        resp = await client.get(
+            f"{base}/predictions/{request_id}/result", timeout=_remaining(deadline)
+        )
         if resp.status_code >= 400:
             raise MuapiError(f"poll failed with HTTP {resp.status_code}")
         data = resp.json()
@@ -155,14 +178,14 @@ async def _poll(client: httpx.AsyncClient, base: str, request_id: str, deadline:
         await asyncio.sleep(POLL_INTERVAL_SECONDS)
 
 
-async def _download(url: str, timeout: float) -> bytes:
+async def _download(url: str, deadline: float) -> bytes:
     """Fetch the output with the SSRF guard: allowed host on every hop, size capped."""
     # A fresh client without the API key header: the key must never reach a CDN.
-    async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
+    async with httpx.AsyncClient(follow_redirects=False) as client:
         for _ in range(MAX_REDIRECTS + 1):
             if not _is_allowed_output_url(url):
                 raise MuapiError("output URL rejected")
-            async with client.stream("GET", url) as resp:
+            async with client.stream("GET", url, timeout=_remaining(deadline)) as resp:
                 if resp.is_redirect:
                     location = resp.headers.get("location")
                     if not location:
@@ -176,6 +199,7 @@ async def _download(url: str, timeout: float) -> bytes:
                     raise MuapiError("output too large")
                 buf = bytearray()
                 async for chunk in resp.aiter_bytes():
+                    _remaining(deadline)
                     buf.extend(chunk)
                     if len(buf) > MAX_OUTPUT_BYTES:
                         raise MuapiError("output too large")
@@ -213,8 +237,7 @@ async def generate_image_muapi(
         raise MuapiError("empty prompt")
 
     base = _env("MUAPI_BASE_URL", DEFAULT_BASE_URL).rstrip("/")
-    timeout = _timeout_seconds()
-    deadline = time.monotonic() + timeout
+    deadline = time.monotonic() + _timeout_seconds()
     imgs = [img for img in (input_images or []) if img]
 
     body: dict[str, Any] = {
@@ -224,16 +247,16 @@ async def generate_image_muapi(
     }
     try:
         async with httpx.AsyncClient(
-            timeout=timeout, headers={"x-api-key": api_key}, follow_redirects=False
+            timeout=MAX_CALL_TIMEOUT_SECONDS, headers={"x-api-key": api_key}, follow_redirects=False
         ) as client:
             if imgs:
-                body["images_list"] = [await _upload(client, base, img) for img in imgs]
+                body["images_list"] = [await _upload(client, base, img, deadline) for img in imgs]
                 model = _env("MUAPI_IMAGE_EDIT_MODEL", DEFAULT_EDIT_MODEL)
             else:
                 model = _env("MUAPI_IMAGE_MODEL", DEFAULT_MODEL)
-            request_id = await _submit(client, base, model, body)
+            request_id = await _submit(client, base, model, body, deadline)
             output_url = await _poll(client, base, request_id, deadline)
-        raw = await _download(output_url, timeout)
+        raw = await _download(output_url, deadline)
     except MuapiError:
         raise
     except (httpx.HTTPError, ValueError) as e:

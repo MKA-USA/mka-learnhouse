@@ -258,3 +258,60 @@ async def test_key_never_logged(monkeypatch, caplog):
             patch("google.genai.Client", return_value=_gemini_client()):
         await gen.generate_image("x")
     assert KEY not in caplog.text
+
+
+# --- configurable output hosts ---
+
+async def test_output_hosts_env_allows_custom_host(monkeypatch):
+    monkeypatch.setenv("MUAPI_OUTPUT_HOSTS", "cdn.example.net")
+    _install(monkeypatch, _api(outputs=("https://cdn.example.net/a.webp",)))
+    assert (await mu.generate_image_muapi("p"))[:4] == b"\x89PNG"
+
+
+async def test_output_hosts_env_rejects_muapi_when_overridden(monkeypatch):
+    monkeypatch.setenv("MUAPI_OUTPUT_HOSTS", "cdn.example.net")
+    _install(monkeypatch, _api(outputs=(OUT,)))
+    with pytest.raises(mu.MuapiError):
+        await mu.generate_image_muapi("p")
+
+
+async def test_output_hosts_env_keeps_https_and_port_rules(monkeypatch):
+    monkeypatch.setenv("MUAPI_OUTPUT_HOSTS", "cdn.example.net, other.org")
+    assert mu._is_allowed_output_url("https://sub.other.org/x")
+    assert not mu._is_allowed_output_url("http://cdn.example.net/x")
+    assert not mu._is_allowed_output_url("https://cdn.example.net:8443/x")
+    assert not mu._is_allowed_output_url("https://u:p@cdn.example.net/x")
+
+
+# --- overall deadline ---
+
+async def test_default_timeout_is_60(monkeypatch):
+    monkeypatch.delenv("MUAPI_TIMEOUT_SECONDS", raising=False)
+    assert mu._timeout_seconds() == 60.0
+
+
+async def test_call_timeout_is_min_remaining_and_30(monkeypatch):
+    monkeypatch.setattr(mu.time, "monotonic", lambda: 100.0)
+    assert mu._remaining(200.0) == 30.0
+    assert mu._remaining(110.0) == 10.0
+    with pytest.raises(mu.MuapiError):
+        mu._remaining(100.0)
+
+
+async def test_download_respects_remaining_deadline(monkeypatch):
+    # Clock advances 0 during submit/poll, then jumps past the deadline before download.
+    now = {"t": 0.0}
+    monkeypatch.setattr(mu.time, "monotonic", lambda: now["t"])
+    monkeypatch.setenv("MUAPI_TIMEOUT_SECONDS", "60")
+
+    def handler(req):
+        if req.url.host != "api.muapi.ai":
+            raise AssertionError("download must not start after the deadline")
+        resp = _api()(req)
+        if "/predictions/" in req.url.path:
+            now["t"] = 61.0
+        return resp
+
+    _install(monkeypatch, handler)
+    with pytest.raises(mu.MuapiError):
+        await mu.generate_image_muapi("p")
