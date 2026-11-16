@@ -7,6 +7,7 @@ grounded in course content.
 
 import json
 import logging
+from typing import Optional
 
 from sqlalchemy import bindparam, text
 from sqlmodel.ext.asyncio.session import AsyncSession
