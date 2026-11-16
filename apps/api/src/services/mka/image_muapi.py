@@ -44,7 +44,8 @@ MAX_CALL_TIMEOUT_SECONDS = 30.0
 DEFAULT_OUTPUT_HOSTS = "muapi.ai"
 
 MAX_OUTPUT_BYTES = 20 * 1024 * 1024
-MAX_OUTPUT_PIXELS = 64_000_000
+MAX_OUTPUT_PIXELS = 25_000_000  # allows a 4096x4096 output
+ALLOWED_IMAGE_FORMATS = ("PNG", "JPEG", "WEBP", "GIF")
 DEFAULT_MAX_OUTPUT_SIDE = 1536
 MAX_UPLOAD_SIDE = 2048
 MAX_REDIRECTS = 3
@@ -136,9 +137,11 @@ def _prepare_upload(data: bytes) -> bytes:
     MUAPI's /upload_file rejects large files (HTTP 400 on an ~11 MB PNG).
     """
     try:
-        with Image.open(io.BytesIO(data)) as img:
+        with Image.open(io.BytesIO(data), formats=ALLOWED_IMAGE_FORMATS) as img:
             if img.width * img.height > MAX_OUTPUT_PIXELS:
                 raise MuapiError("source image too large")
+            if img.format == "JPEG":
+                img.draft("RGB", (MAX_UPLOAD_SIDE, MAX_UPLOAD_SIDE))  # decode at reduced size
             img.load()
             if "A" in img.getbands() or img.mode == "P":
                 rgba = img.convert("RGBA")
@@ -147,13 +150,7 @@ def _prepare_upload(data: bytes) -> bytes:
                 img = flat
             elif img.mode != "RGB":
                 img = img.convert("RGB")
-            longest = max(img.size)
-            if longest > MAX_UPLOAD_SIDE:
-                scale = MAX_UPLOAD_SIDE / longest
-                img = img.resize(
-                    (max(1, round(img.width * scale)), max(1, round(img.height * scale))),
-                    Image.Resampling.LANCZOS,
-                )
+            img.thumbnail((MAX_UPLOAD_SIDE, MAX_UPLOAD_SIDE), Image.Resampling.LANCZOS)
             out = io.BytesIO()
             img.save(out, format="JPEG", quality=90)
             return out.getvalue()
@@ -255,7 +252,7 @@ def _max_output_side() -> int:
 def _to_png(data: bytes) -> bytes:
     max_side = _max_output_side()
     try:
-        with Image.open(io.BytesIO(data)) as img:
+        with Image.open(io.BytesIO(data), formats=ALLOWED_IMAGE_FORMATS) as img:
             width, height = img.size
             if width * height > MAX_OUTPUT_PIXELS:
                 raise MuapiError("output image too large")

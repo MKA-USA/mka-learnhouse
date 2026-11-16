@@ -362,3 +362,44 @@ async def test_rgba_upload_flattened_onto_white():
 async def test_undecodable_upload_raises():
     with pytest.raises(mu.MuapiError):
         mu._prepare_upload(b"nope")
+
+
+# --- decode hardening ---
+
+def _fmt(fmt, size=(8, 8)):
+    buf = io.BytesIO()
+    Image.new("RGB", size, (1, 2, 3)).save(buf, format=fmt)
+    return buf.getvalue()
+
+
+@pytest.mark.parametrize("fmt", ["BMP", "TIFF"])
+async def test_disallowed_formats_rejected_in_both_paths(fmt):
+    with pytest.raises(mu.MuapiError):
+        mu._to_png(_fmt(fmt))
+    with pytest.raises(mu.MuapiError):
+        mu._prepare_upload(_fmt(fmt))
+
+
+@pytest.mark.parametrize("fmt", ["PNG", "JPEG", "WEBP", "GIF"])
+async def test_allowed_formats_accepted(fmt):
+    assert mu._to_png(_fmt(fmt))[:4] == b"\x89PNG"
+    assert mu._prepare_upload(_fmt(fmt))[:3] == b"\xff\xd8\xff"
+
+
+async def test_pixel_cap_is_25m():
+    assert mu.MAX_OUTPUT_PIXELS == 25_000_000
+
+
+async def test_oversize_pixels_rejected_before_decode():
+    data = _fmt("PNG", (5001, 5001))  # 25.01M px, solid colour so it is small on disk
+    with patch.object(Image.Image, "load") as load:
+        with pytest.raises(mu.MuapiError):
+            mu._to_png(data)
+        with pytest.raises(mu.MuapiError):
+            mu._prepare_upload(data)
+    load.assert_not_called()
+
+
+async def test_4096_square_output_allowed():
+    out = Image.open(io.BytesIO(mu._to_png(_fmt("PNG", (4096, 4096)))))
+    assert out.size == (1536, 1536)
