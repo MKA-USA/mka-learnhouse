@@ -1685,7 +1685,7 @@ preload = ["./tests/setup/dom.mjs"]
 
 - **Reason**: Turnstile was enforced only in the Next signup proxy, so a direct `POST /api/v1/users/...` bypassed it, and upstream's `check_signup_rate_limit` was never called. Fork-only logic: `apps/api/src/services/security/mka_signup_guard.py` (FastAPI dependency `mka_signup_guard`: inert in SaaS mode; exempts only API tokens, superadmins and ADMINs of the target org; guarded callers get Turnstile first, then the `MKA_SIGNUP_RATE_LIMIT_PER_HOUR` limiter, default 60, skipped for non-global client IPs), `apps/api/src/services/security/mka_turnstile.py` (siteverify via httpx, enforced only when both keys are set, fails open on Cloudflare errors), `apps/web/lib/mka-signup-proxy.ts` (forwarded headers, loopback API URL; there is no fallback to the public URL, a failed loopback call returns the route's 502). Tests: `apps/api/src/tests/services/test_mka_turnstile.py`, `test_mka_signup_rate_limit.py`, `apps/web/tests/mka-signup-proxy.test.mjs`. Evaluation: `docs/superpowers/specs/2026-10-05-mka-signup-hardening-eval.md`.
 - **Why no extension point**: FastAPI has no per-route hook registry; a route-level `Depends` is the smallest change. Not hooked into `create_user` (OAuth also calls it). The Next route has no fetch hook; the fetch call is wrapped in one line.
-- **Single-use token / loopback**: outside SaaS the Next route no longer verifies; it forwards `X-Turnstile-Token` (plus `X-Forwarded-For` / `X-Real-IP` verbatim) and calls the API on loopback only (`mkaSignupFetch`; no public-URL fallback). The API verifies once. SaaS mode: no extra headers, original URL, upstream verify block unchanged, API guard inert.
+- **Single-use token / loopback**: outside SaaS the Next route no longer verifies; it forwards `X-Turnstile-Token` (since 1.4.5 `X-Forwarded-For` / `X-Real-IP` are relayed by upstream's route, not by `mkaSignupForwardHeaders`) and calls the API on loopback only (`mkaSignupFetch`; no public-URL fallback). The API verifies once. SaaS mode: no extra headers, original URL, upstream verify block unchanged, API guard inert.
 - **Diff** (`git diff origin/dev..HEAD`, verbatim):
 
 ```diff
@@ -1945,7 +1945,7 @@ spot (`grep -rn "MKA fork" apps/` to enumerate them).
 - `apps/api/src/services/ai/llm/client.py`: `_agent(model: Model, ...)` now receives a built model, so the fork hook is just
   `system_prompt=mka_brand.augment(system_prompt) or ()` and `toolsets=mka_brand.toolsets_for(model)` (the `build_model` hoist is gone).
 - `apps/web/app/api/signup/route.ts`: upstream now relays `x-forwarded-for`/`x-real-ip` itself; the fork merges
-  `mkaSignupForwardHeaders(...)` over upstream's `headers` and still uses `mkaSignupFetch`.
+  `mkaSignupForwardHeaders(...)` (token only; it no longer adds the IP headers, which would have been sent twice) over upstream's `headers` and still uses `mkaSignupFetch`.
 - `apps/web/app/auth/signup/{OpenSignup,InviteOnlySignUp}.tsx`: `applyMkaServerErrors(res.status, message?.detail, setFieldError)`
   now uses the `setFieldError` from Formik's `onSubmit` helpers (upstream added `getFieldErrors`).
 - `apps/web/app/auth/{login,forgot}/page.tsx`: titles are `... | MKA Ilm` (upstream replaced the em dash with `|`).

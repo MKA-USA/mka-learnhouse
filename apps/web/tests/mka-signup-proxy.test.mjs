@@ -17,7 +17,7 @@ describe("mka signup proxy forward headers", () => {
     ).toEqual({});
   });
 
-  test("non-saas: forwards token and client ip headers verbatim", () => {
+  test("non-saas: forwards the token only (client ip headers are relayed by upstream's route)", () => {
     expect(
       mkaSignupForwardHeaders(
         false,
@@ -26,8 +26,6 @@ describe("mka signup proxy forward headers", () => {
       ),
     ).toEqual({
       "X-Turnstile-Token": "tok-123",
-      "X-Forwarded-For": "203.0.113.9, 10.0.0.2",
-      "X-Real-IP": "10.0.0.2",
     });
   });
 
@@ -95,7 +93,7 @@ describe("mka signup fetch", () => {
     expect(calls).toEqual([PUBLIC + invitePath]);
   });
 
-  test("non-saas invite path: loopback url, token + ip headers forwarded", async () => {
+  test("non-saas invite path: loopback url, token forwarded, no duplicate ip headers", async () => {
     const calls = [];
     await mkaSignupFetch(false, PUBLIC, PUBLIC + invitePath, init(), {
       internalBase: INTERNAL,
@@ -107,7 +105,7 @@ describe("mka signup fetch", () => {
     expect(calls.length).toBe(1);
     expect(calls[0][0]).toBe(INTERNAL + invitePath);
     expect(calls[0][1]["X-Turnstile-Token"]).toBe("tok-inv");
-    expect(calls[0][1]["X-Forwarded-For"]).toBe("8.8.4.4");
+    expect(calls[0][1]["X-Forwarded-For"]).toBeUndefined();
   });
 
   test("loopback connect error propagates; no second request to the public url", async () => {
