@@ -10,7 +10,7 @@ import CourseThumbnailLanding from '@components/Objects/Thumbnails/CourseThumbna
 import UserAvatar from '@components/Objects/UserAvatar'
 import { useTranslation } from 'react-i18next'
 import { useOrg } from '@components/Contexts/OrgContext'
-import { getPublicOffers } from '@services/payments/offers'
+import { getPublicOffers } from '@ee/services/payments/offers'
 import { formatCurrency } from '@/lib/format'
 import { backgroundCss, deviceClass, hasSectionFrame, isSectionVisible, resolveLandingVideo, safeHref, sanitizeAnchor, spacingClass } from './landingSections'
 import { BannerBlock, ColumnsBlock, CountdownBlock, CtaBlock, EmbedBlock, FaqBlock, FeaturesBlock, GalleryBlock, ImageBlock, PricingBlock, Reveal, RichTextBlock, SpacerBlock, StatsBlock, StepsBlock, TestimonialsBlock } from './LandingBlocks'
@@ -370,7 +370,12 @@ function LandingCustom({ landing, orgslug }: LandingCustomProps) {
             pad={pad}
             offers={publicOffers}
             formatPrice={(amount, currency) => formatCurrency(amount, currency, i18n.language)}
-            labels={{ from: t('landing.pricing.from'), subscription: t('landing.pricing.subscription') }}
+            labels={{
+              from: t('landing.pricing.from'),
+              subscription: t('landing.pricing.subscription'),
+              perMonth: t('landing.pricing.per_month'),
+              perYear: t('landing.pricing.per_year'),
+            }}
           />
         )
       case 'steps':

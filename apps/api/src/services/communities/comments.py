@@ -5,6 +5,7 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 from fastapi import HTTPException, Request
 
+from src.core.ee_hooks import require_ee_resource_paid_access
 from src.db.users import PublicUser, AnonymousUser, APITokenUser, User, UserReadAuthor
 from src.db.communities.communities import Community
 from src.db.communities.discussions import Discussion
@@ -18,7 +19,13 @@ from src.security.rbac import check_resource_access, AccessAction, authorization
 from src.services.communities.moderation import validate_comment_content, enforce_auto_lock
 from src.services.webhooks.dispatch import dispatch_webhooks
 from src.services.moderation_ai import schedule_moderation, forum_text
-from src.services.communities.access import require_community_participant
+from src.services.analytics import events as analytics_events
+from src.services.analytics.analytics import track
+from src.services.communities.access import (
+    require_author_may_still_post,
+    require_community_participant,
+)
+from src.services.communities.discussions import _can_moderate
 from src.security.api_token_utils import token_has_right
 from src.security.auth import resolve_acting_user_id
 
@@ -88,6 +95,7 @@ async def create_comment(
     await check_resource_access(
         request, db_session, current_user, community.community_uuid, AccessAction.READ
     )
+    await require_ee_resource_paid_access(request, db_session, current_user, community.community_uuid)
 
     author_id = await require_community_participant(current_user, community, db_session)
 
@@ -108,6 +116,16 @@ async def create_comment(
     await db_session.commit()
     await db_session.refresh(comment)
     schedule_moderation(kind="forum_post", content_type="discussion_comment", content_uuid=comment.comment_uuid, org_id=community.org_id, author_user_id=comment.author_id, text_loader=forum_text(comment.content))
+
+    await track(
+        event_name=analytics_events.COMMENT_POSTED,
+        org_id=community.org_id,
+        user_id=author_id,
+        properties={
+            "community_uuid": community.community_uuid,
+            "discussion_uuid": discussion.discussion_uuid,
+        },
+    )
 
     # Get author info
     author_statement = select(User).where(User.id == comment.author_id)
@@ -167,6 +185,7 @@ async def get_comments_by_discussion(
     await check_resource_access(
         request, db_session, current_user, community.community_uuid, AccessAction.READ
     )
+    await require_ee_resource_paid_access(request, db_session, current_user, community.community_uuid)
 
     offset = (page - 1) * limit
 
@@ -243,9 +262,26 @@ async def update_comment(
         Discussion.id == comment.discussion_id
     )
     discussion = (await db_session.execute(discussion_statement)).scalars().first()
+    community = None
+    if discussion:
+        community = (await db_session.execute(
+            select(Community).where(Community.id == discussion.community_id)
+        )).scalars().first()
+    if not community:
+        raise HTTPException(status_code=404, detail="Discussion not found")
+
+    # Moderators keep editing their own comments; other authors only while
+    # they can still post there and the thread is open.
+    if not await _can_moderate(
+        request, current_user, resolve_acting_user_id(current_user),
+        AccessAction.UPDATE, community, db_session,
+    ):
+        await require_author_may_still_post(
+            request, current_user, community, discussion, db_session
+        )
 
     # Check content moderation for updated content
-    if comment_update.content is not None and discussion:
+    if comment_update.content is not None:
         await validate_comment_content(
             comment_update.content, discussion.community_id, db_session
         )
@@ -373,6 +409,7 @@ async def get_comment_count(
     await check_resource_access(
         request, db_session, current_user, community.community_uuid, AccessAction.READ
     )
+    await require_ee_resource_paid_access(request, db_session, current_user, community.community_uuid)
 
     from sqlalchemy import func
     count_statement = select(func.count(DiscussionComment.id)).where(

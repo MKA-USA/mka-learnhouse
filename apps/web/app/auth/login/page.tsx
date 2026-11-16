@@ -9,7 +9,7 @@ export async function generateMetadata(): Promise<Metadata> {
 
   if (!orgslug) {
     // Apex (org-less) login.
-    return { title: 'Login — MKA Ilm', robots: { index: false, follow: false } }
+    return { title: 'Login | MKA Ilm', robots: { index: false, follow: false } }
   }
 
   let org: any = null
@@ -23,7 +23,7 @@ export async function generateMetadata(): Promise<Metadata> {
   }
 
   return {
-    title: 'Login' + ` — ${org?.name || 'MKA Ilm'}`,
+    title: 'Login' + ` | ${org?.name || 'MKA Ilm'}`,
     robots: { index: false, follow: false },
   }
 }

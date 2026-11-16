@@ -42,6 +42,8 @@ description = "Known false positives (upstream fixtures/docs, deleted fork histo
 paths = [
   '''apps/api/src/tests/security/test_security\.py$''',
   '''apps/cli/tests/unit\.test\.ts$''',
+  # Upstream placeholder DB URL (postgresql://learnhouse:x@db), commit 817eb5273, rule db-url-inline-password
+  '''apps/cli/tests/update-ee\.test\.ts$''',
   '''docs/content/.*''',
   '''docs/screens/audience/explore/real/real-results\.json$''',
   '''\.codebase-memory/graph\.db\.zst$''',  # binary graph only; .md/.json siblings are scanned

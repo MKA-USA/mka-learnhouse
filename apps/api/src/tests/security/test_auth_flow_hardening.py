@@ -114,6 +114,13 @@ class TestVerificationTokenBoundToEmail:
         verified, _ = await self._verify(db, mock_request, user, "mixed@test.com ")
         assert verified.email_verified is True
 
+    async def test_verifying_drops_idp_links_made_while_unproven(self, db, mock_request):
+        user = await _make_user(db, 52, "owner@test.com", email_verified=False)
+        drop = AsyncMock()
+        with patch("src.services.auth.utils._drop_unverified_sso_links", drop):
+            await self._verify(db, mock_request, user, "owner@test.com")
+        drop.assert_awaited_once()
+
     async def test_invalidate_without_org_clears_every_org(self):
         from src.services.users.email_verification import invalidate_verification_tokens
 
@@ -396,6 +403,81 @@ class TestGooglePreHijack:
         assert user.password and verified.password
         revoke_mock.assert_not_called()
 
+    async def test_self_hosted_signup_password_is_dropped(self, db):
+        from src.services.users.users import _INBOX_UNPROVEN, inbox_unproven
+
+        # Self-hosted signups are marked verified without proof of the inbox
+        user = await _make_user(db, 84, "presignup@test.com")
+        user.email_verified_at = _INBOX_UNPROVEN
+        db.add(user)
+        await db.commit()
+
+        revoke_mock = await self._sign_in(db, "presignup@test.com")
+        await db.refresh(user)
+        assert user.password == ""
+        assert not inbox_unproven(user)
+        revoke_mock.assert_called_once_with(user.id)
+
+
+    async def test_trusted_account_only_backfills_its_signup_method(self, db):
+        user = await _make_user(db, 85, "legacy@test.com", signup_method=None)
+        revoke_mock = await self._sign_in(db, "legacy@test.com")
+        await db.refresh(user)
+        assert user.signup_method == "google"
+        assert user.password
+        revoke_mock.assert_not_called()
+
+    async def test_claim_on_an_unsaved_user_stops_before_session_work(self):
+        from src.db.users import User
+        from src.services.auth.utils import claim_account_on_inbox_proof
+
+        user = User(username="u", first_name="", last_name="", email="new@test.com",
+                    password="hash", email_verified=False)
+        session = MagicMock(commit=AsyncMock(), refresh=AsyncMock())
+        with patch("src.security.auth.revoke_user_sessions_before") as revoke_mock, patch(
+            "src.services.auth.utils._drop_unverified_sso_links", new=AsyncMock()
+        ) as drop_mock:
+            await claim_account_on_inbox_proof(user, session)
+        assert user.password == ""
+        session.commit.assert_awaited_once()
+        revoke_mock.assert_not_called()
+        drop_mock.assert_not_awaited()
+
+
+class TestSignupInboxMarker:
+    @pytest.mark.parametrize("mode,marked", [("oss", True), ("saas", False)])
+    async def test_email_signup_marked_only_off_saas(self, db, mock_request, mode, marked):
+        from src.db.users import AnonymousUser, UserCreate
+        from src.services.users.users import create_user_without_org, inbox_unproven
+
+        body = UserCreate(
+            username=f"s{mode}", email=f"{mode}@test.com", password="Passw0rd!x",
+            mka_profile={"majlis": "Zion"},  # MKA fork: signup requires a majlis
+        )
+        with patch("src.services.users.users.get_deployment_mode", return_value=mode), patch(
+            "src.services.users.users.rbac_check", new=AsyncMock()
+        ), patch(
+            "src.services.users.email_verification.send_verification_email", new=AsyncMock()
+        ), patch("src.services.users.users.send_account_creation_email"):
+            created = await create_user_without_org(mock_request, db, AnonymousUser(), body)
+        from src.db.users import User
+
+        row = await db.get(User, created.id)
+        assert inbox_unproven(row) is marked
+
+    async def test_google_signup_is_not_marked(self, db, mock_request):
+        from src.db.users import AnonymousUser, User, UserCreate
+        from src.services.users.users import create_user_without_org, inbox_unproven
+
+        body = UserCreate(username="g", email="g@test.com", password="")
+        with patch("src.services.users.users.get_deployment_mode", return_value="oss"), patch(
+            "src.services.users.users.rbac_check", new=AsyncMock()
+        ), patch("src.services.users.users.send_account_creation_email"):
+            created = await create_user_without_org(
+                mock_request, db, AnonymousUser(), body, is_oauth=True, signup_provider="google"
+            )
+        assert not inbox_unproven(await db.get(User, created.id))
+
 
 # ── Password reset ───────────────────────────────────────────────────────────
 
@@ -585,21 +667,43 @@ class TestMagicLinkBranding:
 
 
 class TestMfaSessionRevocation:
-    def test_revocation_cuts_at_the_current_session(self):
-        from src.routers.mfa import _revoke_older_sessions
-        from src.security.auth import create_access_token
+    def test_rotation_revokes_everything_and_reissues_the_caller(self):
+        """Every session up to now is revoked (no cutoff at the caller's own
+        issue time, which let a later-minted session survive); the caller gets
+        a fresh pair carrying the same provenance."""
+        from types import SimpleNamespace
 
-        token = create_access_token({"sub": "a@test.com"})
+        from fastapi import Response
+
+        from src.routers.mfa import _rotate_sessions
+        from src.security.auth import create_access_token, decode_jwt
+
+        token = create_access_token(
+            {"sub": "a@test.com", "purpose": "session", "amr": "password", "sorg": 3}
+        )
         request = Request({
             "type": "http", "method": "POST", "path": "/", "query_string": b"",
             "headers": [(b"authorization", f"Bearer {token}".encode())],
         })
+        response = Response()
         with patch("src.routers.mfa.revoke_user_sessions_before") as revoke_mock:
-            _revoke_older_sessions(request, 7)
-        user_id, cutoff = revoke_mock.call_args.args
-        assert user_id == 7
-        # The cutoff is this session's own issue time, so it survives.
-        assert abs(cutoff.timestamp() - datetime.now(timezone.utc).timestamp()) < 5
+            tokens = _rotate_sessions(
+                request, response, SimpleNamespace(id=7, email="a@test.com")
+            )
+        # No cutoff argument: revoke up to now.
+        revoke_mock.assert_called_once_with(7)
+
+        assert set(tokens) == {"access_token", "refresh_token", "expiry"}
+        for issued in (tokens["access_token"], tokens["refresh_token"]):
+            claims = decode_jwt(issued)
+            assert claims["sub"] == "a@test.com"
+            assert claims["amr"] == "password"
+            assert claims["sorg"] == 3
+            # Issued at/after the revocation cutoff, so the new pair survives.
+            assert abs(claims["iat"] - datetime.now(timezone.utc).timestamp()) < 5
+        cookies = " ".join(response.headers.getlist("set-cookie"))
+        assert tokens["access_token"] in cookies
+        assert tokens["refresh_token"] in cookies
 
     async def test_disable_burns_the_code_and_revokes(self, db, regular_user):
         import time
@@ -629,7 +733,10 @@ class TestMfaSessionRevocation:
         app.dependency_overrides[get_authenticated_user] = lambda: regular_user
         with patch("src.routers.mfa.check_rate_limit", return_value=(True, 0, None)), patch(
             "src.routers.mfa.security_verify_password", return_value=True
-        ), patch("src.routers.mfa._revoke_older_sessions") as revoke_mock, patch(
+        ), patch(
+            "src.routers.mfa._rotate_sessions",
+            return_value={"access_token": "a", "refresh_token": "r", "expiry": 1},
+        ) as revoke_mock, patch(
             "src.routers.mfa.verify_and_consume_totp", new=AsyncMock(return_value=True)
         ) as consume_mock:
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -639,6 +746,11 @@ class TestMfaSessionRevocation:
         assert resp.status_code == 200
         consume_mock.assert_awaited_once()
         revoke_mock.assert_called_once()
+        assert revoke_mock.call_args.args[2].id == regular_user.id
+        assert resp.json() == {
+            "enabled": False,
+            "tokens": {"access_token": "a", "refresh_token": "r", "expiry": 1},
+        }
 
     async def test_org_reset_revokes_the_members_sessions(self, db, org, admin_user, regular_user):
         from fastapi import FastAPI

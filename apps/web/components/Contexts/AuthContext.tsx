@@ -6,6 +6,7 @@ import React, {
   useState,
   useEffect,
   useCallback,
+  useMemo,
   useRef,
 } from 'react'
 import {
@@ -15,6 +16,7 @@ import {
 } from '@services/config/config'
 import { isSubdomainOf, isSameHost, isLocalhost as isLocalhostCheck } from '@services/utils/ts/hostUtils'
 import { safeRedirectUrl } from '@services/auth/redirects'
+import i18n from '@/lib/i18n'
 import { safeExternalUrl } from '@services/security/url'
 import { AUTH_EXPIRED_EVENT, AUTH_REFRESHED_EVENT } from '@/lib/auth/events'
 
@@ -56,7 +58,6 @@ export interface SignInOptions {
   // SSO fields
   sso?: string
   sso_access_token?: string
-  sso_refresh_token?: string
   sso_user?: string
   sso_expiry?: number
   // For OAuth
@@ -74,6 +75,9 @@ export interface SignInResult {
   // `mfa_token` back to completeMfaLogin() along with a code.
   mfa_required?: boolean
   mfa_token?: string
+  // Sign-in links only: where the link itself asks to land, for a link URL
+  // that carries no ?next of its own.
+  redirect_to?: string | null
 }
 
 export interface SignOutOptions {
@@ -602,12 +606,14 @@ export function SessionProvider({
   // drift apart: a session established one way must be identical to the other.
   const establishSession = useCallback(
     async (data: any, callbackUrl: string, redirect: boolean): Promise<SignInResult> => {
+      // A refresh still in flight for whoever was signed in before must not
+      // write its (older) session over this one when it resolves.
+      authEpochRef.current++
       const newSession: Session = {
         user: data.user,
         roles: [],
         tokens: {
           access_token: data.tokens.access_token,
-          refresh_token: data.tokens.refresh_token,
           expiry: data.tokens.expiry,
         },
       }
@@ -618,12 +624,18 @@ export function SessionProvider({
       setStatus('authenticated')
       sessionCacheRef.current = { data: newSession, timestamp: Date.now() }
 
-      // Fetch full session with roles
-      const fullSession = await fetchUserSession(data.tokens.access_token, data.tokens.expiry)
-      if (fullSession) {
-        fullSession.tokens = newSession.tokens
-        setSession(fullSession)
-        sessionCacheRef.current = { data: fullSession, timestamp: Date.now() }
+      // Fetch full session with roles. The sign-in already succeeded (cookies
+      // are set), so a failed lookup only means the roles arrive on the next
+      // session fetch; reporting it as a failed sign-in would misdescribe it.
+      try {
+        const fullSession = await fetchUserSession(data.tokens.access_token, data.tokens.expiry)
+        if (fullSession) {
+          fullSession.tokens = newSession.tokens
+          setSession(fullSession)
+          sessionCacheRef.current = { data: fullSession, timestamp: Date.now() }
+        }
+      } catch (error) {
+        console.warn('[auth] session lookup after sign-in failed, keeping session:', error)
       }
 
       // Notify other tabs
@@ -667,7 +679,7 @@ export function SessionProvider({
             ok: false,
             error: JSON.stringify({
               code: errorData?.code || 'UNKNOWN_ERROR',
-              message: errorData?.message || 'Verification failed',
+              message: errorData?.message || i18n.t('auth.errors.verification_failed'),
               retry_after: errorData?.retry_after,
             }),
             url: null,
@@ -678,7 +690,7 @@ export function SessionProvider({
         if (!data.tokens?.access_token) {
           return {
             ok: false,
-            error: JSON.stringify({ code: 'INVALID_RESPONSE', message: 'Invalid server response' }),
+            error: JSON.stringify({ code: 'INVALID_RESPONSE', message: i18n.t('auth.errors.invalid_response') }),
             url: null,
             status: 500,
           }
@@ -689,7 +701,7 @@ export function SessionProvider({
         console.error('MFA verification error:', error)
         return {
           ok: false,
-          error: JSON.stringify({ code: 'NETWORK_ERROR', message: 'Could not reach the server' }),
+          error: JSON.stringify({ code: 'NETWORK_ERROR', message: i18n.t('auth.errors.network') }),
           url: null,
           status: 0,
         }
@@ -759,15 +771,18 @@ export function SessionProvider({
           credentials: 'include',
         })
 
-        const data = await response.json()
+        // A gateway error page is not JSON; keep its status so the caller can
+        // tell "try again" from "this link is dead".
+        const data = await response.json().catch(() => ({}))
 
         if (!response.ok) {
-          const errorData = data.detail || data
+          const detail = data.detail ?? data
+          const errorData = typeof detail === 'string' ? { message: detail } : detail
           return {
             ok: false,
             error: JSON.stringify({
               code: errorData?.code || 'UNKNOWN_ERROR',
-              message: errorData?.message || 'This link is no longer valid.',
+              message: errorData?.message || i18n.t('auth.errors.link_invalid'),
             }),
             url: null,
             status: response.status,
@@ -784,24 +799,28 @@ export function SessionProvider({
             status: response.status,
             mfa_required: true,
             mfa_token: data.mfa_token,
+            redirect_to: data.redirect_to ?? null,
           }
         }
 
         if (!data.tokens?.access_token) {
           return {
             ok: false,
-            error: JSON.stringify({ code: 'INVALID_RESPONSE', message: 'Invalid server response' }),
+            error: JSON.stringify({ code: 'INVALID_RESPONSE', message: i18n.t('auth.errors.invalid_response') }),
             url: null,
             status: 500,
           }
         }
 
-        return await establishSession(data, callbackUrl, redirect)
+        return {
+          ...(await establishSession(data, callbackUrl, redirect)),
+          redirect_to: data.redirect_to ?? null,
+        }
       } catch (error) {
         console.error('Magic link verification error:', error)
         return {
           ok: false,
-          error: JSON.stringify({ code: 'NETWORK_ERROR', message: 'Could not reach the server' }),
+          error: JSON.stringify({ code: 'NETWORK_ERROR', message: i18n.t('auth.errors.network') }),
           url: null,
           status: 0,
         }
@@ -828,7 +847,6 @@ export function SessionProvider({
               roles: [],
               tokens: {
                 access_token: options.sso_access_token,
-                refresh_token: options.sso_refresh_token,
                 expiry,
               },
             }
@@ -901,7 +919,7 @@ export function SessionProvider({
               ok: false,
               error: JSON.stringify({
                 code: errorData?.code || 'UNKNOWN_ERROR',
-                message: errorData?.message || 'Login failed',
+                message: errorData?.message || i18n.t('auth.errors.login_failed'),
                 email: errorData?.email,
                 retry_after: errorData?.retry_after,
               }),
@@ -928,7 +946,7 @@ export function SessionProvider({
           if (!data.tokens?.access_token) {
             return {
               ok: false,
-              error: JSON.stringify({ code: 'INVALID_RESPONSE', message: 'Invalid server response' }),
+              error: JSON.stringify({ code: 'INVALID_RESPONSE', message: i18n.t('auth.errors.invalid_response') }),
               url: null,
               status: 500,
             }
@@ -982,7 +1000,7 @@ export function SessionProvider({
             console.error('Google OAuth initiation failed:', errorData)
             return {
               ok: false,
-              error: errorData.error || 'Google OAuth not configured',
+              error: errorData.error || i18n.t('auth.errors.google_not_configured'),
               url: null,
               status: authResponse.status,
             }
@@ -1005,7 +1023,7 @@ export function SessionProvider({
         console.error('Sign in error:', error)
         return {
           ok: false,
-          error: error.message || 'Sign in failed',
+          error: error.message || i18n.t('auth.errors.sign_in_failed'),
           url: null,
           status: 500,
         }
@@ -1113,17 +1131,32 @@ export function SessionProvider({
     }
   }, [applySessionFromToken, handleSignOut, hasSessionMarker])
 
-  const contextValue: AuthContextValue = {
-    session,
-    status,
-    accessToken,
-    refreshSession,
-    signIn: handleSignIn,
-    signOut: handleSignOut,
-    completeMfaLogin,
-    requestMagicLink,
-    completeMagicLink,
-  }
+  // Memoized so consumers only re-render when auth state actually changes,
+  // not on every render of the provider.
+  const contextValue: AuthContextValue = useMemo(
+    () => ({
+      session,
+      status,
+      accessToken,
+      refreshSession,
+      signIn: handleSignIn,
+      signOut: handleSignOut,
+      completeMfaLogin,
+      requestMagicLink,
+      completeMagicLink,
+    }),
+    [
+      session,
+      status,
+      accessToken,
+      refreshSession,
+      handleSignIn,
+      handleSignOut,
+      completeMfaLogin,
+      requestMagicLink,
+      completeMagicLink,
+    ]
+  )
 
   return (
     <AuthContext.Provider value={contextValue}>{children}</AuthContext.Provider>
@@ -1133,23 +1166,29 @@ export function SessionProvider({
 // useSession hook - matches NextAuth's API exactly
 export function useSession(): UseSessionReturn {
   const context = useContext(AuthContext)
+  const refreshSession = context?.refreshSession
 
-  if (!context) {
-    // Return unauthenticated state if used outside provider
-    return {
-      data: null,
-      status: 'unauthenticated',
-      update: async () => {},
-    }
-  }
-
-  return {
-    data: context.session,
-    status: context.status,
-    update: async (force?: boolean) => {
-      await context.refreshSession(force)
+  // Stable across renders so callers can put it in effect deps.
+  const update = useCallback(
+    async (force?: boolean) => {
+      await refreshSession?.(force)
     },
-  }
+    [refreshSession]
+  )
+
+  const session = context?.session ?? null
+  const status: SessionStatus = context ? context.status : 'unauthenticated'
+
+  // Same object until the session or status changes, so context consumers
+  // downstream (LHSessionProvider) don't re-render on every parent render.
+  return useMemo(
+    () => ({
+      data: session,
+      status,
+      update,
+    }),
+    [session, status, update]
+  )
 }
 
 // Decode the payload half of a server-signed OAuth state (`payload.sig`,
@@ -1255,7 +1294,7 @@ export async function signIn(
       console.error('Google OAuth initiation failed:', errorData)
       return {
         ok: false,
-        error: errorData.error || 'Google OAuth not configured',
+        error: errorData.error || i18n.t('auth.errors.google_not_configured'),
         url: null,
         status: authResponse.status,
       }

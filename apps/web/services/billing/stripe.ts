@@ -25,6 +25,7 @@ import {
   type PriceMapEntry,
 } from "./subscriptionUtils";
 import { updateOrganizationConfigInternally } from "./orgPlan";
+import { PLAN_HIERARCHY, type PlanLevel } from "@services/plans/plans";
 import { sendPlanSwitchMail, sendSubscriptionCanceledMail } from "./emails";
 import { invoiceSubscriptionId } from "./activeUserBillingUtils";
 
@@ -254,12 +255,25 @@ export async function switchSubscriptionPlan(
   const oldPlan = subscription.metadata.plan || "free";
 
   if (downgrade) {
-    // Resolve promotion code to coupon if provided
-    let downgradeCoupon: string | undefined;
+    // `downgrade` comes from the client. A scheduled switch keeps the current
+    // plan until period end with no proration, so it must never be usable to
+    // move to a HIGHER tier (that would defer paying for it). The same plan is
+    // allowed: that is a billing-interval change.
+    const currentPlan = effectivePlanForSubscription(subscription, PRICE_TO_PLAN);
+    const currentRank = PLAN_HIERARCHY.indexOf(currentPlan as PlanLevel);
+    const newRank = PLAN_HIERARCHY.indexOf(newPlan as PlanLevel);
+    if (currentRank === -1 || newRank === -1 || newRank > currentRank) {
+      throw Object.assign(new Error("This plan change is an upgrade, not a downgrade."), { status: 400 });
+    }
+
+    // Apply by `promotion_code` (not the bare coupon) so the promotion's own
+    // restrictions (customer, first-time, max redemptions, expiry, minimum
+    // amount) are enforced by Stripe, matching the checkout and upgrade paths.
+    let downgradePromotionCode: string | undefined;
     if (promotionCode?.trim()) {
       const resolved = await validatePromotionCode(promotionCode);
-      if (resolved.valid && resolved.couponId) {
-        downgradeCoupon = resolved.couponId;
+      if (resolved.valid && resolved.promotionCodeId) {
+        downgradePromotionCode = resolved.promotionCodeId;
       }
     }
 
@@ -295,7 +309,7 @@ export async function switchSubscriptionPlan(
           items: [{ price: newPriceId, quantity: 1 }],
           start_date: periodEnd,
           metadata: { org_id: orgId, plan: newPlan, billing: newBilling },
-          ...(downgradeCoupon ? { discounts: [{ coupon: downgradeCoupon }] } : {}),
+          ...(downgradePromotionCode ? { discounts: [{ promotion_code: downgradePromotionCode }] } : {}),
         },
       ],
     });
@@ -332,18 +346,37 @@ export async function switchSubscriptionPlan(
     }
   }
 
-  // Upgrade: apply immediately with proration. Preserve existing metadata
-  // (e.g. org_slug, used by the cancellation email) and only override the
-  // plan/billing keys.
-  await stripe.subscriptions.update(subscription.id, {
-    items: [{
-      id: subscription.items.data[0].id,
-      price: newPriceId,
-    }],
-    proration_behavior: "create_prorations",
-    metadata: { ...(subscription.metadata ?? {}), org_id: orgId, plan: newPlan, billing: newBilling },
-    ...discountParam,
-  });
+  // Upgrade: charge the prorated difference now and apply the new plan only if
+  // that payment goes through. With plain prorations the difference waited for
+  // the next renewal, so an upgrade followed by a cancellation was never billed.
+  // error_if_incomplete leaves the subscription untouched when the charge fails
+  // or needs the customer to authenticate. Preserve existing metadata (e.g.
+  // org_slug, used by the cancellation email) and only override plan/billing.
+  try {
+    await stripe.subscriptions.update(subscription.id, {
+      items: [{
+        id: subscription.items.data[0].id,
+        price: newPriceId,
+      }],
+      proration_behavior: "always_invoice",
+      payment_behavior: "error_if_incomplete",
+      metadata: { ...(subscription.metadata ?? {}), org_id: orgId, plan: newPlan, billing: newBilling },
+      ...discountParam,
+    });
+  } catch (err: any) {
+    // 402: declined, or the bank wants the customer to confirm the charge.
+    // A card error or a missing payment method means the same to the user.
+    if (err?.statusCode === 402 || err?.type === "StripeCardError" || err?.code === "resource_missing") {
+      throw Object.assign(
+        new Error(
+          "The upgrade payment couldn't be completed: it was declined or your bank needs to confirm it. " +
+          "Check your payment method in billing settings, or contact support to upgrade.",
+        ),
+        { status: 409 },
+      );
+    }
+    throw err;
+  }
 
   // Best-effort direct org-config update. Stripe has already applied the
   // upgrade at this point, so a backend hiccup here must NOT surface to the
@@ -698,6 +731,79 @@ export async function getPackSubscriptionDetails(subscriptionId: string) {
     currentPeriodEnd: getPeriodEnd(sub),
     cancelAtPeriodEnd: sub.cancel_at_period_end,
   };
+}
+
+// Statuses in which a subscription can still bill the customer again.
+const CHARGEABLE_SUBSCRIPTION_STATUSES = new Set([
+  "active",
+  "trialing",
+  "past_due",
+  "unpaid",
+  "paused",
+  "incomplete",
+]);
+
+/**
+ * Every subscription that can still charge for `orgId`: plan and packs alike,
+ * whoever pays for them. The payer is often not the admin doing the work (an
+ * org's billing email vs. a teammate), so this looks the org up by metadata
+ * rather than by the caller's customers. Stripe search lags writes by up to a
+ * minute, so the caller's own customers are scanned too, which covers a
+ * subscription they started moments ago.
+ *
+ * `orgId` must be a plain integer: it is interpolated into a search query.
+ */
+export async function listChargeableOrgSubscriptions(orgId: string, callerEmail?: string): Promise<any[]> {
+  if (!/^\d+$/.test(orgId)) throw new Error(`Invalid org id: ${orgId}`);
+
+  const byId = new Map<string, any>();
+  const keep = (sub: any) => {
+    if (String(sub?.metadata?.org_id) !== orgId) return;
+    if (!CHARGEABLE_SUBSCRIPTION_STATUSES.has(sub.status)) return;
+    byId.set(sub.id, sub);
+  };
+
+  let page: string | undefined;
+  for (let i = 0; i < 20; i++) {
+    const res = await stripe.subscriptions.search({
+      query: `metadata['org_id']:'${orgId}'`,
+      limit: 100,
+      ...(page ? { page } : {}),
+    });
+    res.data.forEach(keep);
+    if (!res.has_more || !res.next_page) break;
+    page = res.next_page;
+  }
+
+  if (callerEmail) {
+    for (const customerId of await listCustomerIdsByEmail(callerEmail)) {
+      const subs = await stripe.subscriptions.list({ customer: customerId, status: "all", limit: 100 });
+      subs.data.forEach(keep);
+    }
+  }
+
+  return Array.from(byId.values());
+}
+
+/**
+ * Cancel subscriptions right away, with no proration credit or final invoice.
+ * Used once the org they pay for is gone, so there is nothing left to bill for.
+ * Never throws: each failure is returned so the caller can report it.
+ */
+export async function cancelSubscriptionsNow(
+  subscriptions: any[],
+): Promise<{ canceled: string[]; failed: { id: string; error: string }[] }> {
+  const canceled: string[] = [];
+  const failed: { id: string; error: string }[] = [];
+  for (const sub of subscriptions) {
+    try {
+      await stripe.subscriptions.cancel(sub.id, { prorate: false, invoice_now: false });
+      canceled.push(sub.id);
+    } catch (err: any) {
+      failed.push({ id: sub.id, error: err?.message ?? String(err) });
+    }
+  }
+  return { canceled, failed };
 }
 
 export async function cancelPackSubscription(subscriptionId: string) {

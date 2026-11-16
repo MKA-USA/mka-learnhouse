@@ -15,7 +15,6 @@ for _stream in (sys.stdout, sys.stderr):
 
 from sqlalchemy import create_engine
 from sqlalchemy.ext.asyncio import create_async_engine
-from sqlmodel import SQLModel
 from sqlmodel.ext.asyncio.session import AsyncSession
 import typer
 from config.config import get_learnhouse_config
@@ -27,7 +26,19 @@ from src.services.setup.setup import (
     install_default_elements,
 )
 
+from src.core.migrations import ensure_schema
+
 cli = typer.Typer()
+
+# Converter for courses exported from other LMSes (no database access needed)
+from src.services.courses.lms_import.cli import app as lms_import_cli
+
+cli.add_typer(lms_import_cli, name="lms-import")
+
+# Commands that ship with the Enterprise Edition. Adds nothing without it.
+from src.core.ee_hooks import register_ee_cli
+
+register_ee_cli(cli)
 
 
 def _to_async_url(url: str) -> str:
@@ -40,6 +51,46 @@ def _to_async_url(url: str) -> str:
 
 def _to_sync_url(url: str) -> str:
     return url.replace("+asyncpg", "")
+
+
+@cli.command()
+def migrate(
+    status: Annotated[bool, typer.Option("--status", help="Only show the database and code revisions")] = False,
+    strict: Annotated[bool, typer.Option("--strict", help="Fail if the models needed schema the migrations didn't provide (CI)")] = False,
+):
+    """Bring the database schema to this version of LearnHouse.
+
+    The API does this on startup unless LEARNHOUSE_AUTO_MIGRATE=false; run it
+    yourself to migrate ahead of a deploy (the Kubernetes chart does) or to
+    check where a database stands.
+    """
+    from src.core.migrations import SchemaMigrationError, current_revisions, head_revisions, sync_database_url
+
+    if status:
+        engine = create_engine(sync_database_url())
+        try:
+            with engine.connect() as connection:
+                current = current_revisions(connection)
+        finally:
+            engine.dispose()
+        heads = head_revisions()
+        print(f"database: {', '.join(current) or 'not stamped'}")
+        print(f"code:     {', '.join(heads)}")
+        raise typer.Exit(code=0 if current == heads else 1)
+
+    try:
+        report = ensure_schema()
+    except SchemaMigrationError as exc:
+        print(f"Migration failed: {exc}")
+        raise typer.Exit(code=1)
+    print(report.summary())
+    for item in report.reconciled:
+        print(f"  added {item}")
+    for item in report.skipped:
+        print(f"  differs {item}")
+    if strict and report.state == "stamped" and (report.reconciled or report.skipped):
+        print("The models and the migrations disagree: add a migration for the changes above.")
+        raise typer.Exit(code=1)
 
 
 @cli.command()
@@ -59,10 +110,9 @@ async def _install_async(short: bool) -> None:
     learnhouse_config = get_learnhouse_config()
     sql_url = learnhouse_config.database_config.sql_connection_string  # type: ignore
 
-    # Schema DDL runs on a sync engine (SQLModel.metadata.create_all is sync).
-    sync_engine = create_engine(_to_sync_url(sql_url), echo=False, pool_pre_ping=True)
-    SQLModel.metadata.create_all(sync_engine)
-    sync_engine.dispose()
+    # Same schema step the API runs on startup: creates and stamps a new
+    # database, migrates an existing one.
+    ensure_schema(_to_sync_url(sql_url))
 
     # The install_* coroutines use sqlmodel.ext.asyncio.session.AsyncSession.
     # expire_on_commit=False keeps already-loaded attributes accessible after
@@ -311,6 +361,61 @@ def transcode_backfill(
 
 
 @cli.command()
+def backfill(
+    only: Annotated[str, typer.Option(help="Comma-separated jobs to run (default: all)")] = "",
+):
+    """Run every content backfill now: HLS transcodes, the AI search index and
+    video chapters. The API also runs this on its own every two days
+    (LEARNHOUSE_BACKFILL_INTERVAL_HOURS)."""
+    from src.services.backfill.jobs import JOBS, run_all
+
+    names = [n.strip() for n in only.split(",") if n.strip()]
+    unknown = sorted(set(names) - {job.name for job in JOBS})
+    if unknown:
+        print(f"Unknown backfill job(s): {', '.join(unknown)}. Available: {', '.join(j.name for j in JOBS)}")
+        raise typer.Exit(code=1)
+    for name, result in asyncio.run(run_all(names or None)).items():
+        print(f"{name}: {result}")
+
+
+@cli.command()
+def chapters_backfill(
+    org: Annotated[str, typer.Option(help="Only this organization (slug)")] = "",
+    force: Annotated[bool, typer.Option(help="Regenerate videos that already have chapters")] = False,
+    limit: Annotated[int, typer.Option(help="Max videos to process (0 = all)")] = 0,
+    dry_run: Annotated[bool, typer.Option(help="List the videos without generating")] = False,
+):
+    """Generate AI chapters for captioned videos in organizations on a paid plan.
+
+    Only videos with ready captions qualify, since chapters are built from
+    them. Each video costs its organization one AI credit."""
+    result = asyncio.run(_chapters_backfill(org, force, limit, dry_run))
+    print(
+        f"Chapters backfill done. candidates={result['candidates']} "
+        f"ready={result['ready']} failed={result['failed']}"
+        + (" (dry run)" if dry_run else "")
+    )
+
+
+async def _chapters_backfill(org_slug: str, force: bool, limit: int, dry_run: bool) -> dict:
+    from src.services.utils.chapter_jobs import backfill_targets, generate_activity_chapters
+
+    targets = await backfill_targets(org_slug=org_slug or None, force=force)
+    if limit > 0:
+        targets = targets[:limit]
+    ready = failed = 0
+    for activity_uuid in targets:
+        if dry_run:
+            print(f"  would generate: {activity_uuid}")
+            continue
+        if await generate_activity_chapters(activity_uuid, force=force):
+            ready += 1
+        else:
+            failed += 1
+    return {"candidates": len(targets), "ready": ready, "failed": failed}
+
+
+@cli.command()
 def index_backfill(
     org: Annotated[str, typer.Option(help="Only this organization (slug)")] = "",
     course: Annotated[str, typer.Option(help="Only this course (course_uuid)")] = "",
@@ -541,145 +646,6 @@ async def _nudges_stats(days: int) -> None:
     stuck = sum(count for _n, status, count in rows if status == "claimed")
     if stuck:
         print(f"\n  {stuck} row(s) stuck in 'claimed': a run died mid-send.")
-
-
-@cli.command(name="demo-sync")
-def demo_sync():
-    """
-    Create or refresh the shared demo organization.
-
-    Safe to run repeatedly; that is the point. The first run builds the demo
-    from the bundle; every run after it puts back whatever a visitor changed
-    and writes nothing if nothing changed.
-
-    The in-app scheduler calls the same code on an interval. This command is
-    for operators who would rather drive it from their own cron (set
-    LEARNHOUSE_DEMO_NO_SCHEDULER) or want to force a refresh now.
-    """
-    asyncio.run(_demo_sync())
-
-
-async def _demo_sync() -> None:
-    from src.services.demo.sync import sync_demo
-
-    learnhouse_config = get_learnhouse_config()
-    sql_url = learnhouse_config.database_config.sql_connection_string  # type: ignore
-    async_engine = create_async_engine(_to_async_url(sql_url), echo=False, pool_pre_ping=True)
-
-    try:
-        async with AsyncSession(async_engine, expire_on_commit=False) as db_session:
-            stats = await sync_demo(db_session)
-    finally:
-        await async_engine.dispose()
-
-    action = "provisioned" if stats.provisioned else "refreshed"
-    print(f"Demo {action} (epoch {stats.epoch})")
-    print(f"  created:       {stats.created}")
-    print(f"  updated:       {stats.updated}")
-    print(f"  drift removed: {stats.drift_deleted}")
-    if not stats.created and not stats.updated and not stats.drift_deleted:
-        print("  nothing to do: the demo already matches the bundle")
-
-
-@cli.command(name="demo-status")
-def demo_status():
-    """Show the demo organization's state and what it currently contains."""
-    asyncio.run(_demo_status())
-
-
-async def _demo_status() -> None:
-    from sqlalchemy import func, select
-
-    from src.db.demo_entities import DemoEntity
-    from src.db.demo_state import DEMO_STATE_ID, DemoState
-    from src.db.organizations import Organization
-
-    learnhouse_config = get_learnhouse_config()
-    sql_url = learnhouse_config.database_config.sql_connection_string  # type: ignore
-    async_engine = create_async_engine(_to_async_url(sql_url), echo=False, pool_pre_ping=True)
-
-    try:
-        async with AsyncSession(async_engine, expire_on_commit=False) as db_session:
-            state = (
-                await db_session.execute(
-                    select(DemoState).where(DemoState.id == DEMO_STATE_ID)
-                )
-            ).scalars().first()
-            if state is None:
-                print("No demo organization has been created yet.")
-                print("Run: uv run python cli.py demo-sync")
-                return
-
-            org = None
-            if state.org_id:
-                org = (
-                    await db_session.execute(
-                        select(Organization).where(Organization.id == state.org_id)
-                    )
-                ).scalars().first()
-
-            print(f"State:          {state.state}")
-            print(f"Bundle version: {state.bundle_version}")
-            print(f"Content epoch:  {state.content_epoch}")
-            print(f"Last refresh:   {state.last_refresh_at}")
-            if state.last_error:
-                print(f"Last error:     {state.last_error}")
-            if org is not None:
-                print(f"Organization:   {org.name} (/{org.slug}, id={org.id})")
-
-            rows = (
-                await db_session.execute(
-                    select(DemoEntity.kind, func.count())
-                    .group_by(DemoEntity.kind)
-                    .order_by(DemoEntity.kind)
-                )
-            ).all()
-            if rows:
-                print("\nRegistered rows:")
-                for kind, count in rows:
-                    print(f"  {kind:18} {count}")
-    finally:
-        await async_engine.dispose()
-
-
-@cli.command(name="demo-teardown")
-def demo_teardown(
-    yes: Annotated[bool, typer.Option("--yes", help="Skip the confirmation")] = False,
-):
-    """
-    Delete the demo organization, its students, its files and its state.
-
-    Everything it owns goes with the organization via cascade; the fake student
-    accounts, their uploaded files and the authorship rows that reference
-    content by a bare uuid are removed explicitly, because none of those are
-    org-owned rows the cascade can reach.
-    """
-    if not yes:
-        typer.confirm(
-            "Delete the demo organization and all forty demo student accounts?",
-            abort=True,
-        )
-    asyncio.run(_demo_teardown())
-
-
-async def _demo_teardown() -> None:
-    from src.services.demo.teardown import teardown_demo
-
-    learnhouse_config = get_learnhouse_config()
-    sql_url = learnhouse_config.database_config.sql_connection_string  # type: ignore
-    async_engine = create_async_engine(_to_async_url(sql_url), echo=False, pool_pre_ping=True)
-
-    try:
-        async with AsyncSession(async_engine, expire_on_commit=False) as db_session:
-            removed = await teardown_demo(db_session)
-            await db_session.commit()
-
-            for line in removed:
-                print(line)
-            if not removed:
-                print("No demo organization found.")
-    finally:
-        await async_engine.dispose()
 
 
 @cli.command()

@@ -1,21 +1,31 @@
 'use client'
 
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { Loader2, AlertTriangle, ShieldAlert } from 'lucide-react'
 import Link from 'next/link'
+import { useTranslation } from 'react-i18next'
 import { useAuth, validateOAuthState } from '@components/Contexts/AuthContext'
 import { getLEARNHOUSE_DOMAIN_VAL, getLEARNHOUSE_TOP_DOMAIN_VAL, getAPIUrl } from '@services/config/config'
 import { getErrorMessage } from '@services/utils/ts/errorMessage'
+import { oauthBounceCheckUrl } from '@/lib/auth/oauthBounce'
 
 export default function GoogleCallbackPage() {
+  const { t } = useTranslation()
   const searchParams = useSearchParams()
   const router = useRouter()
   const { signIn } = useAuth()
   const [error, setError] = useState<string | null>(null)
   const [status, setStatus] = useState<'loading' | 'success' | 'error' | 'csrf_error'>('loading')
+  // The authorization code is single-use: a second run of the effect (React
+  // StrictMode, or signIn changing identity) would redeem it again and fail.
+  const handledRef = useRef<string | null>(null)
 
   useEffect(() => {
+    const callbackKey = searchParams.toString()
+    if (handledRef.current === callbackKey) return
+    handledRef.current = callbackKey
+
     const handleCallback = async () => {
       const code = searchParams.get('code')
       const state = searchParams.get('state')
@@ -23,19 +33,19 @@ export default function GoogleCallbackPage() {
 
       // Handle OAuth errors from Google
       if (errorParam) {
-        setError(`Google authentication failed: ${errorParam}`)
+        setError(t('auth.google_callback.google_failed', { error: errorParam }))
         setStatus('error')
         return
       }
 
       if (!code) {
-        setError('No authorization code received from Google')
+        setError(t('auth.google_callback.no_code'))
         setStatus('error')
         return
       }
 
       if (!state) {
-        setError('Missing state parameter - potential security issue')
+        setError(t('auth.google_callback.missing_state'))
         setStatus('csrf_error')
         return
       }
@@ -53,30 +63,28 @@ export default function GoogleCallbackPage() {
         if (!verified?.valid) throw new Error('invalid state')
         returnOrigin = typeof verified.returnOrigin === 'string' ? verified.returnOrigin : null
       } catch {
-        setError('Invalid or expired authentication request. Please try again.')
+        setError(t('auth.google_callback.invalid_request'))
         setStatus('csrf_error')
         return
       }
 
       // When OAuth was initiated from a custom domain, Google redirects to the
       // main domain; bounce code+state back so CSRF validation and cookies
-      // happen on the right origin. Platform hosts are trusted as-is; a custom
-      // domain must still resolve AND its live DNS must still point at us
-      // (for_auth), or a repointed domain could harvest codes.
+      // happen on the right origin. Any other origin must be a configured org
+      // host: an existing org's platform subdomain, or a verified custom domain
+      // whose live DNS still points at us (for_auth), so neither an unrelated
+      // platform subdomain nor a repointed domain can harvest codes.
       if (returnOrigin) {
         let bounceOrigin: string | null = null
         try {
           const u = new URL(returnOrigin)
           if (u.protocol === 'http:' || u.protocol === 'https:') {
-            const host = u.hostname
-            const topDomain = getLEARNHOUSE_TOP_DOMAIN_VAL()
-            const isPlatformHost = !!topDomain && (host === topDomain || host.endsWith(`.${topDomain}`))
-            if (isPlatformHost || u.origin === window.location.origin) {
+            if (u.origin === window.location.origin) {
               bounceOrigin = u.origin
             } else {
               try {
                 const r = await fetch(
-                  `${getAPIUrl()}orgs/resolve/domain/${encodeURIComponent(host)}?for_auth=1`,
+                  oauthBounceCheckUrl(u, getLEARNHOUSE_DOMAIN_VAL(), getAPIUrl()),
                   { signal: AbortSignal.timeout(8000) },
                 )
                 if (r.ok) bounceOrigin = u.origin
@@ -89,7 +97,7 @@ export default function GoogleCallbackPage() {
           /* malformed returnOrigin: no bounce */
         }
         if (!bounceOrigin) {
-          setError('This sign-in request could not be completed for this domain. Please try again.')
+          setError(t('auth.google_callback.domain_failed'))
           setStatus('error')
           return
         }
@@ -106,7 +114,7 @@ export default function GoogleCallbackPage() {
 
       const stateValidation = validateOAuthState(state)
       if (!stateValidation.valid) {
-        setError('Invalid or expired authentication request. Please try again.')
+        setError(t('auth.google_callback.invalid_request'))
         setStatus('csrf_error')
         return
       }
@@ -170,14 +178,14 @@ export default function GoogleCallbackPage() {
           // /api/auth/oauth/google/callback route; the old fallback here just
           // 404'd and masked the actual error with a misleading one.)
           const err = await tokenResponse.json().catch(() => ({}))
-          throw new Error(typeof err.error === 'string' && err.error ? err.error : getErrorMessage(err.detail, 'Failed to exchange the Google authorization code.'))
+          throw new Error(typeof err.error === 'string' && err.error ? err.error : getErrorMessage(err.detail, t('auth.google_callback.exchange_failed')))
         }
 
         const tokenData = await tokenResponse.json()
 
         // Validate token response
         if (!tokenData.access_token) {
-          throw new Error('Invalid token response from Google')
+          throw new Error(t('auth.google_callback.invalid_token_response'))
         }
 
         // Get user info from Google
@@ -191,14 +199,14 @@ export default function GoogleCallbackPage() {
         )
 
         if (!userInfoResponse.ok) {
-          throw new Error('Failed to get user info from Google')
+          throw new Error(t('auth.google_callback.userinfo_failed'))
         }
 
         const userInfo = await userInfoResponse.json()
 
         // Validate user info
         if (!userInfo.email) {
-          throw new Error('Could not retrieve email from Google')
+          throw new Error(t('auth.google_callback.no_email'))
         }
 
         // Call Next.js API route to ensure cookies are set properly
@@ -224,7 +232,7 @@ export default function GoogleCallbackPage() {
 
         if (!oauthResponse.ok) {
           const errorData = await oauthResponse.json().catch(() => ({}))
-          throw new Error(getErrorMessage(errorData.detail, 'Failed to authenticate'))
+          throw new Error(getErrorMessage(errorData.detail, t('auth.google_callback.authenticate_failed')))
         }
 
         const data = await oauthResponse.json()
@@ -242,7 +250,7 @@ export default function GoogleCallbackPage() {
 
         // Validate response structure
         if (!data.tokens?.access_token) {
-          throw new Error('Invalid response from server')
+          throw new Error(t('auth.google_callback.invalid_server_response'))
         }
 
         // Sign in with the obtained tokens
@@ -250,27 +258,26 @@ export default function GoogleCallbackPage() {
           redirect: false,
           sso: 'true',
           sso_access_token: data.tokens.access_token,
-          sso_refresh_token: data.tokens.refresh_token,
           sso_user: JSON.stringify(data.user),
           sso_expiry: data.tokens.expiry,
           callbackUrl,
         })
 
         if (result && !result.ok) {
-          throw new Error(result.error || 'Failed to complete sign in')
+          throw new Error(result.error || t('auth.google_callback.signin_failed'))
         }
 
         setStatus('success')
         router.push(callbackUrl)
       } catch (err: any) {
         console.error('Google OAuth callback error:', err)
-        setError(err.message || 'Authentication failed')
+        setError(err.message || t('auth.google_callback.auth_failed'))
         setStatus('error')
       }
     }
 
     handleCallback()
-  }, [searchParams, router, signIn])
+  }, [searchParams, router, signIn, t])
 
   if (status === 'loading') {
     return (
@@ -280,9 +287,9 @@ export default function GoogleCallbackPage() {
             <Loader2 className="w-12 h-12 text-gray-600 animate-spin" />
           </div>
           <h1 className="text-xl font-semibold text-gray-800 mb-2">
-            Completing sign in...
+            {t('auth.google_callback.completing')}
           </h1>
-          <p className="text-gray-500">Please wait while we authenticate you.</p>
+          <p className="text-gray-500">{t('auth.google_callback.please_wait')}</p>
         </div>
       </div>
     )
@@ -298,25 +305,24 @@ export default function GoogleCallbackPage() {
             </div>
           </div>
           <h1 className="text-xl font-semibold text-gray-800 mb-2">
-            Security Check Failed
+            {t('auth.google_callback.security_failed')}
           </h1>
           <p className="text-gray-600 mb-2">{error}</p>
           <p className="text-gray-500 text-sm mb-6">
-            This can happen if the login session expired or if you followed an old link.
-            Please start the login process again.
+            {t('auth.google_callback.security_hint')}
           </p>
           <div className="space-y-3">
             <Link
               href="/login"
               className="block w-full py-2 px-4 bg-black text-white rounded-md hover:bg-gray-800 transition-colors"
             >
-              Go to Login
+              {t('auth.google_callback.go_to_login')}
             </Link>
             <Link
               href="/"
               className="block w-full py-2 px-4 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 transition-colors"
             >
-              Go Home
+              {t('auth.google_callback.go_home')}
             </Link>
           </div>
         </div>
@@ -334,7 +340,7 @@ export default function GoogleCallbackPage() {
             </div>
           </div>
           <h1 className="text-xl font-semibold text-gray-800 mb-2">
-            Authentication Failed
+            {t('auth.google_callback.auth_failed')}
           </h1>
           <p className="text-gray-600 mb-6">{error}</p>
           <div className="space-y-3">
@@ -342,13 +348,13 @@ export default function GoogleCallbackPage() {
               href="/login"
               className="block w-full py-2 px-4 bg-black text-white rounded-md hover:bg-gray-800 transition-colors"
             >
-              Try Again
+              {t('auth.google_callback.try_again')}
             </Link>
             <Link
               href="/"
               className="block w-full py-2 px-4 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 transition-colors"
             >
-              Go Home
+              {t('auth.google_callback.go_home')}
             </Link>
           </div>
         </div>
@@ -364,9 +370,9 @@ export default function GoogleCallbackPage() {
           <Loader2 className="w-12 h-12 text-green-600 animate-spin" />
         </div>
         <h1 className="text-xl font-semibold text-gray-800 mb-2">
-          Success!
+          {t('auth.google_callback.success')}
         </h1>
-        <p className="text-gray-500">Redirecting you now...</p>
+        <p className="text-gray-500">{t('auth.google_callback.redirecting')}</p>
       </div>
     </div>
   )

@@ -18,11 +18,14 @@ const ALLOW = new Set([
   "components/Objects/Communities/DiscussionEditor.tsx",
   "components/Objects/Communities/DiscussionContent.tsx",
   "components/Dashboard/Boards/BoardCanvas.tsx",
+  // Upstream 1.4.5 moved the DynamicCanva extension list to activityExtensions.ts (hooked there, see REQUIRED);
+  // DynamicCanva.tsx itself only calls getActivityExtensions().
+  "components/Objects/Activities/DynamicCanva/DynamicCanva.tsx",
 ]);
 const ALLOW_PREFIX = ["components/mka/"];
 const REQUIRED = [
   "components/Objects/Editor/Editor.tsx",
-  "components/Objects/Activities/DynamicCanva/DynamicCanva.tsx",
+  "components/Objects/Activities/DynamicCanva/activityExtensions.ts",
   "components/Objects/Editor/EditorPreview.tsx",
 ];
 
@@ -69,7 +72,8 @@ describe("MKA editor hook guard", () => {
 
   test("the scan finds the known editor sites (guards the guard)", () => {
     const sites = files.filter((f) => !f.path.startsWith("components/mka/") && SITE.test(stripComments(f.src)) && TIPTAP.test(f.src)).map((f) => f.path);
-    for (const p of [...ALLOW, ...REQUIRED]) expect(sites).toContain(p);
+    // activityExtensions.ts only exports the extension list (no useEditor/extensions: [ literal), so it is not a "site".
+    for (const p of [...ALLOW, ...REQUIRED].filter((q) => !q.endsWith("activityExtensions.ts"))) expect(sites).toContain(p);
   });
 
   test("every non-allow-listed TipTap site registers the MKA nodes", () => {

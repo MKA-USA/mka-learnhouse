@@ -1,4 +1,4 @@
-FROM oven/bun:1.4.2-alpine AS base
+FROM oven/bun:1.4.4-alpine AS base
 
 # Install dependencies only when needed
 FROM base AS deps
@@ -24,10 +24,13 @@ RUN rm -f .env*
 ARG LEARNHOUSE_PUBLIC=false
 RUN if [ "$LEARNHOUSE_PUBLIC" = "true" ] || { [ -L /app/ee ] && [ ! -e /app/ee ]; }; then rm -rf /app/ee; fi
 
+# Commit sha from CI; lets Next tell deploys apart (see generateBuildId)
+ARG BUILD_ID
+ENV BUILD_ID=$BUILD_ID
 RUN bun run build
 
 # Production image: the Next.js standalone server runs on Bun
-FROM oven/bun:1.4.2-alpine AS runner
+FROM oven/bun:1.4.4-alpine AS runner
 WORKDIR /app
 
 RUN apk upgrade --no-cache && apk add --no-cache curl

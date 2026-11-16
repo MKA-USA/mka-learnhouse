@@ -25,6 +25,7 @@ from src.services.orgs.org_config_lookup import get_session_org_config
 from src.db.user_organizations import UserOrganization
 from src.db.users import User
 from src.services.auth.mfa import is_mfa_active
+from src.security.session_context import ORG_HELD_AUTH_METHODS, POLICY_AUTH_METHODS, get_session_provenance
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +105,28 @@ async def get_org_mfa_policy(db_session: AsyncSession, org_id: int) -> OrgMFAPol
         return OrgMFAPolicy()
 
 
+def _signed_in_externally(user: User, org_id: int) -> bool:
+    """Did an external identity provider vouch for *this* session?
+
+    The exemption is about how the user signed in now, not how the account was
+    created: someone who signed up with SSO and then logs in with a password
+    has had no second factor checked by anyone. Sessions that don't record a
+    human sign-in method (minted before methods were recorded, or by a machine
+    credential) fall back to the account's signup method as before.
+    """
+    provenance = get_session_provenance()
+    method = provenance.amr if provenance is not None else None
+    if method in ORG_HELD_AUTH_METHODS:
+        # An LMS launch (or a host app's embed session) only vouches for the
+        # user inside the org that registered that LMS (minted that session). Anywhere else it is a session like any other,
+        # and an account created by a launch never earns the exemption on its
+        # own.
+        return provenance.org_id == org_id
+    if method not in POLICY_AUTH_METHODS:
+        method = user.signup_method
+    return (method or "").lower() in EXTERNAL_AUTH_METHODS
+
+
 async def evaluate_mfa_compliance(
     db_session: AsyncSession,
     user: User,
@@ -118,7 +141,7 @@ async def evaluate_mfa_compliance(
     if await is_mfa_active(db_session, user.id):
         return MFAComplianceState(required=True, satisfied=True)
 
-    if policy.exempt_external_auth and (user.signup_method or "").lower() in EXTERNAL_AUTH_METHODS:
+    if policy.exempt_external_auth and _signed_in_externally(user, org_id):
         return MFAComplianceState(
             required=True,
             satisfied=True,
@@ -184,7 +207,10 @@ async def is_org_mfa_blocking(db_session: AsyncSession, user_id: int, org_id: in
         # row in the org at all; a per-org policy must not strand them.
         from src.security.superadmin import is_user_superadmin
 
-        if not await is_user_superadmin(user_id, db_session):
+        # Most orgs don't require 2FA. The policy read is shared with the
+        # auth-method gate, so checking it first skips the user lookup for them.
+        policy = await get_org_mfa_policy(db_session, org_id)
+        if policy.require_2fa and not await is_user_superadmin(user_id, db_session):
             user = (
                 await db_session.execute(select(User).where(User.id == user_id))
             ).scalars().first()

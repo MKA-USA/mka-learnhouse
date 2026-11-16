@@ -16,6 +16,7 @@ process.env.STRIPE_PRICE_PACK_AI_500 = "price_test_pack";
 
 const planWrites = [];
 const subscriptionUpdates = [];
+let subscriptionUpdateError = null;
 let sessionFixture = null;
 let orgSubscriptions = [];
 
@@ -43,10 +44,16 @@ const fakeStripe = {
     },
   },
   checkout: { sessions: { retrieve: async () => sessionFixture } },
+  promotionCodes: {
+    list: async () => ({
+      data: [{ id: "promo_test", promotion: { coupon: { id: "coupon_test", valid: true, percent_off: 20 } } }],
+    }),
+  },
   customers: { list: async () => ({ data: [{ id: "cus_test" }] }) },
   subscriptions: {
     list: async () => ({ data: orgSubscriptions }),
     update: async (id, params) => {
+      if (subscriptionUpdateError) throw subscriptionUpdateError;
       subscriptionUpdates.push({ id, params });
       return { id };
     },
@@ -77,6 +84,7 @@ function paidSession(sub) {
 beforeEach(() => {
   planWrites.length = 0;
   subscriptionUpdates.length = 0;
+  subscriptionUpdateError = null;
   scheduleUpdates.length = 0;
   sessionFixture = null;
   orgSubscriptions = [];
@@ -140,6 +148,21 @@ describe("switchSubscriptionPlan upgrade", () => {
     expect(subscriptionUpdates).toHaveLength(1);
   });
 
+  test("charges the prorated difference at switch time", async () => {
+    orgSubscriptions = [subscription({ metadata: { org_id: "4242", plan: "standard", billing: "monthly" } })];
+    await switchSubscriptionPlan("owner@example.test", "4242", "pro", "monthly");
+    expect(subscriptionUpdates[0].params.proration_behavior).toBe("always_invoice");
+    expect(subscriptionUpdates[0].params.payment_behavior).toBe("error_if_incomplete");
+  });
+
+  test("a failed upgrade charge grants nothing", async () => {
+    orgSubscriptions = [subscription({ metadata: { org_id: "4242", plan: "standard", billing: "monthly" } })];
+    subscriptionUpdateError = Object.assign(new Error("Your card was declined."), { statusCode: 402 });
+    const err = await switchSubscriptionPlan("owner@example.test", "4242", "pro", "monthly").catch((e) => e);
+    expect(err.status).toBe(409);
+    expect(planWrites).toHaveLength(0);
+  });
+
   for (const status of ["past_due", "unpaid"]) {
     test(`refuses to upgrade a ${status} subscription`, async () => {
       orgSubscriptions = [subscription({ status })];
@@ -162,5 +185,29 @@ describe("switchSubscriptionPlan upgrade", () => {
     expect(result).toEqual({ scheduled: true, plan: "standard" });
     expect(scheduleUpdates).toHaveLength(1);
     expect(subscriptionUpdates).toHaveLength(0);
+  });
+
+  test("refuses to schedule a 'downgrade' to a higher plan", async () => {
+    orgSubscriptions = [
+      subscription({
+        metadata: { org_id: "4242", plan: "standard", billing: "monthly" },
+        items: { data: [{ id: "si_test", current_period_end: 2, price: { id: "price_test_standard" } }] },
+      }),
+    ];
+    const err = await switchSubscriptionPlan("owner@example.test", "4242", "pro", "monthly", true).catch((e) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(err.status).toBe(400);
+    expect(scheduleUpdates).toHaveLength(0);
+  });
+
+  test("a scheduled downgrade applies the promotion code, not its bare coupon", async () => {
+    orgSubscriptions = [
+      subscription({
+        items: { data: [{ id: "si_test", current_period_end: 2, price: { id: "price_test_pro" } }] },
+      }),
+    ];
+    await switchSubscriptionPlan("owner@example.test", "4242", "standard", "monthly", true, "SAVE20");
+    expect(scheduleUpdates).toHaveLength(1);
+    expect(scheduleUpdates[0].params.phases[1].discounts).toEqual([{ promotion_code: "promo_test" }]);
   });
 });

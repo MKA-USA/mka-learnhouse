@@ -4,8 +4,11 @@ import type {
   onRequestPayload,
   onUpgradePayload,
   onAuthenticatePayload,
-  onConnectPayload,
   beforeHandleMessagePayload,
+  beforeHandleAwarenessPayload,
+  onChangePayload,
+  afterLoadDocumentPayload,
+  afterUnloadDocumentPayload,
 } from '@hocuspocus/server'
 import { Database } from '@hocuspocus/extension-database'
 import jwt from 'jsonwebtoken'
@@ -16,6 +19,15 @@ import {
   createConnectionGuard,
   createRateLimiter,
 } from './connectionGuard.js'
+import { createDocSizeGuard } from './docLimits.js'
+import { sanitizeAwareness, seatRefusal } from './boardPresence.js'
+import {
+  type ConnectionAuth,
+  type TokenState,
+  createAccessChecker,
+  dropConnection,
+  recheckConnections,
+} from './accessRecheck.js'
 
 const PORT = parseInt(process.env.COLLAB_PORT || '4000', 10)
 const API_URL = process.env.LEARNHOUSE_API_URL || 'http://localhost:8000'
@@ -38,15 +50,23 @@ const REDIS_YDOC_TTL = 3600
 const MAX_YDOC_BYTES = 5 * 1024 * 1024
 // Largest single incoming WebSocket message (bytes): 2 MB
 const MAX_MESSAGE_BYTES = 2 * 1024 * 1024
+// How often open connections re-check their access to the board (ms)
+const ACCESS_RECHECK_MS = 60_000
+// Longest a connection stays open without a successful re-check (ms)
+const MAX_UNVERIFIED_MS = 10 * 60_000
 
 // ── Startup validation ──────────────────────────────────────────────────────
 
-// Placeholders shipped in .env.example (old and current) must never be used.
+// Placeholders shipped in .env.example and the docs (old and current) must never be used.
 const PLACEHOLDER_SECRETS = new Set([
   'your-jwt-secret-key',
   'your-internal-key',
   'CHANGE_ME_generate_with_openssl_rand_hex_32',
+  'replace-with-random-shared-secret',
 ])
+// The docs' example JWT secret is only warned about: the API derives stored
+// encryption from it, so rotating it has to be planned, not forced at boot.
+const WARN_ONLY_PLACEHOLDER_SECRETS = new Set(['replace-with-at-least-32-random-characters'])
 const MIN_SECRET_LENGTH = 32
 
 function requireStrongSecret(name: string, value: string) {
@@ -59,6 +79,11 @@ function requireStrongSecret(name: string, value: string) {
       `[collab] FATAL: ${name} is still the example placeholder (generate one with: openssl rand -hex 32)`,
     )
     process.exit(1)
+  }
+  if (WARN_ONLY_PLACEHOLDER_SECRETS.has(value)) {
+    console.error(
+      `[collab] SECURITY: ${name} is the example value from the docs; anyone can forge sessions. Rotate it (openssl rand -hex 32)`,
+    )
   }
   // Warn rather than refuse so an existing deployment keeps booting.
   if (value.length < MIN_SECRET_LENGTH) {
@@ -103,7 +128,18 @@ const connectionGuard = createConnectionGuard({
   maxPendingConnections: 2000, // unauthenticated sockets across all IPs
   authDeadlineMs: 10_000,
   preAuthMaxBytes: 256 * 1024, // auth plus the first sync step is a few KB
+  // Room for a few full-size messages in flight; anything else is queued for
+  // a document the socket never authenticated
+  maxUnhandledBytes: 4 * MAX_MESSAGE_BYTES,
+  maxHandledBytesPerWindow: 16 * 1024 * 1024,
 })
+
+// Stops accepting updates for a document once it outgrows what we persist
+const docSizes = createDocSizeGuard({
+  maxDocBytes: MAX_YDOC_BYTES,
+  remeasureEveryBytes: 256 * 1024,
+})
+const DOC_TOO_LARGE = { code: 4413, reason: 'Board is too large' }
 
 // Clean up stale entries every 5 minutes
 const rateLimitCleanupInterval = setInterval(() => {
@@ -117,6 +153,32 @@ function extractBoardUuid(documentName: string): string | null {
   const match = documentName.match(/^board:(board_[0-9a-f-]{36})$/)
   return match ? match[1] : null
 }
+
+function fetchMembership(boardUuid: string, token: string): Promise<Response> {
+  return fetchWithTimeout(`${API_URL}/api/v1/boards/${boardUuid}/membership`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+// Tokens this close to expiry are treated as expired by the re-check, so a
+// clock skew with the API can't turn "about to lapse" into a revoke.
+const TOKEN_EXPIRY_MARGIN_MS = 30_000
+
+function tokenState(token: string): TokenState {
+  try {
+    const payload = jwt.verify(token, SECRET_KEY, { algorithms: ['HS256'] })
+    const exp = typeof payload === 'object' ? payload.exp : undefined
+    if (typeof exp === 'number' && exp * 1000 - Date.now() < TOKEN_EXPIRY_MARGIN_MS) {
+      return 'expired'
+    }
+    return 'valid'
+  } catch (err) {
+    return err instanceof Error && err.name === 'TokenExpiredError' ? 'expired' : 'invalid'
+  }
+}
+
+/** Current access of a token to a board, for re-checking open connections. */
+const checkAccess = createAccessChecker({ tokenState, fetchMembership })
 
 // ── Redis connection ────────────────────────────────────────────────────────
 
@@ -188,15 +250,20 @@ function scheduleDbFlush(boardUuid: string, state: Uint8Array) {
 
 // ── Server ──────────────────────────────────────────────────────────────────
 
-// Max concurrent users per board
-const MAX_BOARD_USERS = 10
+// Awareness client id -> owning connection, per loaded document
+const awarenessClaims = new WeakMap<object, Map<number, any>>()
 
 const server = new Server({
   port: PORT,
   // ws drops oversized frames before they are buffered into a document
   websocketOptions: { maxPayload: MAX_MESSAGE_BYTES },
 
-  async beforeHandleMessage({ update, documentName }: beforeHandleMessagePayload) {
+  async beforeHandleMessage({
+    update,
+    documentName,
+    connection,
+    requestHeaders,
+  }: beforeHandleMessagePayload) {
     // Backstop for the ws cap: throwing closes the connection
     if (update.byteLength > MAX_MESSAGE_BYTES) {
       console.warn(
@@ -204,6 +271,49 @@ const server = new Server({
       )
       throw new Error('Message too large')
     }
+    if (!connectionGuard.markHandled(requestHeaders.get(CONNECTION_ID_HEADER), update.byteLength)) {
+      throw new Error('Too much traffic')
+    }
+    if (docSizes.isOversized(documentName)) {
+      dropConnection(connection, DOC_TOO_LARGE)
+      throw new Error('Board is too large')
+    }
+  },
+
+  async beforeHandleAwareness({
+    connection,
+    document,
+    states,
+    removedClients,
+  }: beforeHandleAwarenessPayload) {
+    // Server-internal writes have no connection and are trusted
+    if (!connection) return
+    let claims = awarenessClaims.get(document)
+    if (!claims) {
+      claims = new Map()
+      awarenessClaims.set(document, claims)
+    }
+    sanitizeAwareness(connection, states, removedClients, claims, document.getConnections())
+  },
+
+  async afterLoadDocument({ documentName, document }: afterLoadDocumentPayload) {
+    docSizes.measure(documentName, document)
+  },
+
+  async onChange({ documentName, document, update }: onChangePayload) {
+    if (docSizes.isOversized(documentName)) return
+    if (docSizes.recordUpdate(documentName, document, update.byteLength)) {
+      // Everyone leaves so the document unloads; store() refuses the oversized
+      // state, so it reloads from the last state that fit.
+      console.warn(`[collab] ${documentName} passed the size cap; closing its connections`)
+      for (const connection of document.getConnections()) {
+        dropConnection(connection, DOC_TOO_LARGE)
+      }
+    }
+  },
+
+  async afterUnloadDocument({ documentName }: afterUnloadDocumentPayload) {
+    docSizes.forget(documentName)
   },
 
   async onRequest({ request, response }: onRequestPayload) {
@@ -239,6 +349,8 @@ const server = new Server({
     documentName,
     connectionConfig,
     requestHeaders,
+    instance,
+    socketId,
   }: onAuthenticatePayload) {
     if (!token) {
       throw new Error('Authentication required')
@@ -260,14 +372,7 @@ const server = new Server({
     // Verify board membership via backend API (with timeout)
     let response: Response
     try {
-      response = await fetchWithTimeout(
-        `${API_URL}/api/v1/boards/${boardUuid}/membership`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        },
-      )
+      response = await fetchMembership(boardUuid, token)
     } catch (err) {
       console.error(
         `[collab] Membership check failed for ${boardUuid}:`,
@@ -285,6 +390,15 @@ const server = new Server({
     // The API answers "viewer" for anyone who may only read the board (public
     // boards, org admins without membership). Their socket must not write.
     connectionConfig.readOnly = membership.role === 'viewer'
+
+    // Seats are checked here, once the role is known: viewers and editors
+    // have separate seats so viewers can't crowd editors out.
+    const existing = instance.documents.get(documentName)?.getConnections() ?? []
+    const refusal = seatRefusal(existing, { readOnly: connectionConfig.readOnly, socketId })
+    if (refusal) {
+      throw new Error(refusal)
+    }
+
     connectionGuard.markAuthenticated(requestHeaders.get(CONNECTION_ID_HEADER))
 
     return {
@@ -293,17 +407,8 @@ const server = new Server({
         name: membership.username || 'Unknown',
         role: membership.role,
       },
-    }
-  },
-
-  async onConnect({ documentName, instance }: onConnectPayload) {
-    const boardUuid = extractBoardUuid(documentName)
-    if (!boardUuid) return
-
-    // Count existing connections for this document
-    const doc = instance.documents.get(documentName)
-    if (doc && doc.getConnectionsCount() >= MAX_BOARD_USERS) {
-      throw new Error(`Board is full (max ${MAX_BOARD_USERS} concurrent users)`)
+      // Kept for the periodic access re-check
+      auth: { token, boardUuid, verifiedAt: Date.now() } satisfies ConnectionAuth,
     }
   },
 
@@ -412,6 +517,29 @@ const server = new Server({
   ],
 })
 
+// ── Access re-check ──────────────────────────────────────────────────────
+
+let recheckRunning = false
+const accessRecheckInterval = setInterval(async () => {
+  if (recheckRunning) return
+  recheckRunning = true
+  try {
+    // One document at a time keeps the burst of API calls to one board's users
+    for (const document of [...server.hocuspocus.documents.values()]) {
+      const closed = await recheckConnections(document.getConnections(), checkAccess, {
+        maxUnverifiedMs: MAX_UNVERIFIED_MS,
+      })
+      if (closed > 0) {
+        console.log(`[collab] Closed ${closed} connection(s) on ${document.name} after the access re-check`)
+      }
+    }
+  } catch (err) {
+    console.error('[collab] Access re-check failed:', err)
+  } finally {
+    recheckRunning = false
+  }
+}, ACCESS_RECHECK_MS)
+
 // ── Graceful shutdown ─────────────────────────────────────────────────────
 
 async function gracefulShutdown() {
@@ -419,6 +547,7 @@ async function gracefulShutdown() {
 
   // Stop accepting new connections
   clearInterval(rateLimitCleanupInterval)
+  clearInterval(accessRecheckInterval)
   await server.destroy()
 
   // Flush all pending writes directly from the captured state (no Redis dependency)

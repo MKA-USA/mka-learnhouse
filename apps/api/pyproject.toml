@@ -1,55 +1,57 @@
 [project]
 description = "Learnhouse Backend"
 name = "learnhouse-api"
-version = "1.4.0"
+version = "1.4.5"
 requires-python = ">=3.14.7,<3.14.8"
 authors = [
     {name = "Badr B. (swve)"}
 ]
 dependencies = [
-    "boto3==1.43.109",
-    "botocore==1.43.109",
-    "faker==40.41.0",
-    "fastapi==0.142.2",
+    "boto3==1.44.1",
+    "faker==40.54.0",
+    "fastapi==0.162.5",
     "httpx==0.28.1",
-    "google-genai==2.28.0",
-    "pydantic-ai-slim[openai,anthropic,google,mistral,mcp]==2.54.0",
+    "google-genai==2.34.0",
+    "pydantic-ai-slim[openai,anthropic,google,mistral,mcp]==2.68.0",
     "pwdlib[argon2]==0.3.1",
     "psycopg2-binary==2.9.13",
     "asyncpg==0.32.0",
     "aiosqlite==0.22.1",
-    "pydantic[email]==2.13.5",
-    "pytest==9.1.1",
+    "pydantic[email]==2.14.3",
+    "pytest==9.2.0",
     "pytest-cov==7.1.0",
     "python-dotenv==1.2.4",
-    "python-multipart==0.0.32",
+    "python-multipart==0.0.33",
     "pyyaml==6.0.3",
     "redis==8.1.0",
     "requests==2.34.2",
-    "resend==2.49.1",
+    "resend==2.53.2",
     "sqlmodel==0.0.44",
     "tiktoken==0.14.0",
     "uvicorn==0.54.0",
-    "typer==0.27.3",
-    "alembic==1.20.0",
-    "alembic-postgresql-enum==1.10.0",
-    "sqlalchemy-utils==0.42.1",
-    "stripe==16.0.0",
+    "typer==0.29.1",
+    "alembic==1.20.1",
+    "alembic-postgresql-enum==1.11.1",
+    "sqlalchemy-utils==0.43.0",
+    "stripe==17.0.0",
     "cryptography==50.0.2",
     "pyjwt[crypto]==2.15.1",
     "pyotp==2.10.0",
     "beautifulsoup4==4.15.0",
-    "pillow==12.3.0",
-    "pytest-asyncio==1.4.0",
-    "sentry-sdk[fastapi]==2.71.0",
+    "pillow==13.0.0",
+    "pytest-asyncio==1.4.1.post1",
+    "pytest-xdist==3.8.0",
+    "sentry-sdk[fastapi]==2.75.0",
     "protobuf==7.36.2",
-    "workos==10.5.0",
-    "dnspython==2.8.0",
+    "workos==10.8.0",
+    "dnspython==2.9.2",
     "defusedxml==0.7.1",
-    "pgvector==0.5.0",
-    "pypdf==6.19.0",
-    "regex==2026.9.29",
+    "pgvector==0.5.1",
+    "pypdf==7.0.1",
+    "regex==2026.11.9",
     "typesafe-sdk==0.7.2",
+    "mcp==2.3.0",
+    "fakeredis==2.40.0",
 ]
 
 [tool.ruff]
@@ -81,7 +83,7 @@ omit = [
 ]
 
 [tool.coverage.report]
-fail_under = 25
+fail_under = 95  # MKA fork: fork-owned modules (services/mka, routers/mka_*) are not at 100%; upstream sets 100
 show_missing = true
 exclude_lines = [
     "pragma: no cover",
