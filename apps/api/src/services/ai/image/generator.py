@@ -21,6 +21,7 @@ from typing import Optional
 
 from config.config import get_learnhouse_config
 from src.services.ai import mka_brand  # MKA fork
+from src.services.mka import image_muapi  # MKA fork
 from src.services.ai.llm import AINotConfiguredError
 from src.services.ai.llm.errors import is_quota_error, is_spend_cap_error
 from src.services.ai.llm.provider import _GOOGLE_ALIASES
@@ -130,7 +131,10 @@ async def generate_image(
         prompt, editing=bool(input_images), max_chars=MAX_PROMPT_CHARS
     )
 
-    api_key, model = _resolve_image_config()
+    muapi_image, muapi_tried = await image_muapi.attempt(prompt, input_images)  # MKA fork
+    if muapi_image is not None:  # MKA fork
+        return muapi_image  # MKA fork
+    api_key, model = image_muapi.fallback_config(_resolve_image_config, muapi_tried)  # MKA fork
 
     # Build multimodal contents.
     #   - EDIT/REFINE (input_images present): put the reference image(s) FIRST and

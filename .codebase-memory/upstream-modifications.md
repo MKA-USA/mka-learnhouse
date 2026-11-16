@@ -1972,3 +1972,22 @@ spot (`grep -rn "MKA fork" apps/` to enumerate them).
 ## Footer MKA symbol (post-1.4.5 fix, `apps/web/app/orgs/[orgslug]/(withmenu)/layout.tsx`)
 
 `<Image src="/logos/mka-usa-symbol-dark.svg">` 404ed on dev and prod: `/logos/...` is not excluded from the `proxy.ts` matcher, so the middleware rewrites it to an org route. The fork now imports the SVG statically (`import mkaSymbol from '@public/logos/mka-usa-symbol-dark.svg'`, `src={mkaSymbol}`), the same way `OrgMenu.tsx` and `Watermark.tsx` already do, instead of touching the upstream matcher.
+
+## MUAPI image vendor hook (`apps/api/src/services/ai/image/generator.py`)
+
+Fork-owned module: `apps/api/src/services/mka/image_muapi.py` (tests: `src/tests/services/test_mka_image_muapi.py`).
+Why no extension point: `generate_image` hardcodes the Google path and `routers/ai/images.py` imports it by name, so the vendor choice has to be made inside it. Off unless `MKA_IMAGE_VENDOR=muapi` and `MUAPI_API_KEY` are set (read at call time); otherwise behaviour is identical to upstream.
+
+```diff
+ from src.services.ai import mka_brand  # MKA fork
++from src.services.mka import image_muapi  # MKA fork
+@@ async def generate_image(
+-    api_key, model = _resolve_image_config()
++    muapi_image, muapi_tried = await image_muapi.attempt(prompt, input_images)  # MKA fork
++    if muapi_image is not None:  # MKA fork
++        return muapi_image  # MKA fork
++    api_key, model = image_muapi.fallback_config(_resolve_image_config, muapi_tried)  # MKA fork
+```
+
+The hook sits after `mka_brand.brand_image_prompt` so MUAPI gets the branded prompt too. `fallback_config` turns `AINotConfiguredError` into a plain `RuntimeError` only when MUAPI was tried (router then returns 502 plus refund, not 403).
+Env: `MKA_IMAGE_VENDOR`, `MUAPI_API_KEY`, `MUAPI_IMAGE_MODEL`, `MUAPI_IMAGE_EDIT_MODEL`, `MUAPI_IMAGE_ASPECT_RATIO`, `MUAPI_TIMEOUT_SECONDS` (default 60, one overall deadline), `MUAPI_OUTPUT_HOSTS` (default `muapi.ai`, comma-separated, exact host or subdomain), `MUAPI_BASE_URL`.
