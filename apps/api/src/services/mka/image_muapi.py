@@ -8,6 +8,9 @@ Flow: submit ``POST /{model}`` -> poll ``GET /predictions/{id}/result`` -> downl
 the hosted output (SSRF-guarded; hosts from ``MUAPI_OUTPUT_HOSTS``, default ``muapi.ai``) -> normalise to PNG (the router stores ``.png``).
 Refine uploads the source image(s) to MUAPI first (``POST /upload_file``).
 
+Outputs are downscaled (LANCZOS, never upscaled) to ``MUAPI_MAX_OUTPUT_SIDE`` (default 1536)
+and saved as optimized PNG; uploaded source images are re-encoded to RGB JPEG q90, <=2048px.
+
 One overall deadline (``MUAPI_TIMEOUT_SECONDS``, default 60) spans upload, submit, poll
 and download; each HTTP call gets min(remaining, 30s).
 
@@ -42,6 +45,8 @@ DEFAULT_OUTPUT_HOSTS = "muapi.ai"
 
 MAX_OUTPUT_BYTES = 20 * 1024 * 1024
 MAX_OUTPUT_PIXELS = 64_000_000
+DEFAULT_MAX_OUTPUT_SIDE = 1536
+MAX_UPLOAD_SIDE = 2048
 MAX_REDIRECTS = 3
 POLL_INTERVAL_SECONDS = 2.0
 
@@ -125,11 +130,43 @@ def _extract_url(payload: Any) -> Optional[str]:
     return None
 
 
+def _prepare_upload(data: bytes) -> bytes:
+    """Re-encode a source image for upload: <=2048px longest side, RGB JPEG q90 (alpha onto white).
+
+    MUAPI's /upload_file rejects large files (HTTP 400 on an ~11 MB PNG).
+    """
+    try:
+        with Image.open(io.BytesIO(data)) as img:
+            if img.width * img.height > MAX_OUTPUT_PIXELS:
+                raise MuapiError("source image too large")
+            img.load()
+            if "A" in img.getbands() or img.mode == "P":
+                rgba = img.convert("RGBA")
+                flat = Image.new("RGB", rgba.size, (255, 255, 255))
+                flat.paste(rgba, mask=rgba.getchannel("A"))
+                img = flat
+            elif img.mode != "RGB":
+                img = img.convert("RGB")
+            longest = max(img.size)
+            if longest > MAX_UPLOAD_SIDE:
+                scale = MAX_UPLOAD_SIDE / longest
+                img = img.resize(
+                    (max(1, round(img.width * scale)), max(1, round(img.height * scale))),
+                    Image.Resampling.LANCZOS,
+                )
+            out = io.BytesIO()
+            img.save(out, format="JPEG", quality=90)
+            return out.getvalue()
+    except MuapiError:
+        raise
+    except Exception as e:  # noqa: BLE001
+        raise MuapiError("source image is not decodable") from e
+
+
 async def _upload(client: httpx.AsyncClient, base: str, data: bytes, deadline: float) -> str:
-    mime = _sniff_mime(data)
-    ext = mime.split("/")[-1].replace("jpeg", "jpg")
+    jpeg = await asyncio.to_thread(_prepare_upload, data)
     resp = await client.post(
-        f"{base}/upload_file", files={"file": (f"source.{ext}", data, mime)},
+        f"{base}/upload_file", files={"file": ("source.jpg", jpeg, "image/jpeg")},
         timeout=_remaining(deadline),
     )
     if resp.status_code >= 400:
@@ -207,7 +244,16 @@ async def _download(url: str, deadline: float) -> bytes:
     raise MuapiError("too many redirects")
 
 
+def _max_output_side() -> int:
+    try:
+        value = int(_env("MUAPI_MAX_OUTPUT_SIDE", str(DEFAULT_MAX_OUTPUT_SIDE)))
+    except ValueError:
+        return DEFAULT_MAX_OUTPUT_SIDE
+    return value if value > 0 else DEFAULT_MAX_OUTPUT_SIDE
+
+
 def _to_png(data: bytes) -> bytes:
+    max_side = _max_output_side()
     try:
         with Image.open(io.BytesIO(data)) as img:
             width, height = img.size
@@ -216,8 +262,15 @@ def _to_png(data: bytes) -> bytes:
             img.load()
             if img.mode not in ("RGB", "RGBA", "L", "LA"):
                 img = img.convert("RGBA" if "A" in img.getbands() else "RGB")
+            longest = max(img.size)
+            if longest > max_side:  # downscale only, never upscale
+                scale = max_side / longest
+                img = img.resize(
+                    (max(1, round(img.width * scale)), max(1, round(img.height * scale))),
+                    Image.Resampling.LANCZOS,
+                )
             out = io.BytesIO()
-            img.save(out, format="PNG")
+            img.save(out, format="PNG", optimize=True)
             return out.getvalue()
     except MuapiError:
         raise

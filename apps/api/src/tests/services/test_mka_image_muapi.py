@@ -315,3 +315,50 @@ async def test_download_respects_remaining_deadline(monkeypatch):
     _install(monkeypatch, handler)
     with pytest.raises(mu.MuapiError):
         await mu.generate_image_muapi("p")
+
+
+# --- size handling ---
+
+def _png(size, mode="RGB"):
+    buf = io.BytesIO()
+    Image.new(mode, size, (10, 20, 30, 128) if mode == "RGBA" else (10, 20, 30)).save(buf, format="PNG")
+    return buf.getvalue()
+
+
+async def test_large_output_downscaled_keeping_aspect():
+    out = Image.open(io.BytesIO(mu._to_png(_png((4000, 3000)))))
+    assert out.size == (1536, 1152)
+
+
+async def test_small_output_not_upscaled():
+    out = Image.open(io.BytesIO(mu._to_png(_png((800, 600)))))
+    assert out.size == (800, 600)
+
+
+async def test_max_output_side_env(monkeypatch):
+    monkeypatch.setenv("MUAPI_MAX_OUTPUT_SIDE", "512")
+    out = Image.open(io.BytesIO(mu._to_png(_png((2000, 1000)))))
+    assert out.size == (512, 256)
+
+
+async def test_upload_is_jpeg_and_at_most_2048(monkeypatch):
+    calls = _install(monkeypatch, _api())
+    await mu.generate_image_muapi("p", input_images=[_png((4000, 3000))])
+    up = next(c for c in calls if c.url.path.endswith("/upload_file"))
+    assert b'filename="source.jpg"' in up.content and b"image/jpeg" in up.content
+    start = up.content.index(b"\xff\xd8\xff")
+    end = up.content.rindex(b"\r\n--")
+    sent = Image.open(io.BytesIO(up.content[start:end]))
+    assert sent.format == "JPEG" and max(sent.size) == 2048 and sent.mode == "RGB"
+
+
+async def test_rgba_upload_flattened_onto_white():
+    buf = io.BytesIO()
+    Image.new("RGBA", (10, 10), (0, 0, 0, 0)).save(buf, format="PNG")  # fully transparent
+    sent = Image.open(io.BytesIO(mu._prepare_upload(buf.getvalue())))
+    assert sent.mode == "RGB" and sent.getpixel((5, 5))[0] > 240
+
+
+async def test_undecodable_upload_raises():
+    with pytest.raises(mu.MuapiError):
+        mu._prepare_upload(b"nope")
