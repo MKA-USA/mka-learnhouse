@@ -87,7 +87,7 @@ describe("completion instructions and empty levels", () => {
     const c = build([plan("tabligh", { level: "national" })]);
     for (const k of ["plan", "directory"]) expect(pageText(c, k).trimEnd().endsWith("tick Mark as complete, then press Next.")).toBe(true);
     expect(pageText(c, "role")).not.toContain("Mark as complete");
-    expect(c.description).toContain("tick Mark as complete");
+    expect(c.description).toContain("tick Mark as complete"); expect(c.about).toContain("tick Mark as complete"); // the course page renders `about`
     expect(SIGNOFF_INSTRUCTION).toContain("shows as complete");
   });
   test("a department with no regional or local key results still shows both sections with the empty message", () => {
@@ -98,10 +98,15 @@ describe("completion instructions and empty levels", () => {
     expect(labels).toEqual(["National team", "Regional officeholders", "Local officeholders"]);
     expect(plainText(a.doc).match(/This department has no key results at this level/g)?.length).toBe(2);
   });
+  test("an all-level plan does not suppress the regional/local stubs", () => {
+    const c = build([plan("tabligh", { level: "all" }), plan("tabligh", { level: "national" })]);
+    const a = c.chapters.flatMap((ch) => ch.activities).find((y) => y.key === "plan")!; if (a.kind !== "page") throw new Error("page");
+    expect(a.doc.content.filter((n) => n.type === "mkaAudience").map((n) => (n.attrs as any).rule.label)).toEqual(["National team", "Regional officeholders", "Local officeholders"]);
+  });
   test("Majlis Plan and General pages also carry the line", () => {
     const mp = buildMajlisPlanCourse({ cycle: "2026-27", deadline: "Dec 1, 2026", departments: DEPARTMENTS.slice(0, 2), plansFor: (s) => [plan(s)] }).spec;
     for (const a of mp.chapters.flatMap((ch) => ch.activities)) if (a.kind === "page") expect(plainText(a.doc)).toContain("tick Mark as complete");
-    expect(mp.description).toContain("tick Mark as complete");
+    expect(mp.description).toContain("tick Mark as complete"); expect(mp.about).toContain("tick Mark as complete");
   });
 });
 
