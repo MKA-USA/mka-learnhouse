@@ -12,6 +12,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from src.db.organization_config import OrganizationConfig
 from src.db.organizations import Organization, OrganizationRead
 from src.security.security import security_hash_password
+from src.services.users.users import clear_inbox_unproven, inbox_unproven
 from config.config import get_learnhouse_config
 from src.services.users.emails import (
     send_password_reset_email,
@@ -26,6 +27,7 @@ from src.db.users import (
     UserRead,
 )
 from src.services.security.password_validation import validate_password_complexity
+from src.services.auth.utils import _drop_unverified_sso_links
 
 
 def _get_redis_connection():
@@ -334,9 +336,16 @@ async def change_password_with_reset_code(
             detail="Invalid or expired reset code",
         )
 
+    # The reset code proved the inbox: identity-provider links made before
+    # that (an org's IdP or LMS asserting this unclaimed address) go.
+    if not user.email_verified or inbox_unproven(user):
+        await _drop_unverified_sso_links(user.id, db_session)
+
     # Change password
     user.password = security_hash_password(new_password)
     user.password_changed_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    # The reset code came through the inbox, so this password is the owner's
+    clear_inbox_unproven(user)
     db_session.add(user)
 
     await db_session.commit()
@@ -476,8 +485,13 @@ async def change_password_with_reset_code_platform(
             detail="Invalid or expired reset code",
         )
 
+    if not user.email_verified or inbox_unproven(user):
+        await _drop_unverified_sso_links(user.id, db_session)
+
     user.password = security_hash_password(new_password)
     user.password_changed_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    # The reset code came through the inbox, so this password is the owner's
+    clear_inbox_unproven(user)
     db_session.add(user)
 
     await db_session.commit()

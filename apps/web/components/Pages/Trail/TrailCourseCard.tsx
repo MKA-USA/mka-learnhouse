@@ -22,6 +22,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@components/ui/dropdown-menu"
+import ThumbnailImage from '@components/Objects/Thumbnails/ThumbnailImage'
 
 interface TrailCourseCardProps {
   course: any
@@ -109,7 +110,7 @@ function TrailCourseCard(props: TrailCourseCardProps) {
   const courseLink = getUriWithOrg(props.orgslug, '/course/' + courseid)
 
   return (
-    <div className="group relative flex flex-col bg-white rounded-xl nice-shadow overflow-hidden w-full transition-all duration-300 hover:scale-[1.01]" onMouseEnter={handleMouseEnter}>
+    <div data-kbd-item="" className="group relative flex flex-col bg-white rounded-xl nice-shadow overflow-hidden w-full transition-all duration-300 hover:scale-[1.01]" onMouseEnter={handleMouseEnter}>
       {/* Dropdown Menu */}
       <div className="absolute top-2 end-2 z-20">
         <DropdownMenu>
@@ -143,7 +144,7 @@ function TrailCourseCard(props: TrailCourseCardProps) {
         className="block relative aspect-video overflow-hidden bg-gray-50"
       >
         {props.course.thumbnail_image && org?.org_uuid ? (
-          <img
+          <ThumbnailImage
             src={getCourseThumbnailMediaDirectory(
               org.org_uuid,
               props.course.course_uuid,

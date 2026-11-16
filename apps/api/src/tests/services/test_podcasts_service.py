@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from io import BytesIO
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, call, patch
 
 import pytest
 from fastapi import HTTPException, UploadFile
@@ -558,14 +558,16 @@ class TestPodcastsService:
         admin_uuids = {podcast.podcast_uuid for podcast in admin_results}
         anon_uuids = {podcast.podcast_uuid for podcast in anonymous_results}
 
+        # The usergroup podcast is unpublished, so its group's members don't
+        # see it; admins and superadmins do.
         assert regular_uuids == {
             public_podcast.podcast_uuid,
             published_private.podcast_uuid,
-            grouped_podcast.podcast_uuid,
             author_podcast.podcast_uuid,
         }
-        assert admin_uuids == regular_uuids
-        assert {podcast.podcast_uuid for podcast in superadmin_results} == regular_uuids
+        everything = regular_uuids | {grouped_podcast.podcast_uuid}
+        assert admin_uuids == everything
+        assert {podcast.podcast_uuid for podcast in superadmin_results} == everything
         assert anon_uuids == {public_podcast.podcast_uuid}
 
         assert await get_podcasts_count_orgslug(
@@ -579,7 +581,7 @@ class TestPodcastsService:
 
         assert await get_podcasts_count_orgslug(
             mock_request, regular_user, org.slug, db
-        ) == 4
+        ) == 3
 
     @pytest.mark.asyncio
     async def test_thumbnail_update_sensitive_update_and_delete_errors(
@@ -809,6 +811,76 @@ class TestEpisodesService:
             )
 
         assert deleted == {"detail": "Episode deleted"}
+
+    @pytest.mark.asyncio
+    async def test_episode_published_tracked_only_on_transition(
+        self, db, org, admin_user, mock_request
+    ):
+        podcast = await _make_podcast(db, org)
+        await _make_author(db, podcast.podcast_uuid, admin_user.id)
+
+        with patch(
+            "src.services.podcasts.episodes.check_resource_access",
+            new_callable=AsyncMock,
+        ), patch(
+            "src.services.podcasts.episodes.dispatch_webhooks",
+            new_callable=AsyncMock,
+        ), patch(
+            "src.services.podcasts.episodes.track", new_callable=AsyncMock
+        ) as mock_track:
+            live = await create_episode(
+                mock_request,
+                podcast.podcast_uuid,
+                PodcastEpisodeCreate(title="Live", description="", published=True),
+                admin_user,
+                db,
+            )
+            draft = await create_episode(
+                mock_request,
+                podcast.podcast_uuid,
+                PodcastEpisodeCreate(title="Draft", description=""),
+                admin_user,
+                db,
+            )
+            # Draft -> published is the transition we count.
+            await update_episode(
+                mock_request,
+                draft.episode_uuid,
+                PodcastEpisodeUpdate(published=True),
+                admin_user,
+                db,
+            )
+            # Already published, or unpublishing: not counted.
+            await update_episode(
+                mock_request,
+                draft.episode_uuid,
+                PodcastEpisodeUpdate(published=True, title="Again"),
+                admin_user,
+                db,
+            )
+            await update_episode(
+                mock_request,
+                live.episode_uuid,
+                PodcastEpisodeUpdate(published=False),
+                admin_user,
+                db,
+            )
+
+        def published(episode_uuid):
+            return call(
+                event_name="podcast_episode_published",
+                org_id=org.id,
+                user_id=admin_user.id,
+                properties={
+                    "podcast_uuid": podcast.podcast_uuid,
+                    "episode_uuid": episode_uuid,
+                },
+            )
+
+        assert mock_track.await_args_list == [
+            published(live.episode_uuid),
+            published(draft.episode_uuid),
+        ]
 
     @pytest.mark.asyncio
     async def test_episode_visibility_and_error_paths(

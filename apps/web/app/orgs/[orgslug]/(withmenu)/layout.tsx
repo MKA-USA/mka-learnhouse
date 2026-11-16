@@ -8,14 +8,22 @@ import { useOrg } from '@components/Contexts/OrgContext'
 import { OrgJoinBanner, OrgJoinBannerProvider } from '@components/Objects/Banners/OrgJoinBanner'
 import { OrgMFAPolicyGate } from '@components/Objects/Banners/OrgMFAPolicyGate'
 import { PodcastPlayerProvider } from '@components/Contexts/PodcastPlayerContext'
+import { SiteCommandPaletteProvider } from '@components/Objects/Search/SiteCommandPaletteContext'
+import { ShortcutsProvider } from '@/lib/shortcuts/ShortcutsContext'
+import { MessagingProvider } from '@components/Messaging/MessagingProvider'
+import ChatDock from '@components/Messaging/Dock/ChatDock'
+import GlobalShortcuts from '@components/Objects/Shortcuts/GlobalShortcuts'
 import dynamic from 'next/dynamic'
 const PodcastPlayer = dynamic(() => import('@components/Objects/Podcasts/PodcastPlayer'), { ssr: false })
+const SiteCommandPalette = dynamic(() => import('@components/Objects/Search/SiteCommandPalette'), { ssr: false })
+const ShortcutHelp = dynamic(() => import('@components/Objects/Shortcuts/ShortcutHelp'), { ssr: false })
+const LiveNowBanner = dynamic(() => import('@ee/components/LiveSessions/LiveNowBanner'), { ssr: false })
 import Image from 'next/image'
 import Link from 'next/link'
 import { PageViewTracker } from '@components/Analytics/PageViewTracker'
 import { usePathname, useSearchParams } from 'next/navigation'
-import { usePlan } from '@components/Hooks/usePlan'
 import { getGoogleFontUrl, DEFAULT_FONT } from '@/lib/fonts'
+import { useShowLearnHouseBranding } from '@components/Hooks/useLearnHouseBranding'
 
 // Helper to convert hex to rgba
 const hexToRgba = (hex: string, alpha: number): string => {
@@ -29,10 +37,7 @@ const hexToRgba = (hex: string, alpha: number): string => {
 function OrgFooter() {
   const org = useOrg() as any
   const footerText = org?.config?.config?.customization?.general?.footer_text || org?.config?.config?.general?.footer_text || ''
-  const plan = usePlan()
-  const watermarkConfig = org?.config?.config?.customization?.general?.watermark ?? org?.config?.config?.general?.watermark
-  const isFree = plan === 'free'
-  const showWatermark = isFree || watermarkConfig !== false
+  const showWatermark = useShowLearnHouseBranding()
 
   return (
     <footer className="w-full py-8 mt-12">
@@ -102,7 +107,7 @@ function LayoutContent({ children, orgslug }: { children: ReactNode; orgslug: st
   const pathParts = pathname?.split('/').filter(Boolean) || []
 
   // Pages that use a full-bleed layout (no footer/watermark)
-  const noFooterPaths = ['copilot']
+  const noFooterPaths = ['messages']
   const isFullBleedPage = noFooterPaths.some((p) => pathParts.includes(p))
 
   return (
@@ -113,6 +118,8 @@ function LayoutContent({ children, orgslug }: { children: ReactNode; orgslug: st
       // target this element specifically.
       className="lh-org-font-root flex flex-col min-h-screen"
       style={{
+        // Room for the phone tab bar / activity bar (0 on desktop).
+        paddingBottom: 'var(--lh-mobile-nav-h)',
         backgroundColor: primaryColor ? hexToRgba(primaryColor, 0.05) : 'transparent',
         ...(customFont ? { fontFamily: `'${customFont}', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif` } : {}),
       }}
@@ -127,6 +134,11 @@ function LayoutContent({ children, orgslug }: { children: ReactNode; orgslug: st
       </div>
       {!isFullBleedPage && !chromeless && <OrgFooter />}
       {!isFullBleedPage && !chromeless && <Watermark />}
+      {!chromeless && <SiteCommandPalette />}
+      {!chromeless && <GlobalShortcuts />}
+      {!chromeless && <ShortcutHelp />}
+      {!chromeless && <ChatDock orgslug={orgslug} />}
+      {!chromeless && <LiveNowBanner orgslug={orgslug} />}
     </div>
   )
 }
@@ -148,9 +160,15 @@ export default function RootLayout(
       <SessionGate>
       <OrgJoinBannerProvider>
         <PodcastPlayerProvider>
-          <LayoutContent orgslug={params?.orgslug}>
-            {children}
-          </LayoutContent>
+          <SiteCommandPaletteProvider>
+            <ShortcutsProvider>
+              <MessagingProvider orgslug={params?.orgslug}>
+                <LayoutContent orgslug={params?.orgslug}>
+                  {children}
+                </LayoutContent>
+              </MessagingProvider>
+            </ShortcutsProvider>
+          </SiteCommandPaletteProvider>
           <PodcastPlayer />
         </PodcastPlayerProvider>
       </OrgJoinBannerProvider>

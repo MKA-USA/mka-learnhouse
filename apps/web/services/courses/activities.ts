@@ -1,4 +1,5 @@
 import { getAPIUrl } from '@services/config/config'
+import i18n from '@/lib/i18n'
 import {
   RequestBodyFormWithAuthHeader,
   RequestBodyWithAuthHeader,
@@ -126,10 +127,10 @@ export async function createFileActivity(
     // and an HTML error page (not JSON), so surface a clear error instead of
     // letting `result.json()` blow up with "Unexpected token '<'".
     if (result.status === 413) {
-      throw new Error('The file is too large to upload.')
+      throw new Error(i18n.t('dashboard.courses.structure.activity.toasts.file_too_large'))
     }
     const detail = await result.json().catch(() => null)
-    throw new Error(detail?.detail || `Upload failed (HTTP ${result.status})`)
+    throw new Error(detail?.detail || i18n.t('dashboard.courses.structure.activity.toasts.upload_failed_http', { status: result.status }))
   }
   const res = await result.json()
   return res
@@ -302,6 +303,33 @@ export async function updateVideoCaptions(
   const result = await fetch(
     `${getAPIUrl()}activities/video/${activityUuid}/captions`,
     RequestBodyWithAuthHeader('POST', config, null, access_token)
+  )
+  return getResponseMetadata(result)
+}
+
+export interface VideoChapterPayload {
+  start: number
+  title: string
+}
+
+/** Generate chapters from the video's ready captions (runs in the background). */
+export async function generateVideoChapters(activityUuid: string, access_token: string) {
+  const result = await fetch(
+    `${getAPIUrl()}activities/video/${activityUuid}/chapters`,
+    RequestBodyWithAuthHeader('POST', {}, null, access_token)
+  )
+  return getResponseMetadata(result)
+}
+
+/** Replace the video's chapters with an edited list (empty clears them). */
+export async function saveVideoChapters(
+  activityUuid: string,
+  items: VideoChapterPayload[],
+  access_token: string,
+) {
+  const result = await fetch(
+    `${getAPIUrl()}activities/video/${activityUuid}/chapters`,
+    RequestBodyWithAuthHeader('PUT', { items }, null, access_token)
   )
   return getResponseMetadata(result)
 }

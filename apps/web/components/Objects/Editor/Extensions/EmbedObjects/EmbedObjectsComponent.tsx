@@ -4,7 +4,7 @@ import { Link as LinkIcon, DotsSixVertical, DotsSix, TextAlignCenter, Code, X, P
 import { useEditorProvider } from '@components/Contexts/Editor/EditorContext'
 import { SiGithub, SiReplit, SiSpotify, SiLoom, SiGooglemaps, SiNotion, SiGoogledocs, SiX, SiFigma, SiGiphy, SiYoutube } from '@icons-pack/react-simple-icons'
 import DOMPurify from 'dompurify'
-import { sanitizeEmbedCode } from '@/lib/media/embedSanitize'
+import { sanitizeEmbedCode, urlEmbedSandboxFor } from '@/lib/media/embedSanitize'
 import { cn } from '@/lib/utils'
 import { useTranslation } from 'react-i18next'
 
@@ -97,6 +97,10 @@ const MemoizedEmbed = React.memo(({ embedUrl, sanitizedEmbedCode, embedType }: {
         className="w-full h-full rounded-lg"
         frameBorder="0"
         allowFullScreen
+        sandbox={urlEmbedSandboxFor(
+          processedUrl,
+          typeof window !== 'undefined' ? window.location.origin : undefined,
+        )}
       />
     );
   }
@@ -434,7 +438,7 @@ function EmbedObjectsComponent(props: any) {
                     key={product.name}
                     className="flex flex-col items-center group transition-transform hover:scale-110"
                     onClick={() => handleProductSelection(product)}
-                    title={`Add ${product.name} embed`}
+                    title={t('editor.blocks.embed_block.add_embed', { name: product.name })}
                   >
                     <div
                       className="w-10 h-10 sm:w-12 sm:h-12 rounded-lg flex items-center justify-center shadow-md group-hover:shadow-lg transition-shadow"
@@ -471,7 +475,7 @@ function EmbedObjectsComponent(props: any) {
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-neutral-200 hover:bg-neutral-300 rounded-lg text-sm text-neutral-700 transition-colors"
                   >
                     <Code weight="duotone" size={14} />
-                    <span>Code</span>
+                    <span>{t('editor.blocks.embed_block.code')}</span>
                   </button>
                 </div>
               )}

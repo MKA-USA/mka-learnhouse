@@ -116,7 +116,8 @@ export function uploadFormWithProgress<T = any>(
   url: string,
   formData: FormData,
   access_token: string,
-  onProgress?: (_percent: number) => void
+  onProgress?: (_percent: number) => void,
+  options: { signal?: AbortSignal; timeoutMs?: number } = {}
 ): Promise<T> {
   validateApiUrl(url)
   return new Promise<T>((resolve, reject) => {
@@ -124,7 +125,14 @@ export function uploadFormWithProgress<T = any>(
     xhr.open('POST', url)
     xhr.setRequestHeader('Authorization', `Bearer ${access_token}`)
     xhr.withCredentials = true
-    xhr.timeout = UPLOAD_TIMEOUT_MS
+    xhr.timeout = options.timeoutMs ?? UPLOAD_TIMEOUT_MS
+    if (options.signal) {
+      if (options.signal.aborted) {
+        reject(new Error('Upload cancelled.'))
+        return
+      }
+      options.signal.addEventListener('abort', () => xhr.abort(), { once: true })
+    }
 
     xhr.upload.onprogress = (e) => {
       if (onProgress && e.lengthComputable) {
@@ -144,10 +152,6 @@ export function uploadFormWithProgress<T = any>(
         }
         return
       }
-      if (xhr.status === 413) {
-        reject(new Error('The file is too large to upload.'))
-        return
-      }
       let detail: string | undefined
       try {
         const body = JSON.parse(xhr.responseText)
@@ -160,7 +164,12 @@ export function uploadFormWithProgress<T = any>(
       } catch {
         /* non-JSON error body (nginx / gateway HTML) */
       }
-      reject(new Error(detail || `Upload failed (HTTP ${xhr.status})`))
+      if (!detail && xhr.status === 413) detail = 'The file is too large to upload.'
+      reject(
+        Object.assign(new Error(detail || `Upload failed (HTTP ${xhr.status})`), {
+          status: xhr.status,
+        })
+      )
     }
 
     xhr.onerror = () =>
@@ -189,6 +198,43 @@ export const apiFetch = async (url: string, token?: string) => {
 
   const request = await fetch(url, options)
   return errorHandling(request)
+}
+
+/**
+ * The human message inside a FastAPI `detail`, which can be a string, a
+ * `{code, message}` object or a validation-error list. Passing the object on
+ * to a toast or an error banner crashes React ("Objects are not valid as a
+ * React child") and swaps a clear message for the error screen.
+ */
+export function detailMessage(detail: any, fallback: string): string {
+  if (typeof detail === 'string' && detail) return detail
+  if (detail && typeof detail.message === 'string' && detail.message) return detail.message
+  if (Array.isArray(detail) && typeof detail[0]?.msg === 'string') return detail[0].msg
+  return fallback
+}
+
+const TRANSIENT_STATUSES = new Set([502, 503, 504])
+
+/**
+ * fetch() for idempotent reads that rides out a backend restart. During a
+ * rollout the API answers 502/503 or refuses connections for a few seconds,
+ * and every page rendered in that window used to fail its org lookup and land
+ * on the error screen. Retries those, then hands back whatever came last.
+ */
+export async function fetchWithRetry(
+  url: string,
+  options: RequestInit,
+  { retries = 2, delayMs = 400 }: { retries?: number; delayMs?: number } = {}
+): Promise<Response> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const res = await fetch(url, options)
+      if (!TRANSIENT_STATUSES.has(res.status) || attempt >= retries) return res
+    } catch (e) {
+      if (attempt >= retries) throw e
+    }
+    await new Promise((resolve) => setTimeout(resolve, delayMs * (attempt + 1)))
+  }
 }
 
 export const errorHandling = async (res: any) => {

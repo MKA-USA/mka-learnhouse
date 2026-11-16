@@ -15,9 +15,12 @@ from jwt.exceptions import PyJWTError
 from datetime import datetime, timedelta, timezone
 from src.services.users.users import security_verify_password
 from src.security.security import ALGORITHM, SECRET_KEY, security_hash_password
+from src.security.embed_session import enforce_embed_scope
 from src.security.session_context import (
     AMR_CLAIM,
     AUTH_METHOD_API_TOKEN,
+    AUTH_METHOD_EMBED,
+    CUSTOM_DOMAIN_CLAIM,
     LEGACY_GRACE_CLAIM,
     SORG_CLAIM,
     SessionProvenance,
@@ -25,7 +28,7 @@ from src.security.session_context import (
 )
 
 
-def _publish_session_provenance(amr, org_id, legacy_grace_expires=None) -> None:
+def _publish_session_provenance(amr, org_id, legacy_grace_expires=None, custom_domain=False) -> None:
     """Store the current request's session provenance for the org-policy gates.
 
     Coerces ``sorg`` to int defensively (JWT numbers survive as int, but a
@@ -41,7 +44,12 @@ def _publish_session_provenance(amr, org_id, legacy_grace_expires=None) -> None:
     except (TypeError, ValueError):  # pragma: no cover - defensive coercion of a hand-crafted claim
         parsed_grace = None
     set_session_provenance(
-        SessionProvenance(amr=amr, org_id=parsed_org, legacy_grace_expires=parsed_grace)
+        SessionProvenance(
+            amr=amr,
+            org_id=parsed_org,
+            legacy_grace_expires=parsed_grace,
+            custom_domain=custom_domain is True,
+        )
     )
 
 
@@ -540,9 +548,36 @@ def _record_activity_from_request(request: Request, user_id: Optional[int]) -> N
         _activity_logger.debug("activity scheduling failed (non-fatal)", exc_info=True)
 
 
+# get_current_user is also called directly (not through Depends) by router-level
+# guards such as require_authenticated_user, which FastAPI's per-request
+# dependency cache cannot see. Remember the answer on the request so the second
+# call doesn't repeat the user query, the revocation check and the activity
+# tracking.
+_RESOLVED_USER_STATE_KEY = "lh_resolved_current_user"
+
+
+def _resolved_current_user(request: Request):
+    store = getattr(getattr(request, "state", None), "_state", None)
+    return store.get(_RESOLVED_USER_STATE_KEY) if isinstance(store, dict) else None
+
+
 async def get_current_user(
     request: Request,
     db_session: AsyncSession = Depends(get_db_session),
+) -> Union[PublicUser, APITokenUser, SuperadminAPITokenUser, AnonymousUser]:
+    resolved = _resolved_current_user(request)
+    if resolved is not None:
+        return resolved
+    user = await _resolve_current_user(request, db_session)
+    store = getattr(getattr(request, "state", None), "_state", None)
+    if isinstance(store, dict):
+        store[_RESOLVED_USER_STATE_KEY] = user
+    return user
+
+
+async def _resolve_current_user(
+    request: Request,
+    db_session: AsyncSession,
 ) -> Union[PublicUser, APITokenUser, SuperadminAPITokenUser, AnonymousUser]:
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -637,6 +672,12 @@ async def get_current_user(
             if token_type is not None and token_type != "access":
                 raise credentials_exception
 
+            # An embed session (minted by a host app for the embed components)
+            # only reaches the embed routes, inside its own org. Checked before
+            # anything else so a refused request never touches the database.
+            if payload.get(AMR_CLAIM) == AUTH_METHOD_EMBED:
+                enforce_embed_scope(request, payload.get(SORG_CLAIM))
+
             username = payload.get("sub")
 
     token_data = TokenData(username=username)
@@ -672,6 +713,13 @@ async def get_current_user(
             raise credentials_exception
 
         public_user = PublicUser(**user.model_dump())
+        # The superadmin flag is on the row just loaded; seed the per-session
+        # memo so RBAC checks later in this request don't query it again.
+        superadmin_memo = getattr(db_session, "_superadmin_cache", None)
+        if not isinstance(superadmin_memo, dict):
+            superadmin_memo = {}
+            db_session._superadmin_cache = superadmin_memo
+        superadmin_memo[user.id] = bool(getattr(user, "is_superadmin", False))
         request.state.user = public_user
         request.state.is_api_token = False
         # Publish this session's provenance (how the user authenticated, which
@@ -680,6 +728,7 @@ async def get_current_user(
             payload.get(AMR_CLAIM),
             payload.get(SORG_CLAIM),
             payload.get(LEGACY_GRACE_CLAIM),
+            payload.get(CUSTOM_DOMAIN_CLAIM),
         )
         _record_activity_from_request(request, public_user.id)
         return public_user
@@ -720,6 +769,39 @@ async def get_authenticated_user(
     return user
 
 
+def api_token_user_from(api_token) -> APITokenUser:
+    """The request identity for an ``APIToken`` row."""
+    # Normalize rights to a plain dict of plain dicts so .get() works everywhere
+    raw_rights = api_token.rights
+    if raw_rights is None:
+        rights = None
+    elif isinstance(raw_rights, dict):
+        # Already a dict, but inner values might be Pydantic models
+        rights = {}
+        for k, v in raw_rights.items():
+            if isinstance(v, dict):
+                rights[k] = v
+            elif hasattr(v, 'model_dump'):
+                rights[k] = v.model_dump()
+            elif hasattr(v, 'dict'):
+                rights[k] = v.dict()
+            else:
+                rights[k] = v
+    else:
+        # Full Pydantic Rights model
+        rights = raw_rights.model_dump() if hasattr(raw_rights, 'model_dump') else raw_rights.dict()
+
+    return APITokenUser(
+        id=api_token.id,
+        user_uuid=api_token.token_uuid,
+        username=f"api_token_{api_token.name}",
+        org_id=api_token.org_id,
+        rights=rights,
+        token_name=api_token.name,
+        created_by_user_id=api_token.created_by_user_id,
+    )
+
+
 async def validate_api_token(
     token: str,
     db_session: AsyncSession,
@@ -742,36 +824,7 @@ async def validate_api_token(
     if not api_token:
         return None
 
-    # Normalize rights to a plain dict of plain dicts so .get() works everywhere
-    raw_rights = api_token.rights
-    if raw_rights is None:
-        rights = None
-    elif isinstance(raw_rights, dict):
-        # Already a dict, but inner values might be Pydantic models
-        rights = {}
-        for k, v in raw_rights.items():
-            if isinstance(v, dict):
-                rights[k] = v
-            elif hasattr(v, 'model_dump'):
-                rights[k] = v.model_dump()
-            elif hasattr(v, 'dict'):
-                rights[k] = v.dict()
-            else:
-                rights[k] = v
-    else:
-        # Full Pydantic Rights model
-        rights = raw_rights.model_dump() if hasattr(raw_rights, 'model_dump') else raw_rights.dict()
-
-    # Create and return an APITokenUser
-    return APITokenUser(
-        id=api_token.id,
-        user_uuid=api_token.token_uuid,
-        username=f"api_token_{api_token.name}",
-        org_id=api_token.org_id,
-        rights=rights,
-        token_name=api_token.name,
-        created_by_user_id=api_token.created_by_user_id,
-    )
+    return api_token_user_from(api_token)
 
 
 async def validate_superadmin_api_token(
@@ -790,6 +843,17 @@ async def validate_superadmin_api_token(
 
     api_token = await validate_superadmin_token_for_auth(token, db_session)
     if not api_token:
+        return None
+
+    # The token only carries its minter's authority: once that account is gone
+    # or no longer a superadmin, every token it minted stops working. Several
+    # core paths allow these tokens outright, so this can't be left to the
+    # require_superadmin dependency alone.
+    from src.security.superadmin import is_user_superadmin
+
+    if not api_token.created_by_user_id or not await is_user_superadmin(
+        api_token.created_by_user_id, db_session
+    ):
         return None
 
     return SuperadminAPITokenUser(

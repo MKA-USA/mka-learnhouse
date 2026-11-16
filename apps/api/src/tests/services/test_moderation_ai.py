@@ -620,7 +620,7 @@ class TestHookSites:
             c + "validate_comment_content", new_callable=AsyncMock
         ), patch(c + "dispatch_webhooks", new_callable=AsyncMock), patch(
             c + "get_user_votes_for_comments", new_callable=AsyncMock, return_value={}
-        ):
+        ), patch(c + "require_author_may_still_post", new_callable=AsyncMock):  # upstream 1.4.5 post-eligibility gate
             created = await create_comment(mock_request, "discussion_mod", "A comment", regular_user, db)
             sched.assert_called_once()
             kw = sched.call_args.kwargs

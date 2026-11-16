@@ -330,7 +330,7 @@ class TestCreateAndUpdateUser:
         ), patch(
             "src.services.users.users.track",
             new_callable=AsyncMock,
-        ), patch(
+        ) as mock_track, patch(
             "src.services.users.users.dispatch_webhooks",
             new_callable=AsyncMock,
         ), patch(
@@ -385,6 +385,12 @@ class TestCreateAndUpdateUser:
 
         assert created.email_verified is True
         assert updated.username == "updateduser"
+        mock_track.assert_any_await(
+            event_name="user_joined_org",
+            org_id=org.id,
+            user_id=created.id,
+            properties={"join_method": "signup"},
+        )
 
     @pytest.mark.asyncio
     async def test_create_user_branch_modes_and_duplicate_guards(
@@ -1096,14 +1102,19 @@ class TestSecurityHelpers:
     async def test_authorize_user_action_and_security_get_user(
         self, mock_request, db, admin_user
     ):
+        from src.security.rbac import AccessAction, AccessDecision
+
         with patch(
-            "src.services.users.users.authorization_verify_based_on_roles_and_authorship",
+            "src.security.rbac.check_resource_access",
             new_callable=AsyncMock,
-            return_value=True,
-        ):
+            return_value=AccessDecision(allowed=True, reason="ok"),
+        ) as access_mock:
             assert await authorize_user_action(
                 mock_request, db, admin_user, "resource_x", "read"
             ) is True
+        args, kwargs = access_mock.await_args
+        assert args[3:] == ("resource_x", AccessAction.READ)
+        assert kwargs == {"raise_on_deny": False}
 
         fetched = await security_get_user(mock_request, db, admin_user.email)
         missing = await security_get_user(mock_request, db, "missing@test.com")
@@ -1116,10 +1127,12 @@ class TestSecurityHelpers:
     async def test_authorize_user_action_denied_and_duplicate_update(
         self, mock_request, db, admin_user, regular_user
     ):
+        from src.security.rbac import AccessDecision
+
         with patch(
-            "src.services.users.users.authorization_verify_based_on_roles_and_authorship",
+            "src.security.rbac.check_resource_access",
             new_callable=AsyncMock,
-            return_value=False,
+            return_value=AccessDecision(allowed=False, reason="denied"),
         ):
             with pytest.raises(HTTPException) as auth_exc:
                 await authorize_user_action(
