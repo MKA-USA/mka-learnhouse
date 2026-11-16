@@ -2,6 +2,7 @@ import { getAPIUrl } from './services/config/config'
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { isLocalhost as isLocalhostCheck } from './services/utils/ts/hostUtils'
+import { isThirdPartyRelayPath, withoutCredentialHeaders } from './lib/thirdPartyRelay'
 
 // =============================================================================
 // Tenancy
@@ -28,39 +29,72 @@ interface InstanceInfo {
   tenancy: 'multi' | 'single'
   frontend_domain: string
   top_domain: string
+  // Set when the backend couldn't be reached and the defaults below stand in.
+  fallback?: true
 }
 
-// Cached instance info from backend (30-second TTL)
+// Cached instance info from backend (30-second TTL). Once the cache holds a
+// real answer, a stale entry is served immediately while one shared background
+// fetch refreshes it, so no request waits on /instance/info after the first.
 let _instanceCache: { data: InstanceInfo; ts: number } | null = null
+let _instanceFetch: Promise<InstanceInfo> | null = null
 const INSTANCE_CACHE_TTL = 30 * 1000
+// How long a failed lookup is remembered, so an API outage doesn't make every
+// request sit out the 3 s timeout.
+const INSTANCE_RETRY_AFTER = 5 * 1000
+
+const FALLBACK_INSTANCE_INFO: InstanceInfo = {
+  multi_org_enabled: false,
+  default_org_slug: 'default',
+  mode: 'oss',
+  tenancy: 'single',
+  frontend_domain: 'localhost:3000',
+  top_domain: 'localhost',
+  fallback: true,
+}
+
+function fetchInstanceInfo(): Promise<InstanceInfo> {
+  if (_instanceFetch) return _instanceFetch
+  _instanceFetch = (async () => {
+    try {
+      const apiUrl = getAPIUrl()
+      const res = await fetch(`${apiUrl}instance/info`, { signal: AbortSignal.timeout(3000) })
+      if (res.ok) {
+        const raw = await res.json()
+        // Older backends only return `multi_org_enabled`; derive `tenancy`.
+        const tenancy: 'multi' | 'single' =
+          raw.tenancy === 'multi' || raw.multi_org_enabled ? 'multi' : 'single'
+        _instanceCache = { data: { ...raw, tenancy }, ts: Date.now() }
+        return _instanceCache.data
+      }
+    } catch {
+      // Backend unavailable; use safe defaults
+    }
+    // Keep serving the last real answer if there is one (the defaults would
+    // misroute a multi-tenant deployment); otherwise the defaults. Either way,
+    // try again shortly.
+    const data =
+      _instanceCache && !_instanceCache.data.fallback ? _instanceCache.data : FALLBACK_INSTANCE_INFO
+    _instanceCache = { data, ts: Date.now() - INSTANCE_CACHE_TTL + INSTANCE_RETRY_AFTER }
+    return data
+  })().finally(() => {
+    _instanceFetch = null
+  })
+  return _instanceFetch
+}
 
 async function getInstanceInfo(): Promise<InstanceInfo> {
-  if (_instanceCache && Date.now() - _instanceCache.ts < INSTANCE_CACHE_TTL) {
-    return _instanceCache.data
+  const cached = _instanceCache
+  if (cached && Date.now() - cached.ts < INSTANCE_CACHE_TTL) {
+    return cached.data
   }
-
-  try {
-    const apiUrl = getAPIUrl()
-    const res = await fetch(`${apiUrl}instance/info`, { signal: AbortSignal.timeout(3000) })
-    if (res.ok) {
-      const raw = await res.json()
-      // Older backends only return `multi_org_enabled`; derive `tenancy`.
-      const tenancy: 'multi' | 'single' =
-        raw.tenancy === 'multi' || raw.multi_org_enabled ? 'multi' : 'single'
-      _instanceCache = { data: { ...raw, tenancy }, ts: Date.now() }
-      return _instanceCache.data
-    }
-  } catch {
-    // Backend unavailable; use safe defaults
+  if (cached && !cached.data.fallback) {
+    // Stale but real: answer now, refresh in the background.
+    void fetchInstanceInfo()
+    return cached.data
   }
-  return {
-    multi_org_enabled: false,
-    default_org_slug: 'default',
-    mode: 'oss' as const,
-    tenancy: 'single',
-    frontend_domain: 'localhost:3000',
-    top_domain: 'localhost',
-  }
+  // Nothing real yet (first request, or the backend was down): wait for it.
+  return fetchInstanceInfo()
 }
 
 // =============================================================================
@@ -145,34 +179,49 @@ function cookieDomainFor(instance: InstanceInfo, customDomain?: string): string 
   return `.${instance.top_domain}`
 }
 
+// Host-only cookies are only (re)sent when the browser doesn't already hold
+// the value, which keeps a row of Set-Cookie headers off nearly every response.
+// Domain-scoped ones are always sent: a matching value in the request could
+// come from a cookie with a different scope.
+function setHostCookie(
+  req: NextRequest,
+  response: NextResponse,
+  name: string,
+  value: string,
+) {
+  if (req.cookies.get(name)?.value === value) return
+  response.cookies.set({ name, value, path: '/' })
+}
+
 function setOrgCookies(
+  req: NextRequest,
   response: NextResponse,
   resolved: ResolvedTenant,
   instance: InstanceInfo,
 ) {
   const domain = cookieDomainFor(instance, resolved.customDomain)
-  response.cookies.set({
-    name: 'LH_org',
-    value: resolved.slug,
-    domain,
-    path: '/',
-  })
-  if (resolved.customDomain) {
+  if (domain) {
     response.cookies.set({
-      name: 'LH_custom_domain',
-      value: resolved.customDomain,
+      name: 'LH_org',
+      value: resolved.slug,
+      domain,
       path: '/',
     })
+  } else {
+    setHostCookie(req, response, 'LH_org', resolved.slug)
+  }
+  if (resolved.customDomain) {
+    setHostCookie(req, response, 'LH_custom_domain', resolved.customDomain)
     response.headers.set('x-custom-domain', resolved.customDomain)
   }
 }
 
-function setInstanceCookies(response: NextResponse, info: InstanceInfo) {
-  response.cookies.set({ name: 'LH_tenancy', value: info.tenancy, path: '/' })
-  response.cookies.set({ name: 'LH_default_org', value: info.default_org_slug, path: '/' })
-  response.cookies.set({ name: 'LH_frontend_domain', value: info.frontend_domain, path: '/' })
-  response.cookies.set({ name: 'LH_top_domain', value: info.top_domain, path: '/' })
-  response.cookies.set({ name: 'LH_mode', value: info.mode, path: '/' })
+function setInstanceCookies(req: NextRequest, response: NextResponse, info: InstanceInfo) {
+  setHostCookie(req, response, 'LH_tenancy', info.tenancy)
+  setHostCookie(req, response, 'LH_default_org', info.default_org_slug)
+  setHostCookie(req, response, 'LH_frontend_domain', info.frontend_domain)
+  setHostCookie(req, response, 'LH_top_domain', info.top_domain)
+  setHostCookie(req, response, 'LH_mode', info.mode)
   return response
 }
 
@@ -190,6 +239,12 @@ function tenantRequestHeaders(
   instance: InstanceInfo,
 ): Headers {
   const headers = new Headers(req.headers)
+  // Downstream code trusts x-lh-* as the proxy's own resolution, so a client
+  // must not be able to supply any of them (x-lh-custom-domain is only set below
+  // when the host really is one).
+  for (const name of [...headers.keys()]) {
+    if (name.startsWith('x-lh-')) headers.delete(name)
+  }
   headers.set('x-lh-tenancy', instance.tenancy)
   headers.set('x-lh-org', resolved.slug)
   headers.set('x-lh-top-domain', instance.top_domain)
@@ -198,8 +253,17 @@ function tenantRequestHeaders(
   if (resolved.customDomain) {
     headers.set('x-lh-custom-domain', resolved.customDomain)
   }
+  // The fallback's 'single' is a guess, not the deployment's tenancy, so
+  // anything that relaxes on single tenancy (org scripts) must not trust it.
+  if (instance.fallback) {
+    headers.set('x-lh-instance-fallback', '1')
+  }
   return headers
 }
+
+// Org-context headers the per-org metadata route handlers trust. Only the proxy
+// may set them; incoming copies are stripped before forwarding.
+const ORGSLUG_HEADERS = ['x-feed-orgslug', 'x-sitemap-orgslug', 'x-robots-orgslug']
 
 // =============================================================================
 // Middleware
@@ -216,18 +280,32 @@ export const config = {
      * 5. /examples (inside /public)
      * 6. all root files inside /public (e.g. /favicon.ico)
      * 7. /embed (activity embeds)
-     * 8. /ingest (PostHog reverse proxy; must reach the next.config rewrite
-     *    untouched; otherwise the middleware mis-routes it and ingestion 404s)
+     * 8. /lhrel (PostHog reverse proxy; must reach the next.config rewrite
+     *    untouched; otherwise the middleware mis-routes it and ingestion 404s.
+     *    Named neutrally because filter lists target PostHog's usual /ingest)
+     *
+     * /lhrel and /monitoring are matched again below on their own, only so
+     * the credentials can be stripped before the rewrite forwards them.
      */
-    '/((?!api|_next|fonts|umami|ingest|examples|embed|monitoring|[\\w-]+\\.\\w+).*)',
+    '/((?!api|_next|fonts|umami|lhrel|examples|embed|monitoring|[\\w-]+\\.\\w+).*)',
+    '/lhrel/:path*',
+    '/monitoring/:path*',
     '/sitemap.xml',
     '/robots.txt',
     '/payments/stripe/connect/oauth',
     '/podcast/:path*/feed',
+    '/course/:path*/updates/feed',
   ],
 }
 
 export default async function proxy(req: NextRequest) {
+  // PostHog / Sentry relays: these are external rewrites that would otherwise
+  // hand the browser's session cookies to a third party. Drop credentials and
+  // let the rewrite run; no tenancy routing applies to them.
+  if (isThirdPartyRelayPath(req.nextUrl.pathname)) {
+    return NextResponse.next({ request: { headers: withoutCredentialHeaders(req.headers) } })
+  }
+
   const instance = await getInstanceInfo()
   const { pathname, search } = req.nextUrl
   const fullhost = req.headers.get('host')
@@ -254,7 +332,7 @@ export default async function proxy(req: NextRequest) {
       ? pathname
       : `/admin${pathname}`
     const response = NextResponse.rewrite(new URL(`${target}${search}`, req.url))
-    setInstanceCookies(response, instance)
+    setInstanceCookies(req, response, instance)
     return response
   }
 
@@ -265,7 +343,7 @@ export default async function proxy(req: NextRequest) {
   // -------------------------------------------------------------------------
   if (pathname === '/admin' || pathname.startsWith('/admin/')) {
     const response = NextResponse.rewrite(new URL(`${pathname}${search}`, req.url))
-    setInstanceCookies(response, instance)
+    setInstanceCookies(req, response, instance)
     return response
   }
 
@@ -319,18 +397,33 @@ export default async function proxy(req: NextRequest) {
     (p) => pathname === p || pathname.startsWith(`${p}/`),
   )
   if (pathname === '/home' || (instance.tenancy === 'multi' && isHubRoot)) {
-    // `/account/*` ALSO exists as an org-scoped dashboard route
-    // (/orgs/{slug}/account/[subpage]: general/security/purchases). On an org
-    // subdomain or custom domain it must resolve there, NOT the apex hub (which
-    // has no /account subpages), so let it fall through to the tenant catch-all.
     let onOrgHost = false
-    if ((pathname === '/account' || pathname.startsWith('/account/')) && instance.tenancy === 'multi') {
+    let sharesApexSession = false
+    if (instance.tenancy === 'multi') {
       const resolved = await resolveTenant(req, instance)
       onOrgHost = resolved.source === 'subdomain' || resolved.source === 'custom-domain'
+      // Same rule as cookieDomainFor: only a real subdomain shares the apex's
+      // session cookie (custom domains and *.localhost are host-only).
+      sharesApexSession = resolved.source === 'subdomain' && instance.top_domain !== 'localhost'
     }
-    if (!onOrgHost) {
+    const isAccount = pathname === '/account' || pathname.startsWith('/account/')
+    // The hub belongs to the platform, not to a school. Someone who signed up
+    // on acme.learnhouse.io (or learn.acme.org) is a member of that school and
+    // every auth flow there ends on /home, so on an org host /home is the
+    // school's own home page. The rest of the hub moves to the apex where the
+    // session follows; elsewhere it keeps rendering on this host as before.
+    // `/account/*` is the exception: it also exists as an org-scoped route
+    // (/orgs/{slug}/account/[subpage]) and falls through to the catch-all.
+    if (onOrgHost && (pathname === '/home' || pathname === '/home/')) {
+      return NextResponse.redirect(new URL(`/${search}`, req.url))
+    }
+    if (sharesApexSession && !isAccount) {
+      const apex = new URL(`${pathname}${search}`, `${req.nextUrl.protocol}//${instance.frontend_domain}`)
+      return NextResponse.redirect(apex)
+    }
+    if (!onOrgHost || !isAccount) {
       const response = NextResponse.rewrite(new URL(`${pathname}${search}`, req.url))
-      setInstanceCookies(response, instance)
+      setInstanceCookies(req, response, instance)
       return response
     }
     // account on an org host → fall through to the tenant-scoped rewrite below.
@@ -344,9 +437,12 @@ export default async function proxy(req: NextRequest) {
     const hasSession = !!req.cookies.get('LH_session')?.value
 
     // A logged-in user has no business on /login, so bounce them to the hub (the
-    // page itself re-verifies, so this is a best-effort UX shortcut).
-    if (pathname === '/login' && hasSession) {
-      return NextResponse.redirect(new URL('/home', req.url))
+    // page itself re-verifies, so this is a best-effort UX shortcut). Not when
+    // they arrive with a pending second factor: a sign-in link for another
+    // account hands its 2FA step over here, and bouncing would drop it.
+    if (pathname === '/login' && hasSession && !req.nextUrl.searchParams.has('mfa_token')) {
+      // Single tenancy redirects /home on to / anyway; skip the extra hop.
+      return NextResponse.redirect(new URL(instance.tenancy === 'single' ? '/' : '/home', req.url))
     }
 
     const resolved = await resolveTenant(req, instance)
@@ -354,9 +450,10 @@ export default async function proxy(req: NextRequest) {
     // `/signup` is NOT only a signup page: for a signed-in user on an org host
     // it is the JOIN screen (the "Join this organization" banner and every
     // invite link point at it). Bouncing them to /home dropped them on the org
-    // picker instead, and silently threw away any ?inviteCode. So only send a
-    // signed-in visitor to the hub when there is genuinely no org to join here:
-    // the org-less apex, with no invite code in hand.
+    // picker instead, and silently threw away any ?inviteCode. So only redirect
+    // a signed-in visitor when there is genuinely no org to join here: the
+    // org-less apex, with no invite code in hand. Signing up on the apex means
+    // "I want my own LearnHouse", so they go to create an organization.
     if (pathname === '/signup' && hasSession) {
       const onOrgHost =
         instance.tenancy === 'single'
@@ -364,7 +461,8 @@ export default async function proxy(req: NextRequest) {
         || resolved.source === 'custom-domain'
       const hasInviteCode = !!req.nextUrl.searchParams.get('inviteCode')
       if (!onOrgHost && !hasInviteCode) {
-        return NextResponse.redirect(new URL('/home', req.url))
+        // /new is part of the SaaS-only hub; elsewhere the picker is the hub.
+        return NextResponse.redirect(new URL(instance.mode === 'saas' ? '/new' : '/home', req.url))
       }
     }
 
@@ -373,8 +471,8 @@ export default async function proxy(req: NextRequest) {
       new URL(`/auth${pathname}${search}`, req.url),
       { request: { headers: requestHeaders } },
     )
-    setOrgCookies(response, resolved, instance)
-    setInstanceCookies(response, instance)
+    setOrgCookies(req, response, resolved, instance)
+    setInstanceCookies(req, response, instance)
     return response
   }
 
@@ -385,9 +483,14 @@ export default async function proxy(req: NextRequest) {
     pathname.startsWith('/auth/sso/')
     || pathname.startsWith('/auth/callback/')
     || pathname.startsWith('/auth/token-exchange')
+    // Consent screen for AI apps connecting over MCP: org-less by design, the
+    // member picks the organization on the page.
+    || pathname === '/oauth/consent'
+    // Where a member approves a sensitive action an AI app asked for.
+    || pathname === '/oauth/approve'
   ) {
     const response = NextResponse.rewrite(new URL(`${pathname}${search}`, req.url))
-    setInstanceCookies(response, instance)
+    setInstanceCookies(req, response, instance)
     return response
   }
 
@@ -404,8 +507,8 @@ export default async function proxy(req: NextRequest) {
       new URL(`${pathname}${search}`, req.url),
       { request: { headers: requestHeaders } },
     )
-    setOrgCookies(response, resolved, instance)
-    setInstanceCookies(response, instance)
+    setOrgCookies(req, response, resolved, instance)
+    setInstanceCookies(req, response, instance)
     return response
   }
 
@@ -417,12 +520,12 @@ export default async function proxy(req: NextRequest) {
   }
   if (pathname.startsWith('/board/')) {
     const response = NextResponse.rewrite(new URL(pathname + search, req.url))
-    setInstanceCookies(response, instance)
+    setInstanceCookies(req, response, instance)
     return response
   }
   if (pathname.startsWith('/editor/playground/')) {
     const response = NextResponse.rewrite(new URL(pathname + search, req.url))
-    setInstanceCookies(response, instance)
+    setInstanceCookies(req, response, instance)
     return response
   }
 
@@ -489,28 +592,34 @@ export default async function proxy(req: NextRequest) {
   }
 
   // -------------------------------------------------------------------------
-  // 9. Per-org metadata endpoints (sitemap, robots, podcast feed)
+  // 9. Per-org metadata endpoints (sitemap, robots, podcast + course feeds)
   // -------------------------------------------------------------------------
-  if (pathname.match(/^\/podcast\/([^/]+)\/feed$/)) {
+  // The route handlers read the org from a REQUEST header. It used to be set on
+  // the response, where the handler never saw it, so these endpoints 400'd.
+  // Any client-sent copy is dropped first so only the resolved tenant counts.
+  const orgslugRequestHeaders = (name: string, slug: string) => {
+    const headers = new Headers(req.headers)
+    for (const h of ORGSLUG_HEADERS) headers.delete(h)
+    headers.set(name, slug)
+    return { request: { headers } }
+  }
+  if (
+    pathname.match(/^\/podcast\/([^/]+)\/feed$/) ||
+    pathname.match(/^\/course\/([^/]+)\/updates\/feed$/)
+  ) {
     const resolved = await resolveTenant(req, instance)
     const feedUrl = new URL(`/api${pathname}`, req.url)
-    const response = NextResponse.rewrite(feedUrl)
-    response.headers.set('X-Feed-Orgslug', resolved.slug)
-    return response
+    return NextResponse.rewrite(feedUrl, orgslugRequestHeaders('X-Feed-Orgslug', resolved.slug))
   }
   if (pathname.startsWith('/sitemap.xml')) {
     const resolved = await resolveTenant(req, instance)
-    const sitemapUrl = new URL(`/api/sitemap`, req.url)
-    const response = NextResponse.rewrite(sitemapUrl)
-    response.headers.set('X-Sitemap-Orgslug', resolved.slug)
-    return response
+    const sitemapUrl = new URL(`/api/sitemap${search}`, req.url)
+    return NextResponse.rewrite(sitemapUrl, orgslugRequestHeaders('X-Sitemap-Orgslug', resolved.slug))
   }
   if (pathname === '/robots.txt') {
     const resolved = await resolveTenant(req, instance)
     const robotsUrl = new URL(`/api/robots`, req.url)
-    const response = NextResponse.rewrite(robotsUrl)
-    response.headers.set('X-Robots-Orgslug', resolved.slug)
-    return response
+    return NextResponse.rewrite(robotsUrl, orgslugRequestHeaders('X-Robots-Orgslug', resolved.slug))
   }
 
   // -------------------------------------------------------------------------
@@ -539,8 +648,8 @@ export default async function proxy(req: NextRequest) {
       const response = NextResponse.rewrite(new URL(target, req.url), {
         request: { headers: requestHeaders },
       })
-      setOrgCookies(response, resolved, instance)
-      setInstanceCookies(response, instance)
+      setOrgCookies(req, response, resolved, instance)
+      setInstanceCookies(req, response, instance)
       return response
     }
   }
@@ -558,7 +667,7 @@ export default async function proxy(req: NextRequest) {
     new URL(`/orgs/${resolved.slug}${pathname}${search}`, req.url),
     { request: { headers: requestHeaders } },
   )
-  setOrgCookies(response, resolved, instance)
-  setInstanceCookies(response, instance)
+  setOrgCookies(req, response, resolved, instance)
+  setInstanceCookies(req, response, instance)
   return response
 }

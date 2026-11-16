@@ -121,11 +121,8 @@ def test_intent_routing_default_off_in_config():
     assert JevConfig(enabled=True, api_key="k").intent_routing_enabled is False
 
 
-def test_rag_request_mode_defaults_to_none():
-    from src.routers.ai.rag import RAGChatRequest
-
-    assert RAGChatRequest(message="hi").mode is None
-    assert RAGChatRequest(message="hi", mode="course_only").mode == "course_only"
+# test_rag_request_mode_defaults_to_none removed in the 1.4.5 sync: upstream deleted the RAG chat endpoint
+# (RAGChatRequest), so there is no request model left to carry the optional ``mode``.
 
 
 @pytest.mark.asyncio

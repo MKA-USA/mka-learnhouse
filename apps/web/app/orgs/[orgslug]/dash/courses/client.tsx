@@ -5,7 +5,7 @@ import CourseCreationTypeSelector from '@components/Objects/Modals/Course/Create
 import AICourseCreationModal from '@components/Objects/Modals/Course/Create/AICourse/AICourseCreationModal'
 import { BookCopy, Search, X, Trash2, Users, Info } from 'lucide-react'
 import ScormCourseImport from '@ee/components/Modals/ScormCourseImport'
-import { ImportTypeSelector, LearnHouseCourseImport } from '@components/Objects/Modals/Course/Import'
+import { ImportTypeSelector, LearnHouseCourseImport, LmsCourseImport } from '@components/Objects/Modals/Course/Import'
 import CourseThumbnail, { removeCoursePrefix } from '@components/Objects/Thumbnails/CourseThumbnail'
 import AuthenticatedClientElement from '@components/Security/AuthenticatedClientElement'
 import NewCourseButton from '@components/Objects/StyledElements/Buttons/NewCourseButton'
@@ -45,7 +45,7 @@ function CoursesHome(params: CourseProps) {
   const isCreatingCourse = searchParams.get('new') ? true : false
   const [newCourseModal, setNewCourseModal] = React.useState(isCreatingCourse)
   const [importCourseModal, setImportCourseModal] = React.useState(false)
-  const [importType, setImportType] = React.useState<'select' | 'scorm' | 'learnhouse'>('select')
+  const [importType, setImportType] = React.useState<'select' | 'scorm' | 'learnhouse' | 'lms'>('select')
   const [creationType, setCreationType] = React.useState<'select' | 'scratch' | 'ai'>('select')
   const [aiCourseModalOpen, setAiCourseModalOpen] = React.useState(false)
   const orgslug = params.orgslug
@@ -252,7 +252,7 @@ function CoursesHome(params: CourseProps) {
     mutateCourses()
   }
 
-  const handleImportTypeSelect = (type: 'scorm' | 'learnhouse') => {
+  const handleImportTypeSelect = (type: 'scorm' | 'learnhouse' | 'lms') => {
     setImportType(type)
   }
 
@@ -276,6 +276,14 @@ function CoursesHome(params: CourseProps) {
             closeModal={closeImportCourseModal}
           />
         )
+      case 'lms':
+        return (
+          <LmsCourseImport
+            orgId={orgId!}
+            orgslug={orgslug}
+            closeModal={closeImportCourseModal}
+          />
+        )
       default:
         return <ImportTypeSelector onSelectType={handleImportTypeSelect} currentPlan={currentPlan} />
     }
@@ -287,6 +295,8 @@ function CoursesHome(params: CourseProps) {
         return t('dashboard.courses.import_scorm')
       case 'learnhouse':
         return t('dashboard.courses.import_learnhouse')
+      case 'lms':
+        return t('dashboard.courses.import_lms')
       default:
         return t('dashboard.courses.import_course')
     }
@@ -298,6 +308,8 @@ function CoursesHome(params: CourseProps) {
         return t('dashboard.courses.import_scorm_description')
       case 'learnhouse':
         return t('dashboard.courses.import_learnhouse_description')
+      case 'lms':
+        return t('dashboard.courses.import_lms_description')
       default:
         return t('dashboard.courses.import_select_type')
     }
@@ -442,7 +454,7 @@ function CoursesHome(params: CourseProps) {
         ]} />
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mt-4">
           <div className="flex items-center space-x-4">
-            <h1 className="text-3xl font-bold mb-4 sm:mb-0">{t('dashboard.courses.title')}</h1>
+            <h1 className="text-3xl font-bold mb-3 sm:mb-0">{t('dashboard.courses.title')}</h1>
           </div>
           <AuthenticatedClientElement
             checkMethod="roles"
@@ -512,7 +524,7 @@ function CoursesHome(params: CourseProps) {
       {/* Search, Usergroup Filter, and Selection Controls */}
       {allCourses.length > 0 && (
         <div className="mb-6 flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-          <div className="flex items-center gap-3 w-full sm:w-auto">
+          <div className="flex flex-wrap sm:flex-nowrap items-center gap-3 w-full sm:w-auto">
             {/* Search Input */}
             <div className="relative w-full sm:w-80">
               <Search className="absolute start-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
@@ -575,7 +587,7 @@ function CoursesHome(params: CourseProps) {
               ressourceType="courses"
               orgId={orgId!}
             >
-              <div className="flex items-center gap-2 ms-auto">
+              <div className="flex flex-wrap items-center gap-2 sm:ms-auto">
                 <span className="text-sm font-medium text-gray-500 px-2">
                   {t('courses.selected_count', { count: selectedCourses.size })}
                 </span>

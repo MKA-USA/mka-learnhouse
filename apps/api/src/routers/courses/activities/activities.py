@@ -1,6 +1,6 @@
 from typing import List, Optional
 import json
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, Form, Request, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile, Form, Request, Query
 from pydantic import BaseModel
 from src.db.courses.activities import ActivityCreate, ActivityRead, ActivityUpdate
 from src.db.courses.activity_versions import ActivityVersionRead, ActivityStateRead
@@ -14,7 +14,18 @@ from src.services.courses.activities.activities import (
     update_activity,
     delete_activity,
     get_editor_bootstrap,
+    get_dynamic_preview,
+    get_dynamic_reach,
+    get_dynamic_options,
+    list_dynamic_learners,
     EditorBootstrapResponse,
+)
+from src.services.courses.activities.dynamic_context import (
+    DynamicLearner,
+    DynamicOptions,
+    DynamicPreviewRequest,
+    DynamicPreviewResponse,
+    DynamicReachResponse,
 )
 from src.services.courses.activities.versioning import (
     get_activity_versions,
@@ -29,8 +40,11 @@ from src.services.courses.activities.pdf import (
 )
 from src.services.courses.activities.video import (
     CaptionsConfigIn,
+    ChaptersIn,
     ExternalVideo,
     configure_captions,
+    request_chapters_generation,
+    save_chapters,
     create_external_video_activity,
     create_video_activity,
     update_video_activity,
@@ -252,6 +266,91 @@ async def api_get_editor_bootstrap(
 ) -> EditorBootstrapResponse:
     return await get_editor_bootstrap(
         request, activity_uuid, current_user=current_user, db_session=db_session
+    )
+
+
+@router.post(
+    "/{activity_uuid}/dynamic-preview",
+    response_model=DynamicPreviewResponse,
+    summary="Preview dynamic content as a persona",
+    description=(
+        "Render the activity (or an unsaved document) with conditional blocks and "
+        "variables resolved for a simulated reader. Requires edit rights on the course."
+    ),
+    responses={
+        200: {"description": "Rendered document.", "model": DynamicPreviewResponse},
+        403: {"description": "User cannot edit this course"},
+        404: {"description": "Activity not found"},
+        413: {"description": "Content too large"},
+    },
+)
+async def api_get_dynamic_preview(
+    request: Request,
+    activity_uuid: str,
+    preview: DynamicPreviewRequest,
+    current_user: PublicUser = Depends(get_current_user),
+    db_session=Depends(get_db_session),
+) -> DynamicPreviewResponse:
+    return await get_dynamic_preview(
+        request, activity_uuid, preview, current_user=current_user, db_session=db_session
+    )
+
+
+class DynamicReachRequest(BaseModel):
+    content: Optional[dict] = None
+
+
+@router.post(
+    "/{activity_uuid}/dynamic-reach",
+    response_model=DynamicReachResponse,
+    summary="Count learners who see each conditional block",
+    description=(
+        "For the activity (or an unsaved document), how many of the course's enrolled "
+        "learners each conditional block reaches, in document order. Requires edit rights."
+    ),
+)
+async def api_get_dynamic_reach(
+    request: Request,
+    activity_uuid: str,
+    body: DynamicReachRequest,
+    current_user: PublicUser = Depends(get_current_user),
+    db_session=Depends(get_db_session),
+) -> DynamicReachResponse:
+    return await get_dynamic_reach(
+        request, activity_uuid, body.content, current_user=current_user, db_session=db_session
+    )
+
+
+@router.get(
+    "/{activity_uuid}/dynamic-options",
+    response_model=DynamicOptions,
+    summary="Options for dynamic content rules",
+    description="The course's assignments, for rules about submissions. Requires edit rights.",
+)
+async def api_get_dynamic_options(
+    request: Request,
+    activity_uuid: str,
+    current_user: PublicUser = Depends(get_current_user),
+    db_session=Depends(get_db_session),
+) -> DynamicOptions:
+    return await get_dynamic_options(request, activity_uuid, current_user=current_user, db_session=db_session)
+
+
+@router.get(
+    "/{activity_uuid}/dynamic-learners",
+    response_model=List[DynamicLearner],
+    summary="Search enrolled learners to preview as",
+    description="Up to 20 learners enrolled in the activity's course. Requires edit rights.",
+)
+async def api_list_dynamic_learners(
+    request: Request,
+    activity_uuid: str,
+    q: str = Query(default="", max_length=64),
+    current_user: PublicUser = Depends(get_current_user),
+    db_session=Depends(get_db_session),
+) -> List[DynamicLearner]:
+    return await list_dynamic_learners(
+        request, activity_uuid, q, current_user=current_user, db_session=db_session
     )
 
 
@@ -550,6 +649,44 @@ async def api_configure_video_captions(
     db_session=Depends(get_db_session),
 ) -> dict:
     return await configure_captions(request, activity_uuid, current_user, db_session, config)
+
+
+@router.post(
+    "/video/{activity_uuid}/chapters",
+    summary="Generate AI chapters for a hosted video activity",
+    description=(
+        "Generate chapters from the video's ready captions with the fast AI model "
+        "tier (one AI credit). Runs in the background; poll the activity's "
+        "`extra_metadata.chapters.status`. Returns the stored chapters metadata."
+    ),
+)
+async def api_generate_video_chapters(
+    request: Request,
+    activity_uuid: str,
+    background_tasks: BackgroundTasks,
+    current_user: PublicUser = Depends(get_current_user),
+    db_session=Depends(get_db_session),
+) -> dict:
+    from src.services.utils.chapter_jobs import generate_activity_chapters
+
+    chapters = await request_chapters_generation(request, activity_uuid, current_user, db_session)
+    background_tasks.add_task(generate_activity_chapters, activity_uuid, force=True)
+    return chapters
+
+
+@router.put(
+    "/video/{activity_uuid}/chapters",
+    summary="Save edited chapters for a hosted video activity",
+    description="Replace the video's chapters with an edited list. An empty list clears them.",
+)
+async def api_save_video_chapters(
+    request: Request,
+    activity_uuid: str,
+    payload: ChaptersIn,
+    current_user: PublicUser = Depends(get_current_user),
+    db_session=Depends(get_db_session),
+) -> dict:
+    return await save_chapters(request, activity_uuid, current_user, db_session, payload)
 
 
 @router.put(

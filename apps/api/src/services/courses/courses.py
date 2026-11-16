@@ -3,7 +3,9 @@ from uuid import uuid4
 import json
 import logging
 from sqlmodel import select, or_, and_, func
+from sqlalchemy import true as sa_true
 from sqlmodel.ext.asyncio.session import AsyncSession
+from src.core.ee_hooks import notify_ee_course_content_changed
 from src.db.usergroup_resources import UserGroupResource
 from src.db.usergroup_user import UserGroupUser
 from src.db.organizations import Organization
@@ -28,6 +30,7 @@ from src.db.courses.courses import (
 )
 from src.security.api_token_utils import require_token_right
 from src.security.auth import resolve_acting_user_id
+from src.services.orgs.auth_policy import viewer_for_org
 from src.security.org_auth import require_org_create_permission
 from src.security.rbac.rbac import (
     authorization_verify_if_user_is_anon,
@@ -42,8 +45,10 @@ from src.security.rbac.constants import ADMIN_OR_MAINTAINER_ROLE_IDS
 from src.security.superadmin import is_user_superadmin
 from src.services.ai.rag.queue import enqueue_course, index_course
 from src.services.courses.thumbnails import upload_thumbnail
-from src.services.search.normalization import LIKE_ESCAPE_CHAR, build_like_pattern
+from src.services.search.normalization import LIKE_ESCAPE_CHAR, build_like_patterns
 from src.services.webhooks.dispatch import dispatch_webhooks
+from src.services.analytics import events as analytics_events
+from src.services.analytics.analytics import track
 from fastapi import HTTPException, Request, UploadFile, status
 from datetime import datetime
 
@@ -309,6 +314,7 @@ async def get_courses_orgslug(
     is_token = isinstance(current_user, APITokenUser)
     if is_token:
         _require_token_course_listing(current_user, org.id)
+    current_user = await viewer_for_org(db_session, current_user, org.id)
 
     # Check if user can view unpublished courses (must be admin/editor in org)
     can_view_unpublished = False
@@ -520,6 +526,78 @@ async def get_courses_count_orgslug(
     return count
 
 
+def accessible_courses_filter(
+    acting_user_id: int,
+    *,
+    is_anonymous: bool,
+    is_api_token: bool,
+    is_superadmin: bool,
+):
+    """SQL boolean selecting the courses ``acting_user_id`` may see in a listing.
+
+    One definition shared by course search and everything that hangs off a
+    course (lesson search), so a lesson can never surface from a course its
+    reader could not open. Built from EXISTS subqueries rather than joins so
+    it composes into any query without DISTINCT.
+
+    - Anonymous: published and public courses only.
+    - API tokens: every published course in their org (the org scope is the
+      caller's job).
+    - Superadmins: everything.
+    - Members: published public courses; published courses not attached to
+      any usergroup, when they belong to the course's org; published courses
+      in a usergroup they are in; and any course (drafts included) they are an
+      active author of.
+    """
+    if is_anonymous:
+        return and_(Course.public == True, Course.published == True)  # noqa: E712
+    if is_api_token:
+        return Course.published == True  # noqa: E712
+    if is_superadmin:
+        return sa_true()
+
+    in_any_usergroup = (
+        select(UserGroupResource.id)
+        .where(UserGroupResource.resource_uuid == Course.course_uuid)
+        .exists()
+    )
+    in_users_usergroup = (
+        select(UserGroupUser.id)
+        .join(
+            UserGroupResource,
+            UserGroupResource.usergroup_id == UserGroupUser.usergroup_id,  # type: ignore[arg-type]
+        )
+        .where(
+            UserGroupResource.resource_uuid == Course.course_uuid,
+            UserGroupUser.user_id == acting_user_id,
+        )
+        .exists()
+    )
+    is_active_author = (
+        select(ResourceAuthor.id)
+        .where(
+            ResourceAuthor.resource_uuid == Course.course_uuid,
+            ResourceAuthor.user_id == acting_user_id,
+            ResourceAuthor.authorship_status == ResourceAuthorshipStatusEnum.ACTIVE,
+        )
+        .exists()
+    )
+    is_org_member = (
+        select(UserOrganization.id)
+        .where(
+            UserOrganization.user_id == acting_user_id,
+            UserOrganization.org_id == Course.org_id,
+        )
+        .exists()
+    )
+    return or_(
+        and_(Course.published == True, Course.public == True),  # noqa: E712
+        and_(Course.published == True, ~in_any_usergroup, is_org_member),  # noqa: E712
+        and_(Course.published == True, in_users_usergroup),  # noqa: E712
+        is_active_author,
+    )
+
+
 async def search_courses(
     request: Request,
     current_user: PublicUser | AnonymousUser | APITokenUser,
@@ -532,86 +610,68 @@ async def search_courses(
     """
     Search courses within an organization.
 
-    SECURITY FIX: Uses parameterized queries to prevent SQL injection.
-    Previously used f-string interpolation which was vulnerable.
+    Every word of the query has to match one of the searched fields (name,
+    description, about, learnings, tags), in any order. Pattern matching goes
+    through parameterized ``ilike``; there is no string interpolation of user
+    input.
     """
     # SECURITY: Enforce maximum limit to prevent data dumping
     limit = min(limit, 100)
     offset = (page - 1) * limit
 
-    pattern = build_like_pattern(search_query)
+    patterns = build_like_patterns(search_query)
+    searched_columns = [
+        Course.name,
+        Course.description,
+        Course.about,
+        Course.learnings,
+        Course.tags,
+    ]
+    term_filters = [
+        or_(*(column.ilike(pattern, escape=LIKE_ESCAPE_CHAR) for column in searched_columns))  # type: ignore[attr-defined]
+        for pattern in patterns
+    ]
 
-    needs_distinct = False
     query = (
         select(Course)
         .join(Organization)
         .where(Organization.slug == org_slug)
-        .where(
-            or_(
-                Course.name.ilike(pattern, escape=LIKE_ESCAPE_CHAR),  # type: ignore[attr-defined]
-                Course.description.ilike(pattern, escape=LIKE_ESCAPE_CHAR),  # type: ignore[attr-defined]
-                Course.about.ilike(pattern, escape=LIKE_ESCAPE_CHAR),  # type: ignore[attr-defined]
-                Course.learnings.ilike(pattern, escape=LIKE_ESCAPE_CHAR),  # type: ignore[attr-defined]
-                Course.tags.ilike(pattern, escape=LIKE_ESCAPE_CHAR),  # type: ignore[attr-defined]
-            )
-        )
+        .where(*term_filters)
     )
 
+    if not isinstance(current_user, (AnonymousUser, APITokenUser)):
+        search_org_id = (await db_session.execute(
+            select(Organization.id).where(Organization.slug == org_slug)
+        )).scalars().first()
+        if search_org_id is not None:
+            current_user = await viewer_for_org(db_session, current_user, search_org_id)
     search_acting_user_id = resolve_acting_user_id(current_user)
 
-    if isinstance(current_user, AnonymousUser):
-        # For anonymous users, only show public AND published courses
-        query = query.where(Course.public == True, Course.published == True)
-    elif isinstance(current_user, APITokenUser):
+    is_api_token = isinstance(current_user, APITokenUser)
+    is_anonymous = isinstance(current_user, AnonymousUser)
+    if is_api_token:
         org_id = (await db_session.execute(
             select(Organization.id).where(Organization.slug == org_slug)
         )).scalars().first()
         if org_id is None:
             return []
         _require_token_course_listing(current_user, org_id)
-        query = query.where(Course.published == True)
-    elif await is_user_superadmin(search_acting_user_id, db_session):
-        # Superadmins see all courses (no additional filter)
-        pass
-    else:
-        # For authenticated users, show:
-        # 1. Published AND public courses
-        # 2. Published courses not in any UserGroup
-        # 3. Published courses in UserGroups where the user is a member
-        #    (a member cannot open an unpublished one, so don't surface it)
-        # 4. Courses (including unpublished) where the user is a resource author
-        needs_distinct = True
-        query = (
-            query
-            .outerjoin(UserGroupResource, UserGroupResource.resource_uuid == Course.course_uuid)  # type: ignore
-            .outerjoin(UserGroupUser, and_(
-                UserGroupUser.usergroup_id == UserGroupResource.usergroup_id,
-                UserGroupUser.user_id == search_acting_user_id
-            ))
-            .outerjoin(ResourceAuthor, and_(
-                ResourceAuthor.resource_uuid == Course.course_uuid,
-                ResourceAuthor.user_id == search_acting_user_id,
-                ResourceAuthor.authorship_status == ResourceAuthorshipStatusEnum.ACTIVE
-            ))  # type: ignore
-            .where(or_(
-                and_(Course.published == True, Course.public == True),  # Published public courses
-                and_(  # Published courses not in any UserGroup: org-wide, so members of its org only
-                    Course.published == True,
-                    UserGroupResource.resource_uuid.is_(None),
-                    select(UserOrganization.id).where(
-                        UserOrganization.user_id == search_acting_user_id,
-                        UserOrganization.org_id == Course.org_id,
-                    ).exists(),
-                ),
-                and_(Course.published == True, UserGroupUser.user_id == search_acting_user_id),  # Published courses in UserGroups where user is a member
-                ResourceAuthor.user_id.isnot(None)  # Courses where user is an ACTIVE resource author
-            ))
-        )
 
-    # Apply ordering and pagination; only use DISTINCT when outerjoins may produce duplicates
+    is_superadmin = (
+        not is_anonymous
+        and not is_api_token
+        and await is_user_superadmin(search_acting_user_id, db_session)
+    )
+    query = query.where(
+        accessible_courses_filter(
+            search_acting_user_id,
+            is_anonymous=is_anonymous,
+            is_api_token=is_api_token,
+            is_superadmin=is_superadmin,
+        )
+    )
+
     query = query.order_by(Course.creation_date.desc()).offset(offset).limit(limit)
-    if needs_distinct:
-        query = query.distinct()
 
     courses = (await db_session.execute(query)).scalars().all()
 
@@ -661,6 +721,7 @@ async def create_course(
     db_session: AsyncSession,
     thumbnail_file: UploadFile | None = None,
     thumbnail_type: ThumbnailType = ThumbnailType.IMAGE,
+    creation_source: str = "manual",
 ):
     """
     Create a new course
@@ -764,6 +825,13 @@ async def create_course(
 
     # Feature usage
     await increase_feature_usage("courses", course.org_id, db_session)
+
+    await track(
+        event_name=analytics_events.COURSE_CREATED,
+        org_id=course.org_id,
+        user_id=author_user_id,
+        properties={"course_uuid": course.course_uuid, "source": creation_source},
+    )
 
     await dispatch_webhooks(
         event_name="course_created",
@@ -958,9 +1026,16 @@ async def update_course(
     await db_session.commit()
     await db_session.refresh(course)
     index_course(course.id)
+    notify_ee_course_content_changed(course.id)
 
     # Dispatch webhook if published state changed
     if course_object.published is not None and course.published != old_published:
+        await track(
+            event_name=analytics_events.COURSE_PUBLISHED,
+            org_id=course.org_id,
+            user_id=resolve_acting_user_id(current_user),
+            properties={"course_uuid": course.course_uuid, "published": bool(course.published)},
+        )
         await dispatch_webhooks(
             event_name="course_published",
             org_id=course.org_id,
@@ -1226,6 +1301,12 @@ def _replace_uuids_in_content(content, uuid_map):
     return content
 
 
+def _delete_storage_directory(dir_path: str) -> None:
+    """Delete a directory from S3 or local filesystem."""
+    from src.services.courses.transfer.storage_utils import delete_storage_directory
+    delete_storage_directory(dir_path)
+
+
 def _copy_storage_directory(src_dir: str, dst_dir: str) -> None:
     """Recursively copy a directory using S3 or local filesystem."""
     import os
@@ -1261,6 +1342,185 @@ def _copy_storage_directory(src_dir: str, dst_dir: str) -> None:
             shutil.copytree(src_dir, dst_dir, dirs_exist_ok=True)
 
 
+async def clone_activity(
+    db_session: AsyncSession,
+    original_activity,
+    original_blocks: list,
+    *,
+    org_uuid: str,
+    org_id: int,
+    source_course_path: str,
+    new_course_uuid: str,
+    new_course_path: str,
+    new_course_id: int,
+    new_chapter_id: int,
+    order: int,
+    published: bool | None = None,
+):
+    """Copy one activity (row, chapter link, files and blocks) into a chapter.
+
+    Used by clone_course and by the agent's copy tool. The activity's files are
+    copied under the new activity, and every block uuid, file id and activity
+    uuid its content names is pointed at the copies. ``published`` defaults to
+    the original's state. Adds to the session without committing.
+    """
+    from src.services.courses.transfer.storage_utils import (
+        list_directory,
+        rewrite_sqlite_db_paths,
+    )
+    from src.db.courses.activities import Activity
+    from src.db.courses.blocks import Block
+    from src.db.courses.chapter_activities import ChapterActivity
+
+    new_activity_uuid = f"activity_{uuid4()}"
+
+    # Clone activity content (will update file references for blocks)
+    new_content = dict(original_activity.content) if original_activity.content else {}
+    new_details = dict(original_activity.details) if original_activity.details else {}
+    # Code blocks keep their SQLite database's full storage key.
+    new_content = rewrite_sqlite_db_paths(
+        new_content,
+        original_activity.activity_uuid,
+        f"orgs/{org_uuid}/courses/{new_course_uuid}/activities/{new_activity_uuid}",
+    )
+
+    new_activity = Activity(
+        name=original_activity.name,
+        activity_type=original_activity.activity_type,
+        activity_sub_type=original_activity.activity_sub_type,
+        content=new_content,
+        details=new_details,
+        published=original_activity.published if published is None else published,
+        org_id=org_id,
+        course_id=new_course_id,
+        activity_uuid=new_activity_uuid,
+        creation_date=str(datetime.now()),
+        update_date=str(datetime.now()),
+        extra_metadata=original_activity.extra_metadata,
+    )
+
+    db_session.add(new_activity)
+    await db_session.flush()  # Get new_activity.id without committing
+
+    # Create ChapterActivity link
+    new_chapter_activity = ChapterActivity(
+        chapter_id=new_chapter_id,
+        activity_id=new_activity.id,
+        course_id=new_course_id,
+        org_id=org_id,
+        order=order,
+        creation_date=str(datetime.now()),
+        update_date=str(datetime.now()),
+    )
+    db_session.add(new_chapter_activity)
+
+    # Copy all activity files recursively
+    original_activity_path = f"{source_course_path}/activities/{original_activity.activity_uuid}"
+    new_activity_path = f"{new_course_path}/activities/{new_activity_uuid}"
+
+    # Copy entire activity directory structure if it exists
+    # This handles all activity types: videos, documents, SCORM, assignments, etc.
+    _copy_storage_directory(original_activity_path, new_activity_path)
+
+    # Identifiers the activity's own content JSON may reference. The
+    # editor document embeds each media block's uuid, file id and owning
+    # activity uuid, and builds the media URL from them, so every one of
+    # them has to point at the copied file or the copy shows no images.
+    content_ref_map = {original_activity.activity_uuid: new_activity_uuid}
+
+    # Clone blocks for dynamic activities (use pre-fetched data)
+    if original_activity.activity_type.value == "TYPE_DYNAMIC":
+        for original_block in original_blocks:
+            new_block_uuid = f"block_{uuid4()}"
+            content_ref_map[original_block.block_uuid] = new_block_uuid
+
+            # Clone block content and update file references
+            new_block_content = dict(original_block.content) if original_block.content else {}
+
+            # Update activity_uuid reference in block content
+            if 'activity_uuid' in new_block_content:
+                new_block_content['activity_uuid'] = new_activity_uuid
+
+            # Determine block type folder and rename copied folder from old UUID to new UUID
+            block_type_folder = ""
+            if original_block.block_type.value == "BLOCK_VIDEO":
+                block_type_folder = "videoBlock"
+            elif original_block.block_type.value == "BLOCK_IMAGE":
+                block_type_folder = "imageBlock"
+            elif original_block.block_type.value == "BLOCK_DOCUMENT_PDF":
+                block_type_folder = "pdfBlock"
+            elif original_block.block_type.value == "BLOCK_AUDIO":
+                block_type_folder = "audioBlock"
+
+            if block_type_folder:
+                # The copy already copied files with old UUIDs, we need to rename folders
+                old_copied_block_path = f"{new_activity_path}/dynamic/blocks/{block_type_folder}/{original_block.block_uuid}"
+                new_block_path_str = f"{new_activity_path}/dynamic/blocks/{block_type_folder}/{new_block_uuid}"
+
+                # Transcoded HLS renditions live in a sub-folder that the
+                # file loop below doesn't see; move them with the block.
+                if block_type_folder == "videoBlock":
+                    _copy_storage_directory(
+                        f"{old_copied_block_path}/hls", f"{new_block_path_str}/hls"
+                    )
+
+                # Move files from old block path to new block path (rename folder)
+                block_files = list_directory(old_copied_block_path)
+                original_file_id = new_block_content.get('file_id')
+                file_id_matched = False
+                if block_files:
+                    for filename in block_files:
+                        old_file_key = f"{old_copied_block_path}/{filename}"
+                        # Generate new file ID
+                        new_file_id = str(uuid4())
+                        file_stem, file_ext = (
+                            filename.rsplit('.', 1) if '.' in filename else (filename, '')
+                        )
+                        new_filename = f"block_{new_file_id}.{file_ext}" if file_ext else f"block_{new_file_id}"
+                        new_file_key = f"{new_block_path_str}/{new_filename}"
+
+                        # Copy file to new location
+                        _copy_storage_file(old_file_key, new_file_key)
+                        # Delete old file
+                        _delete_storage_file(old_file_key)
+
+                        # Update file reference in block content. A
+                        # block folder can hold more than one file, so
+                        # only the file the block points at replaces it.
+                        if file_stem == original_file_id:
+                            new_block_content['file_id'] = f"block_{new_file_id}"
+                            file_id_matched = True
+                        elif 'file_id' in new_block_content and not file_id_matched:
+                            new_block_content['file_id'] = f"block_{new_file_id}"
+                        if file_stem:
+                            content_ref_map[file_stem] = f"block_{new_file_id}"
+
+                # Nothing references the old block id in the copy; drop
+                # what's left under it (emptied folder, HLS renditions).
+                _delete_storage_directory(old_copied_block_path)
+
+            new_block = Block(
+                block_type=original_block.block_type,
+                content=new_block_content,
+                org_id=org_id,
+                course_id=new_course_id,
+                chapter_id=new_chapter_id,
+                activity_id=new_activity.id,
+                block_uuid=new_block_uuid,
+                creation_date=str(datetime.now()),
+                update_date=str(datetime.now()),
+            )
+
+            db_session.add(new_block)
+
+    # Point the activity content at the copied activity, blocks and files
+    if new_content:
+        new_activity.content = _replace_uuids_in_content(new_content, content_ref_map)
+        db_session.add(new_activity)
+
+    return new_activity
+
+
 async def clone_course(
     request: Request,
     course_uuid: str,
@@ -1287,7 +1547,6 @@ async def clone_course(
     from src.services.courses.transfer.storage_utils import (
         is_s3_enabled,
         file_exists,
-        list_directory,
     )
     from collections import defaultdict
     from src.db.courses.chapters import Chapter
@@ -1481,120 +1740,19 @@ async def clone_course(
         activity_results = _activities_by_chapter.get(original_chapter.id, [])
 
         for original_activity, chapter_activity in activity_results:
-            new_activity_uuid = f"activity_{uuid4()}"
-
-            # Clone activity content (will update file references for blocks)
-            new_content = dict(original_activity.content) if original_activity.content else {}
-            new_details = dict(original_activity.details) if original_activity.details else {}
-
-            new_activity = Activity(
-                name=original_activity.name,
-                activity_type=original_activity.activity_type,
-                activity_sub_type=original_activity.activity_sub_type,
-                content=new_content,
-                details=new_details,
-                published=original_activity.published,
+            await clone_activity(
+                db_session,
+                original_activity,
+                _blocks_by_activity.get(original_activity.id, []),
+                org_uuid=org.org_uuid,
                 org_id=original_course.org_id,
-                course_id=new_course.id,
-                activity_uuid=new_activity_uuid,
-                creation_date=str(datetime.now()),
-                update_date=str(datetime.now()),
-                extra_metadata=original_activity.extra_metadata,
-            )
-
-            db_session.add(new_activity)
-            await db_session.flush()  # Get new_activity.id without committing
-
-            # Create ChapterActivity link
-            new_chapter_activity = ChapterActivity(
-                chapter_id=new_chapter.id,
-                activity_id=new_activity.id,
-                course_id=new_course.id,
-                org_id=original_course.org_id,
+                source_course_path=original_course_path,
+                new_course_uuid=new_course_uuid,
+                new_course_path=new_course_path,
+                new_course_id=new_course.id,
+                new_chapter_id=new_chapter.id,
                 order=chapter_activity.order,
-                creation_date=str(datetime.now()),
-                update_date=str(datetime.now()),
             )
-            db_session.add(new_chapter_activity)
-
-            # Copy all activity files recursively
-            original_activity_path = f"{original_course_path}/activities/{original_activity.activity_uuid}"
-            new_activity_path = f"{new_course_path}/activities/{new_activity_uuid}"
-
-            # Copy entire activity directory structure if it exists
-            # This handles all activity types: videos, documents, SCORM, assignments, etc.
-            _copy_storage_directory(original_activity_path, new_activity_path)
-
-            # Clone blocks for dynamic activities (use pre-fetched data)
-            if original_activity.activity_type.value == "TYPE_DYNAMIC":
-                original_blocks = _blocks_by_activity.get(original_activity.id, [])
-
-                # Map old block UUIDs to new block UUIDs (for updating activity content references)
-                block_uuid_map = {}
-
-                for original_block in original_blocks:
-                    new_block_uuid = f"block_{uuid4()}"
-                    block_uuid_map[original_block.block_uuid] = new_block_uuid
-
-                    # Clone block content and update file references
-                    new_block_content = dict(original_block.content) if original_block.content else {}
-
-                    # Update activity_uuid reference in block content
-                    if 'activity_uuid' in new_block_content:
-                        new_block_content['activity_uuid'] = new_activity_uuid
-
-                    # Determine block type folder and rename copied folder from old UUID to new UUID
-                    block_type_folder = ""
-                    if original_block.block_type.value == "BLOCK_VIDEO":
-                        block_type_folder = "videoBlock"
-                    elif original_block.block_type.value == "BLOCK_IMAGE":
-                        block_type_folder = "imageBlock"
-                    elif original_block.block_type.value == "BLOCK_DOCUMENT_PDF":
-                        block_type_folder = "pdfBlock"
-
-                    if block_type_folder:
-                        # The copy already copied files with old UUIDs, we need to rename folders
-                        old_copied_block_path = f"{new_activity_path}/dynamic/blocks/{block_type_folder}/{original_block.block_uuid}"
-                        new_block_path_str = f"{new_activity_path}/dynamic/blocks/{block_type_folder}/{new_block_uuid}"
-
-                        # Move files from old block path to new block path (rename folder)
-                        block_files = list_directory(old_copied_block_path)
-                        if block_files:
-                            for filename in block_files:
-                                old_file_key = f"{old_copied_block_path}/{filename}"
-                                # Generate new file ID
-                                new_file_id = str(uuid4())
-                                file_ext = filename.split('.')[-1] if '.' in filename else ''
-                                new_filename = f"block_{new_file_id}.{file_ext}" if file_ext else f"block_{new_file_id}"
-                                new_file_key = f"{new_block_path_str}/{new_filename}"
-
-                                # Copy file to new location
-                                _copy_storage_file(old_file_key, new_file_key)
-                                # Delete old file
-                                _delete_storage_file(old_file_key)
-
-                                # Update file reference in block content
-                                if 'file_id' in new_block_content:
-                                    new_block_content['file_id'] = f"block_{new_file_id}"
-
-                    new_block = Block(
-                        block_type=original_block.block_type,
-                        content=new_block_content,
-                        org_id=original_course.org_id,
-                        course_id=new_course.id,
-                        chapter_id=new_chapter.id,
-                        activity_id=new_activity.id,
-                        block_uuid=new_block_uuid,
-                        creation_date=str(datetime.now()),
-                        update_date=str(datetime.now()),
-                    )
-
-                    db_session.add(new_block)
-
-                # Update activity content to reference new block UUIDs
-                if new_content and block_uuid_map:
-                    new_activity.content = _replace_uuids_in_content(new_content, block_uuid_map)
-                    db_session.add(new_activity)
 
     # Single commit for all chapters, activities, blocks, and links
     await db_session.commit()
@@ -1602,6 +1760,13 @@ async def clone_course(
 
     # Increase feature usage for the new course
     await increase_feature_usage("courses", new_course.org_id, db_session)
+
+    await track(
+        event_name=analytics_events.COURSE_CREATED,
+        org_id=new_course.org_id,
+        user_id=author_user_id,
+        properties={"course_uuid": new_course.course_uuid, "source": "clone"},
+    )
 
     # Get course authors with their roles
     authors_statement = (

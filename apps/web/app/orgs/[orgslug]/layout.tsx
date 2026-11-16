@@ -10,6 +10,7 @@ import CompleteSignupFields from '@components/Auth/CompleteSignupFields'
 import MkaProfileGate from '@components/mka/MkaProfileGate' // MKA fork
 import { getOrganizationContextInfo } from '@services/organizations/orgs'
 import { getOrgFaviconMediaDirectory } from '@services/media/media'
+import { orgScriptsAllowedOnRequest } from '@/lib/orgScripts'
 
 export async function generateMetadata({
   params,
@@ -39,6 +40,7 @@ export default async function RootLayout(props: {
   params: Promise<{ orgslug: string }>
 }) {
   const params = await props.params
+  const allowOrgScripts = await orgScriptsAllowedOnRequest()
 
   return (
     <div>
@@ -49,7 +51,7 @@ export default async function RootLayout(props: {
         <MkaProfileGate /> {/* MKA fork */}
         <CompleteSignupFields />
         {props.children}
-        <Footer />
+        <Footer allowOrgScripts={allowOrgScripts} />
       </OrgProvider>
     </div>
   )

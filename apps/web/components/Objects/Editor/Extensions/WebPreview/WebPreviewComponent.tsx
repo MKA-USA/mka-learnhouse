@@ -11,6 +11,7 @@ import { Checkbox } from '@components/ui/checkbox';
 import { Button } from '@components/ui/button';
 import toast from 'react-hot-toast';
 import { useTranslation } from 'react-i18next';
+import { useUrlEmbedSandbox } from '@/lib/media/useUrlEmbedSandbox';
 
 interface EditorContext {
   isEditable: boolean;
@@ -51,6 +52,7 @@ const WebPreviewComponent: React.FC<WebPreviewProps> = ({ node, updateAttributes
   };
 
   const previewUrl = safeExternalUrl(previewData.url);
+  const previewSandbox = useUrlEmbedSandbox(previewUrl);
   const previewImage = safeImageSrc(previewData.og_image);
   const favicon = safeImageSrc(previewData.favicon);
 
@@ -80,7 +82,7 @@ const WebPreviewComponent: React.FC<WebPreviewProps> = ({ node, updateAttributes
       const hasMinimalMetadata = !data.title && !data.description && !data.og_image;
       
       if (hasMinimalMetadata) {
-        toast.error("Unable to get metadata from this website. The preview card may appear incomplete.", {
+        toast.error(t('editor.blocks.web_preview_block.metadata_unavailable'), {
           duration: 4000,
         });
       }
@@ -173,13 +175,13 @@ const WebPreviewComponent: React.FC<WebPreviewProps> = ({ node, updateAttributes
         minWidth="xl"
         minHeight="xl"
         dialogContent={
-          previewUrl ? <iframe
+          previewUrl && previewSandbox ? <iframe
             src={previewUrl}
             title={t('editor.blocks.web_preview_block.embedded_preview')}
             className="w-full h-full border-0 bg-white"
             style={{ display: 'block', borderRadius: 0 }}
             allowFullScreen
-            sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-presentation"
+            sandbox={previewSandbox}
             referrerPolicy="strict-origin-when-cross-origin"
           /> : null
         }
@@ -313,7 +315,7 @@ const WebPreviewComponent: React.FC<WebPreviewProps> = ({ node, updateAttributes
                   <div className="-mt-6 -mx-6 mb-0 rounded-t-xl overflow-hidden">
                     <img
                       src={previewImage}
-                      alt="preview"
+                      alt={t('editor.blocks.web_preview_block.preview_alt')}
                       className="w-full h-40 object-cover block"
                     />
                   </div>
@@ -337,8 +339,8 @@ const WebPreviewComponent: React.FC<WebPreviewProps> = ({ node, updateAttributes
                 {favicon && (
                   <img
                     src={favicon}
-                    alt="favicon"
-                    className="w-[18px] h-[18px] me-2 rounded bg-gray-100"
+                    alt={t('editor.blocks.web_preview_block.favicon_alt')}
+                    className="w-[18px] h-[18px] me-2 shrink-0 rounded bg-gray-100 object-contain"
                   />
                 )}
                 <span className="text-gray-500 text-xs truncate">{previewData.url}</span>
@@ -375,7 +377,7 @@ const WebPreviewComponent: React.FC<WebPreviewProps> = ({ node, updateAttributes
                         key={opt.value}
                         aria-pressed={alignment === opt.value}
                         onClick={() => handleAlignmentChange(opt.value)}
-                        title={`Align ${opt.value}`}
+                        title={t(`editor.blocks.common.align_${opt.value}`)}
                         type="button"
                         className={`flex items-center justify-center border transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-neutral-300 p-1.5 rounded-full text-gray-600
                           ${alignment === opt.value

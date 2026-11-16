@@ -8,6 +8,7 @@ import DragHandle from './DragHandle'
 import ResizeHandle from './ResizeHandle'
 import { useDragResize } from './useDragResize'
 import { useBoardSelection } from '../BoardSelectionContext'
+import { useUrlEmbedSandbox } from '@/lib/media/useUrlEmbedSandbox'
 
 function normalizeUrl(input: string): string {
   const trimmed = input.trim()
@@ -95,6 +96,7 @@ export default function WebpageBlockComponent({ node, updateAttributes, selected
   }
 
   const showWebpage = url && !editing
+  const iframeSandbox = useUrlEmbedSandbox(url)
 
   /* ── Empty / editing state ─────────────────────────────── */
 
@@ -171,7 +173,7 @@ export default function WebpageBlockComponent({ node, updateAttributes, selected
               onClick={() => setEditing(false)}
               className="text-[11px] text-neutral-400 hover:text-neutral-500 transition-colors"
             >
-              Cancel
+              {t('common.cancel')}
             </button>
           )}
         </div>
@@ -227,14 +229,14 @@ export default function WebpageBlockComponent({ node, updateAttributes, selected
           <button
             onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); startEditing() }}
             className="text-neutral-400 hover:text-neutral-600 transition-colors shrink-0 p-0.5 rounded hover:bg-neutral-100"
-            title="Edit URL"
+            title={t('boards.webpage_block.edit_url')}
           >
             <Pencil size={11} />
           </button>
           <button
             onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); handleRemove() }}
             className="text-neutral-400 hover:text-red-500 transition-colors shrink-0 p-0.5 rounded hover:bg-neutral-100"
-            title="Remove"
+            title={t('boards.webpage_block.remove')}
           >
             <X size={11} />
           </button>
@@ -254,20 +256,20 @@ export default function WebpageBlockComponent({ node, updateAttributes, selected
             </div>
           </div>
         )}
-        <iframe
+        {iframeSandbox && <iframe
           ref={iframeRef}
           src={url}
           className="w-full h-full bg-white block"
           style={{ border: 'none', overscrollBehavior: 'contain' }}
-          sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
+          sandbox={iframeSandbox}
           referrerPolicy="no-referrer"
           onLoad={() => {
             setLoading(false)
             iframeRef.current?.blur()
           }}
           tabIndex={-1}
-          title={title || 'Webpage'}
-        />
+          title={title || t('boards.toolbar.webpage')}
+        />}
       </div>
 
       <ResizeHandle onMouseDown={handleResizeStart} selected={selected} />

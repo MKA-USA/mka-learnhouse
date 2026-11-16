@@ -14,7 +14,6 @@ server-to-server call (Next.js route handlers, collab, cron, integrations).
 
 import hmac
 import logging
-import os
 import re
 import time
 from typing import Callable
@@ -22,7 +21,7 @@ from urllib.parse import urlparse
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
-from config.config import get_learnhouse_config
+from config.config import get_learnhouse_config, shared_secret_from_env
 from src.core.middleware.cors import (
     _host_from,
     _single_tenancy_origin_regex,
@@ -35,6 +34,12 @@ logger = logging.getLogger(__name__)
 
 # Methods that require CSRF protection
 STATE_CHANGING_METHODS = {"POST", "PUT", "DELETE", "PATCH"}
+
+# The LTI 1.3 OIDC login and launch are cross-site form posts from the LMS by
+# design. They are authorized by the platform-signed id_token, state and nonce
+# and never read the session cookie, so a cookie the browser happens to carry
+# (an LMS on the same site as LearnHouse) is not what lets them through.
+_LTI_LAUNCH_PATH = re.compile(r"^/api/v1/lti/[A-Za-z0-9_-]+/(login|launch)$")
 
 # Short-TTL cache for the verified-custom-domain origin check, so we don't hit the
 # DB on every mutation. Only consulted when the static allowlist/regex fails, so
@@ -69,13 +74,13 @@ def _cors_origin_regex(config) -> str | None:
 
 
 def _matches_any_key(provided: str | None, env_names: tuple[str, ...]) -> bool:
-    """Constant-time compare of ``provided`` against each non-empty env key."""
+    """Constant-time compare of ``provided`` against each set, non-example env key."""
     if not provided:
         return False
     provided_b = provided.encode()
     matched = False
     for name in env_names:
-        expected = os.getenv(name, "")
+        expected = shared_secret_from_env(name)
         if expected and hmac.compare_digest(provided_b, expected.encode()):
             matched = True
     return matched
@@ -214,6 +219,8 @@ class CSRFProtectionMiddleware(BaseHTTPMiddleware):
         - API tokens (Bearer lh_*): validated independently, rejected if invalid
           (auth.py never falls back to cookies for lh_ tokens)
         - Stripe webhooks: use HMAC signature verification, no cookies involved
+        - LTI login/launch posts from an LMS: authorized by the signed launch,
+          never by cookies
 
         Regular Bearer JWT tokens are NOT exempt because get_current_user()
         falls back to cookie auth when the JWT is invalid, so an attacker could
@@ -227,6 +234,10 @@ class CSRFProtectionMiddleware(BaseHTTPMiddleware):
 
         # Stripe webhooks use signature-based verification, not cookies
         if request.headers.get("stripe-signature"):
+            return True
+
+        path = getattr(getattr(request, "url", None), "path", None)
+        if isinstance(path, str) and _LTI_LAUNCH_PATH.match(path):
             return True
 
         # Service-to-service calls use a shared key, not cookies; only a valid

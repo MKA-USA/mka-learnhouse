@@ -13,6 +13,7 @@ from typing import Any, AsyncGenerator, Optional, Sequence, Type, Union
 
 from pydantic_ai import Agent
 from pydantic_ai.messages import (
+    SystemPromptPart,
     BinaryContent,
     DocumentUrl,
     ImageUrl,
@@ -23,6 +24,7 @@ from pydantic_ai.messages import (
     UserPromptPart,
     VideoUrl,
 )
+from pydantic_ai.models import Model
 from pydantic_ai.settings import ModelSettings
 
 from src.services.ai import mka_brand  # MKA fork
@@ -100,19 +102,44 @@ def attachments_to_parts(attachments: Any) -> list:
     return parts
 
 
+def _history_with_system(history: Any, system_prompt: Optional[str]) -> Optional[list[ModelMessage]]:
+    """Stored history as model messages, led by the system prompt.
+
+    Pydantic AI only injects ``system_prompt`` when ``message_history`` is
+    empty. Every follow-up turn of a chat therefore used to run without its
+    instructions or retrieved course context. Putting the prompt at the head
+    of the history keeps it on every turn.
+    """
+    messages = to_message_history(history)
+    if not messages:
+        return None
+    if system_prompt:
+        messages.insert(0, ModelRequest(parts=[SystemPromptPart(content=system_prompt)]))
+    return messages
+
+
+# Providers whose API rejects sampling parameters for every model. The Anthropic
+# SDK sends API version 2026-10-21 since 2.0, and on that version a Messages
+# request carrying `temperature`, `top_p` or `top_k` returns HTTP 400, even at
+# the default value. Pydantic AI only strips them for the newest Claude models,
+# so the documented `claude-sonnet-4-5` / `claude-haiku-4-5` setups broke.
+# Callers pass `temperature` as a hint; dropping it here keeps every feature
+# working on these providers with the model's default sampling.
+_PROVIDERS_WITHOUT_SAMPLING = frozenset({"anthropic"})
+
+
 def _settings(
-    max_tokens: Optional[int], temperature: Optional[float], timeout: float
+    model: Model, max_tokens: Optional[int], temperature: Optional[float], timeout: float
 ) -> ModelSettings:
     settings: dict = {"timeout": timeout}
     if max_tokens is not None:
         settings["max_tokens"] = max_tokens
-    if temperature is not None:
+    if temperature is not None and model.system not in _PROVIDERS_WITHOUT_SAMPLING:
         settings["temperature"] = temperature
     return ModelSettings(**settings)
 
 
-def _agent(model_name: str, system_prompt: Optional[str], output_type: Any) -> Agent:
-    model = build_model(model_name)  # MKA fork: hoisted so toolsets_for can inspect it
+def _agent(model: Model, system_prompt: Optional[str], output_type: Any) -> Agent:
     return Agent(
         model,
         output_type=output_type,
@@ -137,11 +164,12 @@ async def generate(
     Returns plain text when ``output_type`` is ``str``, or a validated instance of
     ``output_type`` (a Pydantic model) for structured output.
     """
-    agent = _agent(model_name, system_prompt, output_type)
+    model = build_model(model_name)
+    agent = _agent(model, system_prompt, output_type)
     result = await agent.run(
         user_prompt,
-        message_history=to_message_history(history) or None,
-        model_settings=_settings(max_tokens, temperature, timeout),
+        message_history=_history_with_system(history, system_prompt),
+        model_settings=_settings(model, max_tokens, temperature, timeout),
     )
     return result.output
 
@@ -157,11 +185,12 @@ async def generate_stream(
     timeout: float = STREAM_TIMEOUT,
 ) -> AsyncGenerator[str, None]:
     """Stream text deltas for a single generation, yielding chunks as they arrive."""
-    agent = _agent(model_name, system_prompt, str)
+    model = build_model(model_name)
+    agent = _agent(model, system_prompt, str)
     async with agent.run_stream(
         user_prompt,
-        message_history=to_message_history(history) or None,
-        model_settings=_settings(max_tokens, temperature, timeout),
+        message_history=_history_with_system(history, system_prompt),
+        model_settings=_settings(model, max_tokens, temperature, timeout),
     ) as result:
         async for chunk in result.stream_text(delta=True):
             yield chunk

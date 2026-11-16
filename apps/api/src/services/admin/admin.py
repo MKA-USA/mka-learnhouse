@@ -5,8 +5,9 @@ Provides headless API operations using API token authentication.
 All functions require an APITokenUser and operate within the token's org scope.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
+from urllib.parse import quote
 from uuid import uuid4
 from fastapi import HTTPException, Request, status
 from sqlmodel import select, func
@@ -41,13 +42,14 @@ from src.db.users import (
 )
 from src.services.trail.trail import _build_trail_read
 from src.services.users.mka_profile import delete_profile, profile_status  # MKA fork
+from src.core.ee_hooks import notify_ee_learner_progress
 from src.services.courses.certifications import (
     check_course_completion_and_create_certificate,
     is_course_fully_completed,
     sync_trailrun_status,
     create_certificate_user,
 )
-from src.services.email.utils import get_base_url_from_request
+from src.services.email.utils import get_base_url_from_request, get_org_signup_base_url
 from src.services.orgs.join_notifications import notify_user_joined_org
 from src.services.orgs.users import _rights_within
 from src.services.analytics.analytics import track
@@ -55,7 +57,12 @@ from src.services.analytics import events as analytics_events
 from src.services.webhooks.dispatch import dispatch_webhooks
 from src.security.auth import create_access_token
 from src.security.org_auth import org_owns_account
-from src.security.session_context import AUTH_METHOD_API_TOKEN, session_claims
+from src.security.embed_session import (
+    EMBED_SESSION_DEFAULT_TTL,
+    EMBED_SESSION_MAX_TTL,
+    EMBED_SESSION_MIN_TTL,
+)
+from src.security.session_context import AUTH_METHOD_API_TOKEN, AUTH_METHOD_EMBED, session_claims
 from src.security.features_utils.plan_check import get_org_plan
 from src.security.features_utils.plans import plan_meets_requirement
 from src.security.features_utils.usage import (
@@ -214,6 +221,8 @@ async def _check_token_can_impersonate(
     user: User,
     token_user: APITokenUser,
     db_session: AsyncSession,
+    *,
+    check_rights: bool = True,
 ) -> None:
     """Refuse to mint a session for a privileged account.
 
@@ -244,7 +253,7 @@ async def _check_token_can_impersonate(
     # The session carries the target's role, so the target may hold no write
     # authority the token was not granted itself. (A role that no longer
     # exists grants nothing.)
-    if membership is not None:
+    if check_rights and membership is not None:
         target_role = await db_session.get(Role, membership.role_id)
         if target_role is not None and not _role_within_token_rights(target_role.rights, token_user.rights):
             raise HTTPException(
@@ -396,11 +405,68 @@ async def issue_user_token(
         },
         expires_delta=timedelta(hours=1),
     )
+    from src.services.auth.session import track_login
+
+    await track_login(user.id, AUTH_METHOD_API_TOKEN, token_user.org_id)
     return {
         "access_token": access_token,
         "token_type": "bearer",
         "user_id": user.id,
         "user_uuid": user.user_uuid,
+    }
+
+
+async def issue_embed_session(
+    token_user: APITokenUser,
+    user_id: int,
+    db_session: AsyncSession,
+    ttl_seconds: Optional[int] = None,
+) -> dict:
+    """Mint an embed session for a learner of the token's org.
+
+    Same gate as :func:`issue_user_token` (``users.action_update``, no
+    privileged or shared accounts, no target with rights beyond the token's),
+    but the result is meant for a browser: it lives at most an hour, has no
+    refresh token, is held to the org and only reaches the embed routes (see
+    :mod:`src.security.embed_session`).
+    """
+    _require_token_right(token_user, "users", "update")
+
+    if ttl_seconds is None:
+        ttl = EMBED_SESSION_DEFAULT_TTL
+    else:
+        ttl = timedelta(seconds=ttl_seconds)
+        if not EMBED_SESSION_MIN_TTL <= ttl <= EMBED_SESSION_MAX_TTL:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"ttl_seconds must be between {int(EMBED_SESSION_MIN_TTL.total_seconds())} "
+                    f"and {int(EMBED_SESSION_MAX_TTL.total_seconds())}"
+                ),
+            )
+
+    user = await _get_user_in_org(user_id, token_user.org_id, db_session)
+    await _check_token_can_impersonate(user, token_user, db_session)
+
+    expires_at = datetime.now(timezone.utc) + ttl
+    access_token = create_access_token(
+        data={
+            "sub": user.email,
+            "purpose": "session",
+            **session_claims(AUTH_METHOD_EMBED, token_user.org_id),
+        },
+        expires_delta=ttl,
+    )
+    # Not recorded as a login: hosts mint one per page view or every few
+    # minutes, which would drown the org's sign-in analytics.
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "expires_in": int(ttl.total_seconds()),
+        "expires_at": int(expires_at.timestamp()),
+        "user_id": user.id,
+        "user_uuid": user.user_uuid,
+        "org_id": token_user.org_id,
     }
 
 
@@ -563,6 +629,14 @@ async def unenroll_user(
 
     await db_session.delete(trail_run)
     await db_session.commit()
+    notify_ee_learner_progress(user_id, course.id)
+
+    await track(
+        event_name=analytics_events.COURSE_LEFT,
+        org_id=token_user.org_id,
+        user_id=user_id,
+        properties={"course_uuid": course.course_uuid},
+    )
 
     return {"detail": "User unenrolled successfully"}
 
@@ -765,6 +839,8 @@ async def complete_activity(
             properties={"course_uuid": course.course_uuid},
         )
 
+    notify_ee_learner_progress(user_id, course.id)
+
     return {
         "activity_uuid": activity_uuid,
         "user_id": user_id,
@@ -810,6 +886,7 @@ async def uncomplete_activity(
         # stop counting it as completed.
         if course.id:
             await sync_trailrun_status(user_id, course.id, db_session)
+        notify_ee_learner_progress(user_id, course.id)
 
     return {
         "activity_uuid": activity_uuid,
@@ -943,6 +1020,8 @@ async def complete_course(
             user_id=user_id,
             properties={"course_uuid": course.course_uuid},
         )
+
+    notify_ee_learner_progress(user_id, course.id)
 
     return {
         "course_uuid": course_uuid,
@@ -1328,6 +1407,12 @@ async def provision_user(
         user_id=user.id if user.id else 0,
         properties={"signup_method": "admin_api"},
     )
+    await track(
+        event_name=analytics_events.USER_JOINED_ORG,
+        org_id=token_user.org_id,
+        user_id=user.id if user.id else 0,
+        properties={"join_method": "admin_api"},
+    )
     await dispatch_webhooks(
         event_name=analytics_events.USER_SIGNED_UP,
         org_id=token_user.org_id,
@@ -1383,6 +1468,10 @@ async def remove_user_from_org_admin(
         )
 
     await db_session.delete(membership)
+    # Connected AI apps end with the membership, so rejoining starts fresh.
+    from src.services.mcp.oauth import revoke_member_grants
+
+    await revoke_member_grants(db_session, user_id, token_user.org_id)
     await db_session.commit()
 
     try:
@@ -1396,6 +1485,11 @@ async def remove_user_from_org_admin(
     except Exception:
         pass
 
+    await track(
+        event_name=analytics_events.USER_REMOVED_FROM_ORG,
+        org_id=token_user.org_id,
+        user_id=user_id,
+    )
     await dispatch_webhooks(
         event_name=analytics_events.USER_REMOVED_FROM_ORG,
         org_id=token_user.org_id,
@@ -1462,6 +1556,79 @@ def _validate_magic_link_redirect(redirect_to: Optional[str]) -> Optional[str]:
     return value
 
 
+def _magic_link_error(status_code: int, code: str, message: str) -> HTTPException:
+    """A refusal in the shape the /auth/magic page reads: ``{"code", "message"}``,
+    the same shape the emailed login link uses, so both kinds of link fail the
+    same way on screen."""
+    return HTTPException(status_code=status_code, detail={"code": code, "message": message})
+
+
+def _magic_link_landing_url(base: str, token: str, redirect_to: Optional[str]) -> str:
+    """The web page that redeems a sign-in link: ``{base}/auth/magic?token=…``.
+
+    Redemption happens in the web app (the same page emailed login links use),
+    not on an API redirect, because only the web app sets the session cookies
+    from the host the browser is actually on: the token cookies plus the
+    ``LH_session`` marker the client needs to see the session, scoped right on
+    org subdomains and custom domains alike. Opening the page does not spend
+    the link; its script does, so link previewers and mail scanners can't.
+    """
+    url = f"{base.rstrip('/')}/auth/magic?token={quote(token, safe='')}"
+    if redirect_to:
+        url += f"&next={quote(redirect_to, safe='')}"
+    return url
+
+
+async def _magic_link_base_url(
+    org: Organization, request: Request, db_session: AsyncSession, host: Optional[str] = None
+) -> str:
+    """The org's own frontend: its verified custom domain, else ``{slug}.{domain}``.
+
+    Never the request's own host: integrations call this server to server, so
+    the request carries no Origin and that fallback is the platform apex, where
+    the student lands outside their org.
+
+    ``host`` lets the integration name one of the org's verified custom domains
+    outright. A domain behind a CDN fails the live DNS check behind
+    ``get_org_signup_base_url`` (it resolves to the CDN), and nothing the
+    platform can probe tells a CDN from a server relaying to us, so this is the
+    org's explicit choice rather than a guess. It adds no exposure: the
+    integration receives the raw token anyway and could put it on any host.
+    """
+    if host:
+        from config.config import get_learnhouse_config
+        from src.db.custom_domains import CustomDomain
+
+        wanted = host.strip().lower().rstrip(".")
+        domain = (await db_session.execute(
+            select(CustomDomain).where(
+                CustomDomain.org_id == org.id,
+                CustomDomain.domain == wanted,
+                CustomDomain.status == "verified",
+            )
+        )).scalars().first()
+        if domain is None:
+            raise HTTPException(
+                status_code=400,
+                detail="host must be one of the organization's verified custom domains",
+            )
+        from src.services.orgs.custom_domains import _org_plan_includes_custom_domains
+
+        # A domain the platform no longer serves for this org (plan lapsed)
+        # would strand the student on a dead host.
+        if not await _org_plan_includes_custom_domains(org.id, db_session):
+            raise HTTPException(
+                status_code=400,
+                detail="The organization's plan no longer includes custom domains",
+            )
+        scheme = "https" if get_learnhouse_config().hosting_config.ssl else "http"
+        return f"{scheme}://{domain.domain}"
+
+    return await get_org_signup_base_url(
+        org.slug, request, db_session=db_session, org_id=org.id
+    ) or get_base_url_from_request(request)
+
+
 async def issue_magic_link(
     token_user: APITokenUser,
     user_id: int,
@@ -1470,13 +1637,10 @@ async def issue_magic_link(
     org_slug: str,
     request: Request,
     db_session: AsyncSession,
+    host: Optional[str] = None,
 ) -> dict:
-    """Issue a short-lived JWT wrapped in a browser-clickable consume URL.
-
-    The URL is built on the same frontend base URL the email system uses
-    (``get_base_url_from_request``), so it respects custom domains and the
-    deployment's allowed-origin config.
-    """
+    """Issue a short-lived, single-use JWT wrapped in a browser-clickable URL
+    on the org's own frontend (see ``_magic_link_base_url``)."""
     _require_token_right(token_user, "users", "update")
 
     user = await _get_user_in_org(user_id, token_user.org_id, db_session)
@@ -1492,8 +1656,8 @@ async def issue_magic_link(
 
     ttl = max(60, min(ttl_seconds, 900))
     expires_delta = timedelta(seconds=ttl)
-    # Every link carries a random jti so the consume endpoint can enforce
-    # single-use via a Redis SETNX marker.
+    # Every link carries a random jti; redeeming it records the jti in
+    # used_link_token, which is what makes the link single-use.
     import secrets as _secrets
     jti = _secrets.token_urlsafe(16)
     payload = {
@@ -1502,11 +1666,15 @@ async def issue_magic_link(
         "org_id": token_user.org_id,
         "redirect_to": safe_redirect or "",
         "jti": jti,
+        # The issuing API token, so redemption can re-check it (see
+        # consume_magic_link_token).
+        "tid": token_user.id,
     }
     token = create_access_token(data=payload, expires_delta=expires_delta)
 
-    base = get_base_url_from_request(request).rstrip("/")
-    url = f"{base}/api/v1/admin/{org_slug}/auth/magic-consume?token={token}"
+    org = await db_session.get(Organization, token_user.org_id)
+    base = await _magic_link_base_url(org, request, db_session, host=host)
+    url = _magic_link_landing_url(base, token, safe_redirect)
 
     expires_at = (datetime.now() + expires_delta).isoformat()
 
@@ -1517,67 +1685,128 @@ async def issue_magic_link(
     }
 
 
+async def magic_link_landing_url_for_token(
+    token: str, org_slug: str, request: Request, db_session: AsyncSession
+) -> str:
+    """Where the legacy API consume URL forwards a link, without spending it.
+
+    Links issued before redemption moved to the web app point at the API
+    endpoint; they are sent on to the redeeming page on the org's own frontend.
+    The org comes from the signed token. Only a token that does not verify
+    (expired, garbage) falls back to the slug in the URL, so the page can show
+    its usual "link not valid" state on the right site.
+    """
+    from src.security.auth import decode_jwt
+    from src.services.email.utils import get_platform_base_url
+
+    payload = decode_jwt(token)
+    is_link = bool(payload) and payload.get("purpose") == "magic_link"
+
+    redirect_to = None
+    if is_link:
+        try:
+            redirect_to = _validate_magic_link_redirect(payload.get("redirect_to") or None)
+        except HTTPException:
+            redirect_to = None
+
+    org = None
+    if is_link:
+        org_id = payload.get("org_id")
+        if isinstance(org_id, int):
+            org = await db_session.get(Organization, org_id)
+    elif not payload:
+        org = (await db_session.execute(
+            select(Organization).where(Organization.slug == org_slug)
+        )).scalars().first()
+    base = (
+        await _magic_link_base_url(org, request, db_session)
+        if org
+        else get_platform_base_url(request)
+    )
+    return _magic_link_landing_url(base, token, redirect_to)
+
+
+async def _recheck_magic_link_issuer(
+    token_id, user: User, org_id: int, db_session: AsyncSession
+) -> None:
+    """Refuse a link whose issuing API token may no longer sign ``user`` in."""
+    from src.security.auth import api_token_user_from
+    from src.services.api_tokens.api_tokens import get_live_api_token
+
+    refused = _magic_link_error(
+        410, "MAGIC_LINK_INVALID", "This sign-in link is no longer valid. Please request a new one."
+    )
+
+    if token_id is None:
+        # Issued before links named their token (only during the rollout of
+        # this check; links live at most 15 minutes). Apply every rule that
+        # does not need the token itself.
+        # TODO(1.5): refuse links without a tid.
+        token_user = APITokenUser(org_id=org_id)
+        try:
+            await _check_token_can_impersonate(user, token_user, db_session, check_rights=False)
+        except HTTPException:
+            raise refused
+        return
+
+    api_token = await get_live_api_token(token_id, db_session) if type(token_id) is int else None
+    if api_token is None or api_token.org_id != org_id:
+        raise refused
+    try:
+        await _check_token_can_impersonate(user, api_token_user_from(api_token), db_session)
+    except HTTPException:
+        raise refused
+
+
 async def consume_magic_link_token(
     token: str,
     db_session: AsyncSession,
 ) -> tuple[User, Optional[str], Optional[str], Optional[str], Optional[str]]:
-    """Validate a magic-link JWT.
+    """Validate and spend a magic-link JWT.
 
     Returns ``(user, access_token, refresh_token, redirect_to, mfa_token)``.
     Exactly one of ``access_token``/``mfa_token`` is populated: when the user has
     two-factor enabled the link buys a second-factor challenge, not a session.
 
-    Raises HTTPException on expired/invalid token or if the user is no longer
-    a member of the org encoded in the token. Re-validates ``redirect_to``
-    defense-in-depth even though it was validated at issue time, so an older
-    unvalidated token can't slip through.
+    Raises HTTPException on an expired, invalid, incomplete or already-used
+    token, or if the user is no longer a member of the org encoded in the token.
+    Re-validates ``redirect_to`` defense-in-depth even though it was validated
+    at issue time.
     """
 
     from src.security.auth import decode_jwt
+    from src.services.auth.link_tokens import redeem_link_token
     from src.services.auth.session import issue_session_or_challenge
 
+    # decode_jwt checks signature and expiry and returns None on any failure.
     try:
         payload = decode_jwt(token)
     except Exception:
-        raise HTTPException(status_code=401, detail="Invalid or expired magic link")
+        payload = None
+    if not payload:
+        raise _magic_link_error(401, "MAGIC_LINK_INVALID", "This sign-in link is invalid or has expired.")
 
-    if not payload or payload.get("purpose") != "magic_link":
-        raise HTTPException(status_code=410, detail="Token is not a magic link")
+    # Links are minted by create_access_token, which stamps type "access".
+    if payload.get("purpose") != "magic_link" or payload.get("type") != "access":
+        raise _magic_link_error(410, "MAGIC_LINK_INVALID", "This is not a valid sign-in link.")
 
     email = payload.get("sub")
     org_id = payload.get("org_id")
     raw_redirect = payload.get("redirect_to") or None
     jti = payload.get("jti")
+    exp = payload.get("exp")
 
-    if not email or not org_id:
-        raise HTTPException(status_code=410, detail="Magic link payload incomplete")
+    # Every link issued since single-use enforcement has a jti. One without it
+    # is incomplete, not "legacy and therefore exempt".
+    if not email or not org_id or not jti or not isinstance(exp, int):
+        raise _magic_link_error(410, "MAGIC_LINK_INVALID", "This is not a valid sign-in link.")
 
-    # Enforce single-use: the first consume claims the jti; any replay hits
-    # an existing key and is rejected. Tokens minted before jti was added
-    # have none, so let them through; the JWT exp (max 15 min) bounds them.
-    # A Redis outage also falls through for the same reason.
-    if jti:
-        try:
-            import redis as _redis
-            from config.config import get_learnhouse_config as _get_cfg
-            _lh_cfg = _get_cfg()
-            _redis_url = _lh_cfg.redis_config.redis_connection_string
-            if _redis_url:
-                _r = _redis.Redis.from_url(
-                    _redis_url, socket_connect_timeout=2, socket_timeout=2
-                )
-                # TTL matches the magic-link max lifetime so the marker
-                # outlives any window the token could still be replayed in.
-                claimed = _r.set(f"magic_link_used:{jti}", "1", nx=True, ex=900)
-                if not claimed:
-                    raise HTTPException(
-                        status_code=410,
-                        detail="Magic link has already been used",
-                    )
-        except HTTPException:
-            raise
-        except Exception:
-            pass
+    # Spend the link before anything else. The record is durable and a failure
+    # to write it refuses the link, so no outage can make it work twice.
+    if not await redeem_link_token(db_session, jti, "magic_link", exp):
+        raise _magic_link_error(
+            410, "MAGIC_LINK_USED", "This sign-in link has already been used. Please request a new one."
+        )
 
     try:
         redirect_to = _validate_magic_link_redirect(raw_redirect)
@@ -1586,7 +1815,7 @@ async def consume_magic_link_token(
 
     user = (await db_session.execute(select(User).where(User.email == email))).scalars().first()
     if not user:
-        raise HTTPException(status_code=410, detail="User no longer exists")
+        raise _magic_link_error(410, "MAGIC_LINK_INVALID", "This sign-in link is for a user that no longer exists.")
 
     membership = (await db_session.execute(
         select(UserOrganization).where(
@@ -1595,13 +1824,27 @@ async def consume_magic_link_token(
         )
     )).scalars().first()
     if not membership:
-        raise HTTPException(status_code=410, detail="User is no longer a member of this organization")
+        raise _magic_link_error(
+            410, "MAGIC_LINK_INVALID", "This sign-in link is for a user who is no longer a member of this organization."
+        )
+
+    # Re-check what issuing checked, as of now: a link must not outlive the API
+    # token that issued it (revoked, expired, plan lapsed), nor sign in someone
+    # the token may no longer sign in (promoted to Admin, joined another org)
+    # in the minutes between issue and click.
+    await _recheck_magic_link_issuer(payload.get("tid"), user, org_id, db_session)
 
     # An admin-issued magic link is a password-equivalent credential, so it must
     # not walk past a second factor the user has deliberately enabled. When MFA
     # is active this yields a pending token instead of a session, and the caller
     # redirects the browser to the code challenge.
-    issue = await issue_session_or_challenge(db_session, user)
+    #
+    # The session is stamped exactly like the one /users/{id}/token mints: an
+    # API-token sign-in, bound to the org that issued it, so org sign-in and
+    # session-sharing policies treat it as what it is.
+    issue = await issue_session_or_challenge(
+        db_session, user, amr=AUTH_METHOD_API_TOKEN, org_id=org_id
+    )
     if issue.mfa_required:
         return user, None, None, redirect_to, issue.mfa_token
 
@@ -1825,6 +2068,7 @@ async def reset_user_progress(
         db_session.add(trail_run)
 
     await db_session.commit()
+    notify_ee_learner_progress(user_id, course.id)
 
     return {
         "course_uuid": course_uuid,
@@ -1916,6 +2160,12 @@ async def revoke_certificate(
     await db_session.delete(cert_user)
     await db_session.commit()
 
+    await track(
+        event_name=analytics_events.CERTIFICATE_REVOKED,
+        org_id=token_user.org_id,
+        user_id=user_id,
+        properties={"course_uuid": course.course_uuid},
+    )
     await dispatch_webhooks(
         event_name=analytics_events.CERTIFICATE_REVOKED,
         org_id=token_user.org_id,
@@ -2536,6 +2786,14 @@ async def bulk_unenroll_users(
             )
         )
         await db_session.commit()
+        for uid in unenrolled:
+            notify_ee_learner_progress(uid, course.id)
+            await track(
+                event_name=analytics_events.COURSE_LEFT,
+                org_id=token_user.org_id,
+                user_id=uid,
+                properties={"course_uuid": course.course_uuid},
+            )
 
     return {
         "unenrolled": unenrolled,

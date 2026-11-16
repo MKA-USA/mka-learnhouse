@@ -20,6 +20,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@components/ui/dropdown-menu"
+import ThumbnailImage from '@components/Objects/Thumbnails/ThumbnailImage'
 
 type PropsType = {
   community: Community
@@ -46,6 +47,7 @@ function CommunityCard(props: PropsType) {
 
   return (
     <div
+      data-kbd-item=""
       className="group relative flex flex-col bg-white rounded-xl nice-shadow overflow-hidden w-full transition-all duration-300 hover:scale-[1.01]"
     >
       {variant === 'dashboard' && (
@@ -63,7 +65,7 @@ function CommunityCard(props: PropsType) {
         className="block relative aspect-video overflow-hidden bg-gray-50"
       >
         {props.community.thumbnail_image && org?.org_uuid ? (
-          <img
+          <ThumbnailImage
             src={getCommunityThumbnailMediaDirectory(
               org.org_uuid,
               props.community.community_uuid,
@@ -146,7 +148,7 @@ const CommunityAdminEditsArea = (props: any) => {
       <div className="absolute top-2 end-2 z-20">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button aria-label="Community actions" className="p-1.5 bg-white/90 backdrop-blur-sm rounded-full hover:bg-white transition-all shadow-md">
+            <button aria-label={t('communities.actions.community_actions')} className="p-1.5 bg-white/90 backdrop-blur-sm rounded-full hover:bg-white transition-all shadow-md">
               <MoreVertical size={18} className="text-gray-700" />
             </button>
           </DropdownMenuTrigger>

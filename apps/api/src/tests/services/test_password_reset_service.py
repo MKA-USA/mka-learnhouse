@@ -348,6 +348,72 @@ class TestPasswordResetService:
         fake_redis.getdel.assert_called_once_with(redis_key)
 
     @pytest.mark.asyncio
+    async def test_reset_clears_the_unproven_inbox_marker(
+        self, mock_request, db, org, regular_user
+    ):
+        user = (await db.execute(
+            select(User).where(User.email == regular_user.email)
+        )).scalars().first()
+        assert user is not None
+        from src.services.users.users import _INBOX_UNPROVEN, inbox_unproven
+
+        # A reset code arrives through the inbox, so it proves the owner
+        user.email_verified_at = _INBOX_UNPROVEN
+        db.add(user)
+        await db.commit()
+        old_password = user.password
+        reset_code = "RESET123"
+        redis_key = f"pwd_reset:user:{user.user_uuid}:org:{org.org_uuid}:code:{reset_code}"
+        fake_redis = Mock()
+        fake_redis.getdel.return_value = json.dumps(
+            {
+                "reset_code": reset_code,
+                "reset_code_expires": int(datetime.now().timestamp()) + 3600,
+                "reset_code_type": "password_reset",
+                "created_at": datetime.now().isoformat(),
+                "created_by": user.user_uuid,
+                "org_uuid": org.org_uuid,
+            }
+        )
+
+        with patch(
+            "src.services.users.password_reset.validate_password_complexity",
+            return_value=SimpleNamespace(is_valid=True, errors=[], requirements={}),
+        ), patch(
+            "src.services.users.password_reset.get_learnhouse_config",
+            return_value=SimpleNamespace(
+                redis_config=SimpleNamespace(
+                    redis_connection_string="redis://test"
+                )
+            ),
+        ), patch(
+            "src.services.users.password_reset.redis.Redis.from_url",
+            return_value=fake_redis,
+        ), patch(
+            "src.services.users.password_reset._drop_unverified_sso_links",
+            new_callable=AsyncMock,
+        ) as drop_links:
+            result = await change_password_with_reset_code(
+                mock_request,
+                db,
+                AnonymousUser(),
+                "NewPassword123!",
+                org.id,
+                user.email,
+                reset_code,
+            )
+
+        assert result == "Password changed"
+        refreshed = (await db.execute(select(User).where(User.email == user.email))).scalars().first()
+        assert refreshed is not None
+        assert refreshed.password != old_password
+        assert security_verify_password("NewPassword123!", refreshed.password)
+        assert not inbox_unproven(refreshed)
+        # IdP links made while the inbox was unproven go with it
+        drop_links.assert_awaited_once_with(user.id, db)
+        fake_redis.getdel.assert_called_once_with(redis_key)
+
+    @pytest.mark.asyncio
     async def test_change_password_with_reset_code_error_paths(
         self, mock_request, db, org, regular_user
     ):
@@ -515,6 +581,43 @@ class TestPasswordResetService:
                 )
         assert expired_exc.value.status_code == 400
         fake_redis.getdel.assert_called_once()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("platform_path", [False, True])
+    async def test_reset_proves_the_inbox_and_drops_unverified_idp_links(
+        self, mock_request, db, org, regular_user, platform_path
+    ):
+        """An org's IdP or LMS that linked this address before its owner proved
+        it must not keep signing in once the owner resets the password."""
+        user = (await db.execute(select(User).where(User.email == regular_user.email))).scalars().first()
+        valid = json.dumps({"reset_code_expires": int(datetime.now().timestamp()) + 3600})
+        for verified, expected_calls in ((False, 1), (True, 0)):
+            user.email_verified = verified
+            db.add(user)
+            await db.commit()
+            drop = AsyncMock()
+            with patch(
+                "src.services.users.password_reset.validate_password_complexity",
+                return_value=SimpleNamespace(is_valid=True, errors=[], requirements={}),
+            ), patch(
+                "src.services.users.password_reset.get_learnhouse_config",
+                return_value=SimpleNamespace(redis_config=SimpleNamespace(redis_connection_string="redis://test")),
+            ), patch(
+                "src.services.users.password_reset.redis.Redis.from_url",
+                return_value=Mock(getdel=Mock(return_value=valid)),
+            ), patch(
+                "src.services.users.password_reset._get_redis_connection",
+                return_value=Mock(getdel=Mock(return_value=valid)),
+            ), patch("src.services.users.password_reset._drop_unverified_sso_links", drop):
+                if platform_path:
+                    await change_password_with_reset_code_platform(
+                        mock_request, db, AnonymousUser(), "NewPassword123!", user.email, "PLAT1234"
+                    )
+                else:
+                    await change_password_with_reset_code(
+                        mock_request, db, AnonymousUser(), "NewPassword123!", org.id, user.email, "RESET123"
+                    )
+            assert drop.await_count == expected_calls
 
     @pytest.mark.asyncio
     async def test_platform_reset_code_paths(self, mock_request, db, regular_user):

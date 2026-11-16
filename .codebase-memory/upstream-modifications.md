@@ -1921,3 +1921,50 @@ Why: owner decision to apply MKA brand/culture guardrails to every AI call (live
 ```
 
 Re-apply: `grep -n "MKA fork" apps/api/src/services/ai/llm/client.py apps/api/src/services/ai/image/generator.py` (4 + 2 lines), then `cd apps/api && uv lock`. Guarded by `apps/api/src/tests/mka_brand/` (fails if `_agent` stops honoring toolsets/system prompt). Note: pydantic-ai 2.54 has no `MCPServerStreamableHTTP`; the integration uses `pydantic_ai.mcp.MCPToolset` (fastmcp client, `headers=`).
+
+
+## Upstream sync 1.4.5 (2026-11-15, branch `sync/upstream-manual`): hook relocations and drops
+
+Merge base was `5e28b0723` (upstream 1.4.0 era); 436 upstream commits merged. Every conflicted upstream file was
+resolved by taking upstream, then re-applying the fork hooks below. Hooks not listed here were re-applied at the same
+spot (`grep -rn "MKA fork" apps/` to enumerate them).
+
+### Moved hook sites (new location, same behaviour)
+
+- `apps/web/components/Objects/Activities/DynamicCanva/DynamicCanva.tsx` -> **`DynamicCanva/activityExtensions.ts`**:
+  upstream moved the extension list into `getActivityExtensions()`; `...mkaEditorExtensions({ editable: false, activity: props.activity, courseUuid: props.courseUuid })` is spread right after `MagicBlock.configure(...)`. `DynamicCanva.tsx` no longer imports it. Guard test `tests/mka-editor-hooks.test.mjs` updated (REQUIRED now lists `activityExtensions.ts`; `DynamicCanva.tsx` is allow-listed).
+- `apps/web/components/Dashboard/Menus/DashMobileMenu.tsx`: the "More" sheet is now data-driven; the fork entry is
+  `mkaScope !== 'none' && { href: '/dash/compliance', Icon: ShieldCheck, label: 'Compliance' }, // MKA fork` in `sections`
+  (plus `canModerate && { href: '/dash/moderation', ... }`). Guard test H2 updated.
+- `apps/web/components/Dashboard/Menus/DashLeftMenu.tsx`: compliance `MenuLink` sits after the analytics hover menu
+  (before the "Optional features" menu); moderation `MenuLink` after playgrounds. `ShieldCheck` is added to the phosphor import.
+- `apps/web/app/orgs/[orgslug]/dash/courses/course/[courseuuid]/[subpage]/page.tsx`: `tabs` is now
+  `[...allTabs.filter(...), ...useMkaCourseTabs(params.courseuuid)]` (was `tabs.push(...)`). Guard test H3 updated.
+- `apps/api/src/services/ai/ai.py`: upstream now renders activity content per reader (`render_for_reader`, its own
+  conditional/dynamic blocks). `mka_content_for_ai(...)` is applied to the result of `render_for_reader` at all three call sites.
+- `apps/api/src/services/ai/llm/client.py`: `_agent(model: Model, ...)` now receives a built model, so the fork hook is just
+  `system_prompt=mka_brand.augment(system_prompt) or ()` and `toolsets=mka_brand.toolsets_for(model)` (the `build_model` hoist is gone).
+- `apps/web/app/api/signup/route.ts`: upstream now relays `x-forwarded-for`/`x-real-ip` itself; the fork merges
+  `mkaSignupForwardHeaders(...)` over upstream's `headers` and still uses `mkaSignupFetch`.
+- `apps/web/app/auth/signup/{OpenSignup,InviteOnlySignUp}.tsx`: `applyMkaServerErrors(res.status, message?.detail, setFieldError)`
+  now uses the `setFieldError` from Formik's `onSubmit` helpers (upstream added `getFieldErrors`).
+- `apps/web/app/auth/{login,forgot}/page.tsx`: titles are `... | MKA Ilm` (upstream replaced the em dash with `|`).
+- `apps/web/components/Objects/Watermark.tsx`, `OrgMenu.tsx`: upstream gates both on `useShowLearnHouseBranding()`; the fork keeps the
+  MKA logo/link inside that gate.
+- `AssignmentSubmissionsSubPage.tsx`: the moderation flag indicator moved into the learner cell of `SubmissionRow` (the old status-badge row no longer exists).
+
+### Hooks added to files the sync would otherwise have dropped
+
+- `apps/web/package.json`: `"@radix-ui/react-radio-group": "^1.4.8"` (fork `components/ui/radio-group.tsx`, PR #34); lockfile regenerated with `bun install`.
+- `apps/api/pyproject.toml`: `pydantic-ai-slim[...,mcp]` and `typesafe-sdk==0.7.2` (Brand Center MCP + Jev); `uv.lock` regenerated with `uv lock`. Also `[tool.coverage.report] fail_under = 95` (upstream sets 100; fork modules in `services/mka` and `routers/mka_*` sit at about 99% overall, so the `test` check fails at 100).
+- `apps/web/locales/en.json`: top-level `moderation` block (upstream has none at the top level).
+- `.gitignore`: MKA secret-hygiene block re-appended.
+- `apps/api/src/tests/routers/conftest.py` (new, fork-owned): upstream caps API-token rights by the creator's current role and the shared
+  `ADMIN_RIGHTS` fixture has no `assignments` bucket, so `test_mka_*` modules give the fixture admin that bucket (real Admin roles have it).
+
+### Hooks that no longer have a site (needs coordinator decision, not re-applied)
+
+- `routers/ai/rag.py` RAG **chat** endpoint was removed upstream (Jev guardrail audit, intent routing, `RAGChatRequest.mode`, `copilot` page).
+  `jev_integration.should_route_to_general` / `intent_routing_active` are now unused; `test_rag_request_mode_defaults_to_none` was removed.
+- Upstream made org analytics, audit/user dossier, the demo org and the payments UI Enterprise-only or rewrote them; those
+  upstream files were deleted from the OSS tree and the fork's edits to them were dropped (`apps/web/ee-stub/` supplies stand-ins).

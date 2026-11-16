@@ -42,6 +42,7 @@ from src.services.admin.admin import (
     get_course_analytics,
     list_course_enrollments,
     remove_user_from_org_admin,
+    reset_user_progress,
     revoke_certificate,
     uncomplete_activity,
     update_user_profile,
@@ -223,7 +224,7 @@ async def test_consume_magic_link_token_incomplete_payload_raises_410(db):
         with pytest.raises(HTTPException) as exc_info:
             await consume_magic_link_token("fake-token", db)
     assert exc_info.value.status_code == 410
-    assert "incomplete" in exc_info.value.detail.lower()
+    assert exc_info.value.detail["code"] == "MAGIC_LINK_INVALID"
 
 
 @pytest.mark.asyncio
@@ -233,12 +234,16 @@ async def test_consume_magic_link_token_ghost_user_raises_410(db):
         mock_decode.return_value = {
             "sub": "ghost@nonexistent.com",
             "purpose": "magic_link",
+            "type": "access",
+            "jti": "ghost-jti",
+            "exp": 4102444800,
             "org_id": 1,
         }
         with pytest.raises(HTTPException) as exc_info:
             await consume_magic_link_token("fake-token", db)
     assert exc_info.value.status_code == 410
-    assert "no longer exists" in exc_info.value.detail.lower()
+    assert exc_info.value.detail["code"] == "MAGIC_LINK_INVALID"
+    assert "no longer exists" in exc_info.value.detail["message"]
 
 
 # ---------------------------------------------------------------------------
@@ -727,3 +732,20 @@ async def test_uncomplete_activity_demotes_completed_trailrun(db, org, course, u
         sql_select(TrailRun).where(TrailRun.id == trail_run.id)
     )).scalars().first()
     assert refreshed.status == StatusEnum.STATUS_IN_PROGRESS
+
+
+@pytest.mark.asyncio
+async def test_progress_changes_notify_ee(db, org, course, user_role, activity, mock_request):
+    """EE forwards progress to external gradebooks (LTI); every admin API
+    change to a learner's progress must reach it."""
+    token_user = _make_token_user(org.id)
+    user = await _create_user(db, user_id=225, username="notify225", email="notify225@test.com")
+    await _add_user_to_org(db, user, org, role_id=user_role.id)
+
+    with patch("src.services.admin.admin.notify_ee_learner_progress") as notify:
+        await complete_course(mock_request, token_user, user.id, course.course_uuid, db)
+        await uncomplete_activity(token_user, user.id, activity.activity_uuid, db)
+        await reset_user_progress(token_user, user.id, course.course_uuid, db)
+        await bulk_unenroll_users(token_user, course.course_uuid, [user.id], db)
+
+    assert notify.call_args_list == [((user.id, course.id),)] * 4

@@ -7,6 +7,25 @@ from dotenv import load_dotenv
 # One-shot guard for the missing-credential report below: config is loaded on
 # every request, and repeating the report drowns out every other startup log.
 _LOGGED_MISSING_INTERNAL_KEYS = False
+# Same, for the example-JWT-secret warning.
+_LOGGED_PLACEHOLDER_JWT_SECRET = False
+
+# Example values from .env.example files and the docs. A deployment that kept
+# one has a secret anyone can read. Keep in sync with apps/collab/src/index.ts.
+PLACEHOLDER_SECRETS = frozenset({
+    "your-jwt-secret-key",
+    "your-internal-key",
+    "CHANGE_ME_generate_with_openssl_rand_hex_32",
+    "replace-with-at-least-32-random-characters",
+    "replace-with-random-shared-secret",
+})
+
+
+def shared_secret_from_env(name: str) -> str:
+    """A service-to-service key from the environment, or "" when it is unset or
+    still an example value (which anyone can read, so it must open nothing)."""
+    value = os.getenv(name, "")
+    return "" if value in PLACEHOLDER_SECRETS else value
 
 
 class CookieConfig(BaseModel):
@@ -96,9 +115,24 @@ class AIConfig(BaseModel):
     # Text-to-speech / podcast model (Google Gemini TTS). Like image generation
     # this is a Google-only path resolving its key from `api_key` (when provider
     # is Google) or `gemini_api_key`. Override the exact model id with
-    # LEARNHOUSE_AI_TTS_MODEL; defaults to `gemini-2.5-flash-preview-tts`. All
-    # Gemini TTS models are currently preview, so keep this configurable.
+    # LEARNHOUSE_AI_TTS_MODEL; defaults to the GA `gemini-3.8-flash-tts`.
     tts_model: str | None = None
+    # Model used by the Atlas dashboard agent (resolved by the provider-agnostic
+    # LLM layer). Defaults to a fast tier because tool-use latency adds up fast;
+    # override via LEARNHOUSE_ATLAS_MODEL for harder reasoning tasks.
+    atlas_model: str | None = None
+
+
+class MCPConfig(BaseModel):
+    # The MCP server mounted at /mcp on the API, for external agents (Claude,
+    # ChatGPT, Cursor, ...). On by default: every call acts as a signed-in
+    # member (OAuth) or an API token, so it can do no more than that member or
+    # token already can. LEARNHOUSE_MCP_ENABLED=false turns the endpoint off.
+    enabled: bool = True
+    # Public URL of the endpoint, e.g. https://api.example.com/mcp. OAuth
+    # tokens are bound to it, so set it whenever a proxy rewrites the host or
+    # scheme. Derived from each request when unset.
+    public_url: str | None = None
 
 
 class S3ApiConfig(BaseModel):
@@ -175,6 +209,7 @@ class LearnHouseConfig(BaseModel):
     redis_config: RedisConfig
     security_config: SecurityConfig
     ai_config: AIConfig
+    mcp_config: MCPConfig = MCPConfig()
     mailing_config: MailingConfig
     payments_config: InternalPaymentsConfig
     tinybird_config: TinybirdConfig | None
@@ -378,6 +413,21 @@ def get_learnhouse_config() -> LearnHouseConfig:
         raise ValueError(
             "SECURITY ERROR: LEARNHOUSE_AUTH_JWT_SECRET_KEY must be set. "
             "Generate a secure key with: python -c \"import secrets; print(secrets.token_urlsafe(32))\""
+        )
+    global _LOGGED_PLACEHOLDER_JWT_SECRET
+    if auth_jwt_secret_key in PLACEHOLDER_SECRETS and not _LOGGED_PLACEHOLDER_JWT_SECRET:
+        # Warn rather than refuse: the key also derives the encryption for
+        # stored webhook and MFA secrets and peppers API tokens, so rotating it
+        # is a planned migration, not something to force on an upgrade. Once
+        # per process: config is loaded on every request.
+        _LOGGED_PLACEHOLDER_JWT_SECRET = True
+        import logging as _cfg_log
+        _cfg_log.getLogger(__name__).critical(
+            "SECURITY: LEARNHOUSE_AUTH_JWT_SECRET_KEY is the example value from the docs, "
+            "so anyone can sign valid sessions for this instance. Rotate it to a random value "
+            "(python -c \"import secrets; print(secrets.token_urlsafe(32))\"). Rotating signs "
+            "everyone out and invalidates stored webhook secrets, API tokens and MFA enrolments "
+            "unless LEARNHOUSE_MFA_ENCRYPTION_KEY is set."
         )
     if len(auth_jwt_secret_key) < 32:
         raise ValueError(
@@ -637,7 +687,8 @@ def get_learnhouse_config() -> LearnHouseConfig:
         else yaml_config.get("mailing_config", {}).get("smtp_use_tls", True)
     )
 
-    # Tinybird config, auto-enabled when API URL is set
+    # Legacy Tinybird credentials: only read by the Enterprise one-time import of old
+    # analytics data. Analytics itself no longer uses Tinybird.
     env_tinybird_api_url = os.environ.get("LEARNHOUSE_TINYBIRD_API_URL")
     env_tinybird_ingest_token = os.environ.get("LEARNHOUSE_TINYBIRD_INGEST_TOKEN")
     env_tinybird_read_token = os.environ.get("LEARNHOUSE_TINYBIRD_READ_TOKEN")
@@ -826,6 +877,11 @@ def get_learnhouse_config() -> LearnHouseConfig:
     )
 
     # AI Config
+    env_atlas_model = os.environ.get("LEARNHOUSE_ATLAS_MODEL")
+    atlas_model = env_atlas_model or yaml_config.get("ai_config", {}).get(
+        "atlas_model"
+    )
+
     ai_config = AIConfig(
         is_ai_enabled=bool(is_ai_enabled),
         provider=ai_provider,
@@ -840,6 +896,17 @@ def get_learnhouse_config() -> LearnHouseConfig:
         gemini_api_key=gemini_api_key,
         image_model=ai_image_model,
         tts_model=ai_tts_model,
+        atlas_model=atlas_model,
+    )
+
+    mcp_yaml = yaml_config.get("mcp_config", {}) or {}
+    mcp_config = MCPConfig(
+        enabled=_env_bool(
+            os.environ.get("LEARNHOUSE_MCP_ENABLED"), mcp_yaml.get("enabled", True)
+        ),
+        public_url=(
+            os.environ.get("LEARNHOUSE_MCP_PUBLIC_URL") or mcp_yaml.get("public_url") or None
+        ),
     )
 
     # Surface missing internal-service keys at boot rather than at first
@@ -901,6 +968,7 @@ def get_learnhouse_config() -> LearnHouseConfig:
         database_config=database_config,
         security_config=SecurityConfig(auth_jwt_secret_key=auth_jwt_secret_key),
         ai_config=ai_config,
+        mcp_config=mcp_config,
         redis_config=RedisConfig(redis_connection_string=redis_connection_string),
         mailing_config=MailingConfig(
             email_provider=email_provider,

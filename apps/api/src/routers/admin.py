@@ -6,17 +6,16 @@ All endpoints are scoped by org_slug and require API token authentication
 """
 
 from typing import Any, Dict, List, Optional
-from urllib.parse import quote
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, EmailStr, Field
 from sqlmodel.ext.asyncio.session import AsyncSession
 from src.core.events.database import get_db_session
 from src.db.trails import TrailRead
 from src.db.users import OrgMemberUserRead, UserRead
-from src.routers.auth import set_auth_cookies
 from src.security.auth import get_current_user
 from src.services.admin.admin import (
+    issue_embed_session,
     _require_api_token,
     _resolve_org_slug,
     add_course_to_usergroup,
@@ -29,7 +28,6 @@ from src.services.admin.admin import (
     check_course_access,
     complete_activity,
     complete_course,
-    consume_magic_link_token,
     create_usergroup,
     delete_usergroup,
     enroll_user,
@@ -46,6 +44,7 @@ from src.services.admin.admin import (
     issue_user_token,
     list_course_enrollments,
     list_usergroup_members,
+    magic_link_landing_url_for_token,
     provision_user,
     remove_course_from_usergroup,
     remove_usergroup_member,
@@ -70,6 +69,26 @@ class TokenResponse(BaseModel):
     token_type: str = Field(default="bearer", description="Token type (always 'bearer')")
     user_id: int = Field(description="ID of the user the token was issued for")
     user_uuid: str = Field(description="UUID of the user")
+
+
+class EmbedSessionRequest(BaseModel):
+    """Request body for minting an embed session."""
+    user_id: int = Field(description="ID of the learner the session is for")
+    ttl_seconds: Optional[int] = Field(
+        default=None,
+        description="Lifetime in seconds, 60 to 3600. Defaults to 900 (15 minutes).",
+    )
+
+
+class EmbedSessionResponse(BaseModel):
+    """A short-lived learner session for the embed components."""
+    access_token: str = Field(description="Embed session token. Hand it to the browser; never the API token.")
+    token_type: str = Field(default="bearer", description="Token type (always 'bearer')")
+    expires_in: int = Field(description="Seconds until the session expires")
+    expires_at: int = Field(description="Unix time (seconds) the session expires at")
+    user_id: int = Field(description="ID of the learner")
+    user_uuid: str = Field(description="UUID of the learner")
+    org_id: int = Field(description="ID of the organization the session is held to")
 
 
 class CourseAccessResponse(BaseModel):
@@ -170,13 +189,23 @@ class RemoveUserResponse(BaseModel):
 class MagicLinkRequest(BaseModel):
     """Request body for issuing a magic sign-in link."""
     user_id: int
-    redirect_to: Optional[str] = Field(default=None, description="Path to redirect to after the user lands on the consume endpoint")
+    redirect_to: Optional[str] = Field(default=None, description="Same-origin path to open once the user is signed in")
     ttl_seconds: int = Field(default=300, ge=60, le=900, description="Token lifetime in seconds (60–900)")
+    host: Optional[str] = Field(
+        default=None,
+        max_length=253,
+        description=(
+            "One of the organization's verified custom domains to build the link on, "
+            "e.g. a domain served through a CDN. The link goes to that host as given, "
+            "so only name a domain the organization still controls. Defaults to the "
+            "organization's own site."
+        ),
+    )
 
 
 class MagicLinkResponse(BaseModel):
     url: str = Field(description="Clickable URL to deliver to the user")
-    token: str = Field(description="Raw JWT (for integrations that prefer to build their own URL)")
+    token: str = Field(description="Raw JWT, for integrations that build their own URL: `https://{org site}/auth/magic?token={token}`")
     expires_at: str = Field(description="ISO8601 timestamp when the token expires")
 
 
@@ -396,6 +425,38 @@ async def api_admin_issue_token(
     await _resolve_org_slug(org_slug, token_user, db_session)
     result = await issue_user_token(token_user, body.user_id, db_session)
     return TokenResponse(**result)
+
+
+@router.post(
+    "/{org_slug}/auth/embed-session",
+    response_model=EmbedSessionResponse,
+    summary="Mint an embed session",
+    description=(
+        "Mint a short-lived session for a learner, for the LearnHouse embed components "
+        "(@learnhouse/react, @learnhouse/vue) to act as that learner in a browser. "
+        "The session lasts 15 minutes by default (1 hour at most) and has no refresh token: "
+        "mint a new one when it expires. It only works inside this organization, only on the "
+        "routes the embed components use, and never on account settings. "
+        "Requires `users.action_update` permission. Privileged targets (org Admin/Maintainer, "
+        "platform superadmin) and accounts that belong to other organizations are refused."
+    ),
+    responses={
+        200: {"description": "Embed session minted for the learner.", "model": EmbedSessionResponse},
+        403: {"description": "API token lacks permission, target is privileged or shared, user not in org, or org_slug mismatch"},
+        404: {"description": "User or organization not found"},
+        422: {"description": "ttl_seconds out of range"},
+    },
+)
+async def api_admin_issue_embed_session(
+    org_slug: str,
+    body: EmbedSessionRequest,
+    current_user=Depends(get_current_user),
+    db_session: AsyncSession = Depends(get_db_session),
+) -> EmbedSessionResponse:
+    token_user = _require_api_token(current_user)
+    await _resolve_org_slug(org_slug, token_user, db_session)
+    result = await issue_embed_session(token_user, body.user_id, db_session, body.ttl_seconds)
+    return EmbedSessionResponse(**result)
 
 
 # ── Course access ────────────────────────────────────────────────────────────
@@ -902,6 +963,10 @@ async def api_admin_get_user_by_email(
         "Generate a short-lived URL that, when opened in a browser, will log "
         "the target user in and optionally redirect them to a specific path. "
         "Token lifetime is clamped to 60–900 seconds.\n\n"
+        "The URL is on the organization's own site (its verified custom domain, "
+        "else its LearnHouse subdomain). Each link signs in once: any later use "
+        "is refused. A user with two-factor authentication enabled is still "
+        "asked for their code.\n\n"
         "The target must be an ordinary member. Consuming the link mints a full "
         "session, so the same rule as `/users/{user_id}/token` applies: an API "
         "token cannot sign in as an organization Admin or Maintainer, or as a "
@@ -910,7 +975,7 @@ async def api_admin_get_user_by_email(
     ),
     responses={
         200: {"description": "Magic sign-in URL and underlying JWT. Token lifetime is already clamped.", "model": MagicLinkResponse},
-        400: {"description": "redirect_to is not a same-origin path"},
+        400: {"description": "redirect_to is not a same-origin path, or host is not a verified custom domain of the organization"},
         403: {
             "description": (
                 "User not in this org, or the target is an Admin, Maintainer or "
@@ -938,105 +1003,34 @@ async def api_admin_issue_magic_link(
         org_slug=org_slug,
         request=request,
         db_session=db_session,
+        host=body.host,
     )
     return MagicLinkResponse(**result)
 
 
-def _support_url() -> str:
-    """Return a support contact URL for the magic-link error page.
-
-    The old `{platform}/dashboard/support` path 404s (the platform dashboard is
-    gone on .io), so use a support mailto that can never break.
-    """
-    return "mailto:hello@learnhouse.app"
-
-
-def _render_magic_link_error(title: str, message: str) -> HTMLResponse:
-    """Render a friendly HTML error page when a magic link fails."""
-    support = _support_url()
-    # Plain HTML, no templating dependency. Values are hardcoded/escaped.
-    # title/message come from our own HTTPExceptions, not user input.
-    safe_title = title.replace("<", "&lt;").replace(">", "&gt;")
-    safe_message = message.replace("<", "&lt;").replace(">", "&gt;")
-    html = f"""<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>LearnHouse sign-in link</title>
-<style>
-  body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-         background: #f6f7f9; color: #111827; margin: 0;
-         display: flex; align-items: center; justify-content: center; min-height: 100vh; }}
-  .card {{ background: #fff; border-radius: 14px; padding: 40px 36px; max-width: 440px;
-           box-shadow: 0 10px 30px rgba(17,24,39,0.08); text-align: center; }}
-  h1 {{ font-size: 22px; margin: 0 0 12px; color: #111827; }}
-  p  {{ font-size: 15px; line-height: 1.55; color: #4b5563; margin: 0 0 24px; }}
-  .support {{ display: inline-block; background: #111827; color: #fff !important;
-              text-decoration: none; padding: 11px 20px; border-radius: 999px;
-              font-weight: 500; font-size: 14px; }}
-  .support:hover {{ background: #1f2937; }}
-  .hint {{ font-size: 13px; color: #9ca3af; margin-top: 20px; }}
-</style>
-</head>
-<body>
-  <div class="card">
-    <h1>{safe_title}</h1>
-    <p>{safe_message}</p>
-    <a class="support" href="{support}">Something not working as expected?</a>
-    <p class="hint">Our team can re-issue your sign-in link or help you access your account.</p>
-  </div>
-</body>
-</html>"""
-    return HTMLResponse(content=html, status_code=410)
-
-
 @router.get(
     "/{org_slug}/auth/magic-consume",
-    summary="Consume a magic sign-in link (browser-facing)",
+    summary="Open a magic sign-in link issued by an older version (browser-facing)",
     description=(
-        "Public endpoint (no API token required). Validates the magic-link "
-        "JWT from the query string, sets authentication cookies, and redirects "
-        "to the target path. On error, renders a friendly HTML page with a "
-        "support link instead of a raw JSON error."
+        "Public endpoint (no API token required). Links are now issued straight "
+        "to the org's sign-in page (`/auth/magic`), which redeems them. This "
+        "endpoint keeps links in the older API form working: it forwards the "
+        "browser to that page on the org's own domain without spending the link."
     ),
     responses={
-        302: {"description": "Success: cookies set and redirect to target"},
-        410: {"description": "Token invalid, expired, or user no longer a member (HTML page)"},
+        302: {"description": "Forward to the org's sign-in page, which redeems the link"},
     },
 )
 async def api_admin_magic_consume(
     request: Request,
-    response: Response,
     org_slug: str,
     token: str = Query(..., description="Magic-link JWT"),
     db_session: AsyncSession = Depends(get_db_session),
 ):
-    try:
-        _user, access_token, refresh_token, redirect_to, mfa_token = await consume_magic_link_token(
-            token=token,
-            db_session=db_session,
-        )
-    except HTTPException as exc:
-        return _render_magic_link_error(
-            title="This sign-in link can't be used",
-            message=str(exc.detail) if exc.detail else "The link may have expired or already been used.",
-        )
-
-    target = redirect_to or "/"
-
-    if mfa_token:
-        # No cookies set: the link only gets the user as far as the code
-        # challenge. The login page picks the pending token up from the query
-        # string and opens directly on the second-factor step.
-        challenge_url = f"/auth/login?mfa_token={quote(mfa_token, safe='')}"
-        if redirect_to:
-            challenge_url += f"&redirect_to={quote(redirect_to, safe='')}"
-        return RedirectResponse(url=challenge_url, status_code=302)
-
-    redirect = RedirectResponse(url=target, status_code=302)
-    set_auth_cookies(redirect, access_token, refresh_token, request)
-    return redirect
+    target = await magic_link_landing_url_for_token(
+        token=token, org_slug=org_slug, request=request, db_session=db_session
+    )
+    return RedirectResponse(url=target, status_code=302)
 
 
 # ── Bulk enrollment ──────────────────────────────────────────────────────────

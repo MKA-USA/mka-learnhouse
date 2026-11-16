@@ -182,31 +182,18 @@ class TestReaderPathsRespectThePaywall:
         assert exc.value.status_code == 403
 
 
-class TestAuditDossier:
-    async def test_superadmin_outside_the_org_is_not_disclosed(self, db, org, other_org, admin_role):
-        from src.routers.audit import _verify_target_in_org
-
-        db.add(User(
-            id=30, username="ops", first_name="", last_name="", email="ops@test.com",
-            password="x", user_uuid="user_ops", is_superadmin=True,
-            creation_date=str(datetime.now()), update_date=str(datetime.now()),
-        ))
-        await db.commit()
-
-        with pytest.raises(HTTPException) as exc:
-            await _verify_target_in_org(30, org.id, db, acting_user_id=1)
-        assert exc.value.status_code == 404
-
-
 class TestMediaRespectsThePaywall:
     async def test_stream_refuses_unpaid_reader(self, db, course, activity, regular_user, mock_request):
         from src.routers.stream import _verify_course_activity_access
-        from src.security.rbac.resource_access import AccessDecision
+        from src.security.rbac.resource_access import AccessAction, AccessDecision
+
+        async def read_only(_request, _db, _user, _uuid, action, *_args, **_kwargs):
+            # A reader, not an editor: course editors bypass the paywall.
+            return AccessDecision(allowed=action == AccessAction.READ, reason="ok")
 
         with patch(
             "src.services.courses.activities.access.check_resource_access",
-            new_callable=AsyncMock,
-            return_value=AccessDecision(allowed=True, reason="ok"),
+            side_effect=read_only,
         ), patch(
             "src.services.courses.activities.access.check_ee_activity_paid_access",
             new_callable=AsyncMock, return_value=False,

@@ -1,7 +1,7 @@
 """Provider-agnostic embeddings (Pydantic AI).
 
-Embeddings follow the configured AI provider wherever that provider exposes an embeddings API
-— Google and the OpenAI family (OpenAI, Azure, Together, and local Ollama). Fireworks AI
+Embeddings follow the configured AI provider wherever that provider exposes an embeddings API:
+Google and the OpenAI family (OpenAI, Azure, Together, and local Ollama). Fireworks AI
 embeddings are opt-in only: they are used when the *embedding* provider is explicitly set to
 ``fireworks`` (``LEARNHOUSE_AI_EMBEDDING_PROVIDER``) together with an explicit embedding model
 (no default). Providers without an embeddings API (Anthropic, DeepSeek, Moonshot, Mistral,

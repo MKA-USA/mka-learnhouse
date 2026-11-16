@@ -11,6 +11,7 @@ SECURITY:
 - Podcast episode content for non-public podcasts requires auth
 """
 
+import asyncio
 import os
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -34,6 +35,7 @@ from src.security.submission_file_access import (
     enforce_submission_file_access,
     is_solution_file,
     is_submission_file,
+    split_content_path,
 )
 from src.services.courses.transfer.storage_utils import (
     get_storage_client,
@@ -213,6 +215,10 @@ async def _verify_episode_access(
             raise HTTPException(status_code=401, detail="Authentication required")
         raise HTTPException(status_code=403, detail="Access denied")
 
+    # A sold podcast's audio is for its buyers.
+    from src.core.ee_hooks import require_ee_resource_paid_access
+    await require_ee_resource_paid_access(request, db_session, current_user, podcast.podcast_uuid)
+
     if not (podcast.published and episode.published):
         can_edit = (await check_resource_access(
             request, db_session, current_user, podcast.podcast_uuid,
@@ -237,11 +243,13 @@ async def _check_content_access(
 
     Path patterns:
     - orgs/{uuid}/courses/{uuid}/activities/{uuid}/... → check course access
-    - orgs/{uuid}/courses/{uuid}/...                   → course metadata (public)
+    - orgs/{uuid}/courses/{uuid}/thumbnails/...        → course thumbnail (public)
+    - orgs/{uuid}/courses/{uuid}/{file}                → course metadata (public)
+    - orgs/{uuid}/courses/{uuid}/{other}/...           → denied (e.g. SCORM)
     - orgs/{uuid}/podcasts/{uuid}/episodes/{uuid}/...  → check podcast access
     - orgs/{uuid}/...                                  → org-level (public)
     """
-    parts = file_path.split('/')
+    parts = split_content_path(file_path)
 
     # Course activity files (including submission files): the org segment must
     # be the course's org, so one org's path can't front another org's file.
@@ -306,6 +314,15 @@ async def _check_content_access(
         # access (these are only served via /media/{uuid}/file).
         raise HTTPException(status_code=403, detail="Access denied")
 
+    # Anything else under a course is not public. Only thumbnails (shown in
+    # listings) and files at the course root are; other subtrees such as
+    # shared SCORM packages are served by their own gated route, so they are
+    # refused here rather than handed out with a public Cache-Control.
+    if len(parts) >= 3 and parts[0] == 'orgs' and parts[2] == 'courses':
+        if len(parts) > 5 and parts[4] != 'thumbnails':
+            raise HTTPException(status_code=403, detail="Access denied")
+        return True
+
     # Course metadata (thumbnails, etc.) and org-level content: always public
     if len(parts) >= 2 and parts[0] == 'orgs':
         return True
@@ -359,7 +376,8 @@ async def serve_content_file(
 
     # Get file metadata
     try:
-        head = s3_client.head_object(Bucket=bucket, Key=s3_key)
+        # boto3 is blocking; keep the S3 round trip off the event loop.
+        head = await asyncio.to_thread(s3_client.head_object, Bucket=bucket, Key=s3_key)
     except ClientError as e:
         code = e.response["Error"]["Code"]
         if code in ("NoSuchKey", "404"):
@@ -499,7 +517,8 @@ async def head_content_file(
         raise HTTPException(status_code=500, detail="Storage not configured")
 
     try:
-        head = s3_client.head_object(Bucket=bucket, Key=s3_key)
+        # boto3 is blocking; keep the S3 round trip off the event loop.
+        head = await asyncio.to_thread(s3_client.head_object, Bucket=bucket, Key=s3_key)
     except ClientError as e:
         code = e.response["Error"]["Code"]
         if code in ("NoSuchKey", "404"):

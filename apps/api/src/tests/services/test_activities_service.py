@@ -64,8 +64,22 @@ class TestCreateActivity:
         with patch(
             "src.services.courses.activities.activities.check_resource_access",
             new_callable=AsyncMock,
-        ):
+        ), patch("src.services.courses.activities.activities.notify_ee_course_content_changed") as notify, patch(
+            "src.services.courses.activities.utils.track", new_callable=AsyncMock
+        ) as mock_track:
             result = await create_activity(mock_request, activity_obj, admin_user, db)
+        # A new activity changes course progress percentages (LTI).
+        notify.assert_called_once()
+        mock_track.assert_awaited_once_with(
+            event_name="activity_created",
+            org_id=course.org_id,
+            user_id=admin_user.id,
+            properties={
+                "course_uuid": course.course_uuid,
+                "activity_uuid": result.activity_uuid,
+                "activity_type": "TYPE_DYNAMIC",
+            },
+        )
 
         assert isinstance(result, ActivityRead)
         assert result.name == "New Activity"
@@ -125,8 +139,10 @@ class TestGetEditorBootstrap:
 
     @pytest.mark.asyncio
     async def test_scrubs_content_when_no_paid_access(
-        self, mock_request, db, org, course, chapter, activity, admin_user
+        self, mock_request, db, org, course, chapter, activity, regular_user
     ):
+        # Course editors bypass the paywall scrub, so let a non-editor through
+        # the bootstrap gate (patched) and assert the reader-side scrub still runs.
         fake_org_read = MagicMock(spec=OrganizationRead)
 
         with patch(
@@ -148,7 +164,7 @@ class TestGetEditorBootstrap:
             return_value=fake_org_read,
         ):
             result = await get_editor_bootstrap(
-                mock_request, activity.activity_uuid, admin_user, db
+                mock_request, activity.activity_uuid, regular_user, db
             )
 
         assert result.activity.content == {"paid_access": False}
