@@ -42,12 +42,23 @@ describe("roster generator", () => {
     expect(e("new-immigrants", "New York Metro")).toBe("immigrants.newyorkmetro@mkausa.org");
     expect(rows.filter((r) => r.level === "majlis" || r.role === "regional_qaid").every((r) => r.source === "formula")).toBe(true);
   });
+  test("coursesFor: Qaid, Naib Qaid and Regional Qaid get General + Majlis Plan; department officers get their department course; Sadr gets General only", () => {
+    const one = (f: (r: (typeof rows)[number]) => boolean) => rows.find(f)!;
+    for (const r of [one((x) => x.role === "qaid" && x.majlis === "Albany"), one((x) => x.role === "naib_qaid"), one((x) => x.role === "regional_qaid")])
+      expect(coursesFor(r)).toEqual({ general: true, department: null, majlisPlan: true });
+    expect(rows.filter((r) => r.role === "qaid").every((r) => coursesFor(r).majlisPlan)).toBe(true);
+    expect(rows.filter((r) => r.role === "naib_qaid").length).toBe(52);
+    expect(rows.filter((r) => coursesFor(r).majlisPlan).length).toBe(51 + 52 + 10 + 1); // 52 Majlis Qaids minus Muqami's (muqami@ counted separately), Naib Qaids, Regional Qaids, muqami@
+    expect(coursesFor(one((x) => x.departmentSlug === "tabligh" && x.level === "majlis"))).toEqual({ general: true, department: "tabligh", majlisPlan: false });
+    expect(coursesFor(one((x) => x.role === "sadr"))).toEqual({ general: true, department: null, majlisPlan: false });
+    expect(rows.some((r) => r.role === "national_staff" && coursesFor(r).majlisPlan)).toBe(false);
+  });
   test("Muqami: one national mailbox, no regional-department set, no department course", () => {
     expect(REGION_NAMES).not.toContain("Muqami");
     const nat = rows.filter((r) => r.learnerEmail === "muqami@mkausa.org");
     expect(nat.length).toBe(1);
     expect(nat[0]).toMatchObject({ level: "national", role: "mohtamim", roleTitle: "Mohtamim Muqami", departmentSlug: "" });
-    expect(coursesFor(nat[0]!)).toEqual({ general: true, department: null });
+    expect(coursesFor(nat[0]!)).toEqual({ general: true, department: null, majlisPlan: true }); // muqami@ is the Muqami chapter Qaid
     // region "Muqami" has no regional rows at all; its rows are 21 chapter roles (24 minus 2 Atfal minus the Qaid) plus the national muqami@ row
     expect(rows.filter((r) => r.region === "Muqami" && r.level !== "majlis").length).toBe(1); // only muqami@ (also the chapter Qaid)
     expect(nat[0]).toMatchObject({ majlis: "Muqami", region: "Muqami" });

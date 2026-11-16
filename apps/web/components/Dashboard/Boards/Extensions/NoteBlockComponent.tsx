@@ -7,6 +7,7 @@ import BoardBlockWrapper from './BoardBlockWrapper'
 import DragHandle from './DragHandle'
 import ResizeHandle from './ResizeHandle'
 import { useDragResize } from './useDragResize'
+import { useTranslation } from 'react-i18next'
 
 const NOTE_COLORS = [
   { name: 'yellow', bg: '#fef9c3', border: '#fde68a', text: '#92400e' },
@@ -22,6 +23,7 @@ function getColorSet(colorName: string) {
 }
 
 export default function NoteBlockComponent({ node, updateAttributes, selected, deleteNode, editor, getPos }: any) {
+  const { t } = useTranslation()
   const { x, y, width, height, color, zIndex } = node.attrs
   const colorSet = getColorSet(color)
 
@@ -52,7 +54,7 @@ export default function NoteBlockComponent({ node, updateAttributes, selected, d
     >
       <DragHandle onMouseDown={handleDragStart} />
 
-      {/* Header — icon, label, color swatches */}
+      {/* Header: icon, label, color swatches */}
       <div className="flex items-center px-4 pt-3 pb-0.5 select-none">
         <div className="flex items-center gap-1">
           <Note size={11} weight="fill" style={{ color: colorSet.text }} />
@@ -60,13 +62,13 @@ export default function NoteBlockComponent({ node, updateAttributes, selected, d
             className="text-[9px] font-semibold tracking-wider uppercase"
             style={{ color: colorSet.text }}
           >
-            Note
+            {t('boards.toolbar.note')}
           </span>
         </div>
 
         <div className="flex-1" />
 
-        {/* Color swatches — visible on hover */}
+        {/* Color swatches, visible on hover */}
         <div className="flex items-center gap-1">
           {NOTE_COLORS.map((c) => (
             <button

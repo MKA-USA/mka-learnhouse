@@ -1,7 +1,7 @@
 """Unit tests for the provider-agnostic LLM layer (src/services/ai/llm).
 
 Covers the model factory (one provider per config), the message-history converter, and the
-attachment converter. No network calls — provider clients are constructed but never invoked.
+attachment converter. No network calls: provider clients are constructed but never invoked.
 """
 
 import base64
@@ -205,6 +205,24 @@ def test_embedding_dimensions_default_and_override(monkeypatch):
     assert embeddings_mod.embedding_dimensions() == 768
     _patch_embed_config(monkeypatch, provider="google", api_key="g", embedding_dimensions=1536)
     assert embeddings_mod.embedding_dimensions() == 1536
+
+
+def test_history_keeps_system_prompt_on_follow_up_turns():
+    """Pydantic AI drops ``system_prompt`` once history is non-empty, so the
+    client puts it at the head of the history itself."""
+    from pydantic_ai.messages import ModelRequest, SystemPromptPart
+
+    from src.services.ai.llm.client import _history_with_system
+
+    assert _history_with_system([], "be grounded") is None
+    out = _history_with_system(
+        [{"role": "user", "content": "hi"}, {"role": "model", "content": "hello"}], "be grounded"
+    )
+    assert isinstance(out[0], ModelRequest)
+    assert isinstance(out[0].parts[0], SystemPromptPart)
+    assert out[0].parts[0].content == "be grounded"
+    assert len(out) == 3
+    assert len(_history_with_system([{"role": "user", "content": "hi"}], None)) == 1
 
 
 # --- Fireworks embeddings (explicit opt-in) -------------------------------------------------

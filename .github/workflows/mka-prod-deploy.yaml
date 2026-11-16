@@ -98,7 +98,7 @@ jobs:
               echo '```'
               if git diff --name-only "${tag_sha}..${head_sha}" | grep -q '^apps/api/migrations/'; then
                 echo
-                echo "> **Warning:** this range touches \`apps/api/migrations/**\`. Migrations run against real prod data on startup. Check the Coolify DB backup is recent."
+                echo "> **Warning:** this range touches \`apps/api/migrations/**\`. Alembic migrations run against real prod data when the container starts (apps/api/scripts/mka-migrate.sh). Check the Coolify DB backup is recent, and that the same change already ran cleanly on dev."
               fi
             fi
           } >> "$GITHUB_STEP_SUMMARY"
@@ -120,6 +120,13 @@ jobs:
         with:
           url: https://ilm.mkausa.org/api/v1/health
 
+      # Only move the marker if migrations applied: schema must match the models and Alembic must be at head.
+      - name: Verify database schema
+        if: steps.plan.outputs.deploy == 'true'
+        uses: ./ci/.github/actions/mka-check-schema
+        with:
+          url: https://ilm.mkausa.org/api/v1/mka/health/schema
+
       - name: Move prod-deployed tag
         if: steps.plan.outputs.deploy == 'true'
         env:
@@ -139,6 +146,7 @@ jobs:
             echo
             echo "- Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
             echo "- The \`prod-deployed\` tag was NOT moved; the next run will retry."
+            echo "- If the schema check failed: search the service log for MKA_MIGRATE_FAILED / MKA_SCHEMA_DRIFT, restore the Coolify DB backup if data is affected."
             echo "- See DEPLOYMENT.md, section \"Rolling back\"."
             echo "- Coolify gives no build logs for compose services; check service status and the Service Startup log in the Coolify UI."
           } >> "$GITHUB_STEP_SUMMARY"

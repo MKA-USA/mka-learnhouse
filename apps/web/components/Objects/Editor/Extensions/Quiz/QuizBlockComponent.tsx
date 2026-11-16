@@ -34,12 +34,12 @@ interface Answer {
 interface Question {
   question_id: string
   question: string
-  // The kind of question. `custom_answer` is legacy and never rendered — HOW
+  // The kind of question. `custom_answer` is legacy and never rendered. HOW
   // MANY answers may be picked is a separate axis, carried by `response_type`
   // (same field name as the graded assignment quiz task).
   type: 'multiple_choice' | 'custom_answer'
   // 'single' = pick one, 'multiple' = select all that apply. Absent on blocks
-  // authored before the mode existed — always read it through
+  // authored before the mode existed, so always read it through
   // `questionResponseType`, never directly.
   response_type?: QuizResponseType
   answers: Answer[]
@@ -111,7 +111,7 @@ function QuizBlockComponent(props: any) {
     setSubmitted(true)
 
     // This block is an ungraded client-side self-check, so it stays
-    // all-or-nothing (no partial credit here) — but pass/fail now runs through
+    // all-or-nothing (no partial credit here), but pass/fail now runs through
     // the same scoring helper as the graded quiz task, so single- and
     // multiple-response questions are judged the same way in both places.
     // A question with no correct answer marked can't be judged at all; it is
@@ -326,7 +326,8 @@ function QuizBlockComponent(props: any) {
               </button>
             </div>
           ) : (
-            <div className="flex items-center gap-1">
+            // Phones get these as a full-width bar under the questions instead.
+            <div className="flex items-center gap-1 max-md:hidden">
               <button
                 onClick={refreshUserSubmission}
                 disabled={!hasAnyAnswer && !submitted}
@@ -403,7 +404,7 @@ function QuizBlockComponent(props: any) {
                         className="w-full text-neutral-800 bg-transparent text-sm font-semibold outline-none placeholder:text-neutral-300"
                       />
                     ) : (
-                      <p className="text-neutral-800 text-sm font-semibold break-words leading-snug">
+                      <p className="text-neutral-800 text-sm max-md:text-[15px] font-semibold break-words leading-snug">
                         {question.question || (
                           <span className="text-neutral-300 italic font-normal">
                             {t(
@@ -427,7 +428,7 @@ function QuizBlockComponent(props: any) {
                   )}
                 </div>
 
-                {/* Response mode — switch in edit mode, hint in take mode */}
+                {/* Response mode: switch in edit mode, hint in take mode */}
                 {isEditable ? (
                   <div className="flex flex-wrap items-center gap-1 mb-1.5 px-1">
                     {([QUIZ_RESPONSE_SINGLE, QUIZ_RESPONSE_MULTIPLE] as QuizResponseType[]).map(
@@ -470,12 +471,12 @@ function QuizBlockComponent(props: any) {
 
                 {/* Answers */}
                 <div
-                  className="space-y-1"
+                  className={cn('space-y-1', !isEditable && 'max-md:space-y-2')}
                   role={isEditable ? undefined : isSingleResponse ? 'radiogroup' : 'group'}
                   aria-label={
                     isEditable
                       ? undefined
-                      : `${question.question || t('editor.blocks.quiz_block.question_label', { defaultValue: 'Question' })} — ${
+                      : `${question.question || t('editor.blocks.quiz_block.question_label', { defaultValue: 'Question' })}: ${
                           isSingleResponse
                             ? t('editor.blocks.quiz_block.select_one')
                             : t('editor.blocks.quiz_block.select_all_that_apply')
@@ -496,28 +497,32 @@ function QuizBlockComponent(props: any) {
 
                     const row = cn(
                       'group flex items-center gap-2 rounded-lg nice-shadow px-2 py-1.5 transition-colors',
-                      // Take mode — default
+                      // Take mode on phones: full-width rows a thumb can hit.
+                      !isEditable &&
+                        'max-md:min-h-12 max-md:gap-3 max-md:rounded-xl max-md:px-3 max-md:py-2.5 select-none',
+                      !isEditable && !submitted && 'lh-press',
+                      // Take mode: default
                       !isEditable &&
                         !submitted &&
                         !isSelected &&
                         'bg-white hover:bg-neutral-50 cursor-pointer',
-                      // Take mode — selected
+                      // Take mode: selected
                       !isEditable &&
                         !submitted &&
                         isSelected &&
                         'bg-blue-50 cursor-pointer',
-                      // Submitted — correct
+                      // Submitted: correct
                       isCorrectReveal && 'bg-emerald-50',
-                      // Submitted — wrong selection
+                      // Submitted: wrong selection
                       isWrongSelection && 'bg-red-50',
-                      // Submitted — neutral (not selected, not correct)
+                      // Submitted: neutral (not selected, not correct)
                       submitted &&
                         !isMarkedCorrect &&
                         !isSelected &&
                         'bg-white opacity-60',
-                      // Edit — marked correct
+                      // Edit: marked correct
                       isEditable && isMarkedCorrect && 'bg-emerald-50',
-                      // Edit — not marked
+                      // Edit: not marked
                       isEditable &&
                         !isMarkedCorrect &&
                         'bg-white hover:bg-neutral-50'
@@ -528,30 +533,30 @@ function QuizBlockComponent(props: any) {
                       // Shape is the affordance: a circle means pick one, a
                       // square means select all that apply.
                       isSingleResponse ? 'rounded-full' : 'rounded-md',
-                      // Take mode — default
+                      // Take mode: default
                       !isEditable &&
                         !submitted &&
                         !isSelected &&
                         'bg-neutral-100 text-neutral-500',
-                      // Take mode — selected
+                      // Take mode: selected
                       !isEditable &&
                         !submitted &&
                         isSelected &&
                         'bg-blue-500 text-white',
-                      // Submitted — correct
+                      // Submitted: correct
                       isCorrectReveal && 'bg-emerald-500 text-white',
-                      // Submitted — wrong selection
+                      // Submitted: wrong selection
                       isWrongSelection && 'bg-red-500 text-white',
-                      // Submitted — neutral
+                      // Submitted: neutral
                       submitted &&
                         !isMarkedCorrect &&
                         !isSelected &&
                         'bg-neutral-100 text-neutral-400',
-                      // Edit — correct
+                      // Edit: correct
                       isEditable &&
                         isMarkedCorrect &&
                         'bg-emerald-500 text-white',
-                      // Edit — not correct
+                      // Edit: not correct
                       isEditable &&
                         !isMarkedCorrect &&
                         'bg-neutral-100 text-neutral-500'
@@ -591,7 +596,7 @@ function QuizBlockComponent(props: any) {
                         }}
                         className={row}
                       >
-                        {/* Letter chip — clickable in edit mode to toggle correct */}
+                        {/* Letter chip: clickable in edit mode to toggle correct */}
                         {isEditable ? (
                           <button
                             onClick={(e) => {
@@ -611,7 +616,7 @@ function QuizBlockComponent(props: any) {
                             {answer.correct ? <Check weight="duotone" size={12} /> : letter}
                           </button>
                         ) : (
-                          <div className={chip}>{letter}</div>
+                          <div className={cn(chip, 'max-md:w-7 max-md:h-7 max-md:text-xs')}>{letter}</div>
                         )}
 
                         {/* Answer text */}
@@ -635,7 +640,7 @@ function QuizBlockComponent(props: any) {
                           ) : (
                             <span
                               className={cn(
-                                'text-sm break-words',
+                                'text-sm max-md:text-[15px] max-md:leading-snug break-words',
                                 isCorrectReveal
                                   ? 'text-emerald-900 font-medium'
                                   : isWrongSelection
@@ -654,7 +659,7 @@ function QuizBlockComponent(props: any) {
                           )}
                         </div>
 
-                        {/* Trailing — status icon (take mode) or delete (edit) */}
+                        {/* Trailing slot: status icon (take mode) or delete (edit) */}
                         {isEditable ? (
                           <button
                             onClick={(e) => {
@@ -699,12 +704,39 @@ function QuizBlockComponent(props: any) {
           </div>
         )}
 
+        {/* Take-mode actions on phones: thumb-sized reset and submit. */}
+        {!isEditable && totalQuestions > 0 && (
+          <div className="md:hidden mt-3 flex items-center gap-2">
+            <button
+              onClick={refreshUserSubmission}
+              disabled={!hasAnyAnswer && !submitted}
+              className="lh-press shrink-0 w-11 h-11 flex items-center justify-center rounded-xl bg-white nice-shadow text-neutral-500 disabled:opacity-40 outline-none"
+              title={t('editor.blocks.quiz_block.reset_answers')}
+              aria-label={t('editor.blocks.quiz_block.reset_answers')}
+            >
+              <ArrowCounterClockwise weight="bold" size={18} />
+            </button>
+            <button
+              onClick={handleUserSubmission}
+              disabled={submitted || !hasAnyAnswer}
+              className={cn(
+                'lh-press flex-1 h-11 rounded-xl text-[15px] font-semibold transition-colors outline-none',
+                submitted || !hasAnyAnswer
+                  ? 'bg-neutral-200/70 text-neutral-400'
+                  : 'bg-neutral-900 text-white'
+              )}
+            >
+              {t('editor.blocks.quiz_block.submit')}
+            </button>
+          </div>
+        )}
+
         {/* Submission message */}
         {submitted && (
           <div className="mt-2.5">
             <div
               className={cn(
-                'inline-flex items-center gap-1.5 text-[11px] font-medium px-2 py-1 rounded-md',
+                'inline-flex items-center gap-1.5 text-[11px] max-md:text-sm font-medium px-2 py-1 max-md:px-3 max-md:py-2 rounded-md max-md:rounded-lg',
                 submissionMessage === 'correct'
                   ? 'bg-emerald-50 text-emerald-700'
                   : 'bg-red-50 text-red-700'

@@ -12,12 +12,13 @@ import { signup, resendVerificationEmail } from '@services/auth/auth'
 import { useOrg } from '@components/Contexts/OrgContext'
 import { signIn } from '@components/Contexts/AuthContext'
 import { getLEARNHOUSE_TOP_DOMAIN_VAL, isOnCustomDomain } from '@services/config/config'
-import { getErrorMessage } from '@services/utils/ts/errorMessage'
+import { getErrorMessage, getFieldErrors } from '@services/utils/ts/errorMessage'
 import { useTranslation } from 'react-i18next'
 import { PasswordStrengthIndicator, validatePasswordStrength } from '@components/Auth/PasswordStrengthIndicator'
 import TurnstileWidget, { useTurnstileRequired, type TurnstileWidgetHandle } from '@components/Auth/TurnstileWidget'
 import { useLHAnalytics, AnalyticsEvent } from '@services/analytics'
 import { getAllowedAuthMethods } from '@services/auth/authMethods'
+import { defaultPostAuthPath } from '@services/auth/redirects'
 import MkaProfileFields from '@components/mka/MkaProfileFields' // MKA fork
 import { emptyMkaProfile, validateMkaProfile, mkaValuesToBody, applyMkaServerErrors } from '@services/mka/profile' // MKA fork
 import CustomSignupFields, {
@@ -116,7 +117,7 @@ function OpenSignUpComponent({ org: propOrg }: OpenSignUpComponentProps = {}) {
     },
     validate: (values) => validate(values, t, customFields),
     enableReinitialize: true,
-    onSubmit: async (values) => {
+    onSubmit: async (values, { setFieldError, setFieldTouched }) => {
       setError('')
       setMessage(null)
       setIsSubmitting(true)
@@ -136,14 +137,20 @@ function OpenSignUpComponent({ org: propOrg }: OpenSignUpComponentProps = {}) {
           // generic message. Fall back to a generic string only when the backend
           // gave us nothing readable.
           track(AnalyticsEvent.SignupFailed, { status_code: res.status })
-          setError(getErrorMessage(message?.detail, t('common.something_went_wrong')))
-          applyMkaServerErrors(res.status, message?.detail, formik.setFieldError) // MKA fork
-          // Turnstile tokens are single-use — fetch a fresh one for the retry.
+          setError(getErrorMessage(message?.detail, t('common.something_went_wrong'), t))
+          // Point at the inputs the server rejected (e.g. an email address
+          // autofilled into the username field) next to the field itself.
+          for (const [field, fieldError] of Object.entries(getFieldErrors(message?.detail, t))) {
+            setFieldTouched(field, true, false)
+            setFieldError(field, fieldError)
+          }
+          applyMkaServerErrors(res.status, message?.detail, setFieldError) // MKA fork
+          // Turnstile tokens are single-use, so fetch a fresh one for the retry.
           turnstileRef.current?.reset()
         }
       } catch (err) {
         // A network throw must not leave the form permanently locked.
-        setError(getErrorMessage((err as any)?.detail, t('common.something_went_wrong')))
+        setError(getErrorMessage((err as any)?.detail, t('common.something_went_wrong'), t))
         turnstileRef.current?.reset()
       } finally {
         setIsSubmitting(false)
@@ -154,11 +161,12 @@ function OpenSignUpComponent({ org: propOrg }: OpenSignUpComponentProps = {}) {
   useEffect(() => { }, [org])
 
   // Honor a sanitized ?next / ?redirect destination through the
-  // cross-domain /redirect_from_auth handoff; default to /home.
+  // cross-domain /redirect_from_auth handoff; default to the org's home (or the
+  // hub on the org-less apex).
   const buildCallbackUrl = () => {
     const params = new URLSearchParams(window.location.search)
     const raw = params.get('next') ?? params.get('redirect')
-    const dest = raw && /^\/(?!\/)/.test(raw) ? raw : '/home'
+    const dest = raw && /^\/(?!\/)/.test(raw) ? raw : defaultPostAuthPath(org)
     return `${window.location.origin}/redirect_from_auth?next=${encodeURIComponent(dest)}`
   }
 
@@ -207,7 +215,7 @@ function OpenSignUpComponent({ org: propOrg }: OpenSignUpComponentProps = {}) {
             {/* Resend, so a user whose email doesn't arrive isn't stuck. */}
             {resendState === 'sent' ? (
               <p className="text-xs font-medium text-green-700">
-                {t('auth.verification_email_resent', { defaultValue: 'Verification email sent again — check your inbox.' })}
+                {t('auth.verification_email_resent', { defaultValue: 'Verification email sent again. Check your inbox.' })}
               </p>
             ) : (
               <button
@@ -215,7 +223,7 @@ function OpenSignUpComponent({ org: propOrg }: OpenSignUpComponentProps = {}) {
                 disabled={resendState === 'sending'}
                 onClick={async () => {
                   setResendState('sending')
-                  // org?.id is undefined on the org-less apex — that's fine, the
+                  // org?.id is undefined on the org-less apex; that's fine, the
                   // backend resends by email without an org.
                   const res = await resendVerificationEmail(formik.values.email, org?.id)
                   setResendState(res.success ? 'sent' : 'error')
@@ -269,6 +277,7 @@ function OpenSignUpComponent({ org: propOrg }: OpenSignUpComponentProps = {}) {
                 onChange={formik.handleChange}
                 onBlur={formik.handleBlur}
                 value={formik.values.email}
+                autoComplete="email"
                 type="email"
                 required
                 className="box-border w-full bg-neutral-50 text-black rounded-lg px-4 border border-neutral-200 inline-flex h-[44px] appearance-none items-center focus:outline-none focus:ring-2 focus:ring-black/5 focus:border-neutral-400 transition-all placeholder:text-black/25 text-sm"
@@ -292,6 +301,7 @@ function OpenSignUpComponent({ org: propOrg }: OpenSignUpComponentProps = {}) {
                   onChange={formik.handleChange}
                   onBlur={formik.handleBlur}
                   value={formik.values.first_name}
+                  autoComplete="given-name"
                   type="text"
                   className="box-border w-full bg-neutral-50 text-black rounded-lg px-4 border border-neutral-200 inline-flex h-[44px] appearance-none items-center focus:outline-none focus:ring-2 focus:ring-black/5 focus:border-neutral-400 transition-all placeholder:text-black/25 text-sm"
                 />
@@ -312,6 +322,7 @@ function OpenSignUpComponent({ org: propOrg }: OpenSignUpComponentProps = {}) {
                   onChange={formik.handleChange}
                   onBlur={formik.handleBlur}
                   value={formik.values.last_name}
+                  autoComplete="family-name"
                   type="text"
                   className="box-border w-full bg-neutral-50 text-black rounded-lg px-4 border border-neutral-200 inline-flex h-[44px] appearance-none items-center focus:outline-none focus:ring-2 focus:ring-black/5 focus:border-neutral-400 transition-all placeholder:text-black/25 text-sm"
                 />
@@ -358,6 +369,7 @@ function OpenSignUpComponent({ org: propOrg }: OpenSignUpComponentProps = {}) {
                 onChange={formik.handleChange}
                 onBlur={formik.handleBlur}
                 value={formik.values.username}
+                autoComplete="nickname"
                 type="text"
                 required
                 className="box-border w-full bg-neutral-50 text-black rounded-lg px-4 border border-neutral-200 inline-flex h-[44px] appearance-none items-center focus:outline-none focus:ring-2 focus:ring-black/5 focus:border-neutral-400 transition-all placeholder:text-black/25 text-sm"
@@ -416,7 +428,7 @@ function OpenSignUpComponent({ org: propOrg }: OpenSignUpComponentProps = {}) {
         </FormLayout>
         )}
 
-        {/* Divider — only earns its place between two sets of options. */}
+        {/* Divider: only earns its place between two sets of options. */}
         {passwordAllowed && googleAllowed && (
           <div className="relative my-6">
             <div className="absolute inset-0 flex items-center">

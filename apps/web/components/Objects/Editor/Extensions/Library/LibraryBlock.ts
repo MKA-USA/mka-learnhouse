@@ -1,5 +1,5 @@
 import { mergeAttributes, Node } from '@tiptap/core'
-import { ReactNodeViewRenderer } from '@tiptap/react'
+import { lhNodeView } from '@components/Objects/Editor/core/nodeView'
 import dynamic from 'next/dynamic'
 
 const LibraryBlockComponent = dynamic(() => import('./LibraryBlockComponent'), {
@@ -7,7 +7,7 @@ const LibraryBlockComponent = dynamic(() => import('./LibraryBlockComponent'), {
 })
 
 /**
- * A reference to something that already lives in the org Library — a media file
+ * A reference to something that already lives in the org Library: a media file
  * or embed, or any other library resource (course, podcast, community, board,
  * playground).
  *
@@ -53,6 +53,6 @@ export default Node.create({
   },
 
   addNodeView() {
-    return ReactNodeViewRenderer(LibraryBlockComponent as any)
+    return lhNodeView(LibraryBlockComponent as any)
   },
 })

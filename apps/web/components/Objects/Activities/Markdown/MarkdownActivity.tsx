@@ -3,11 +3,12 @@ import React, { useState, useEffect, useCallback } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
-import rehypeRaw from 'rehype-raw'
 import { WarningCircle, ArrowClockwise, FloppyDisk, MarkdownLogo, SpinnerGap } from '@phosphor-icons/react'
 import { updateActivity } from '@services/courses/activities'
 import { useLHSession } from '@components/Contexts/LHSessionContext'
 import toast from 'react-hot-toast'
+import { useTranslation } from 'react-i18next'
+import i18n from '@/lib/i18n'
 import 'github-markdown-css/github-markdown-light.css'
 
 function toRawUrl(url: string): string {
@@ -33,6 +34,18 @@ function toRawUrl(url: string): string {
   return url
 }
 
+// Only fetch from the raw hosts toRawUrl targets, over https.
+const RAW_MARKDOWN_HOSTS = new Set(['raw.githubusercontent.com', 'gitlab.com', 'bitbucket.org'])
+
+function isAllowedMarkdownUrl(url: string): boolean {
+  try {
+    const u = new URL(url)
+    return u.protocol === 'https:' && !u.username && !u.password && RAW_MARKDOWN_HOSTS.has(u.hostname)
+  } catch {
+    return false
+  }
+}
+
 interface MarkdownActivityProps {
   activity: any
   editable?: boolean
@@ -40,6 +53,7 @@ interface MarkdownActivityProps {
 }
 
 function MarkdownActivity({ activity, editable = false, style }: MarkdownActivityProps) {
+  const { t } = useTranslation()
   const session = useLHSession() as any
   const access_token = session?.data?.tokens?.access_token
   const markdownUrl = activity.content?.markdown_url || ''
@@ -54,7 +68,7 @@ function MarkdownActivity({ activity, editable = false, style }: MarkdownActivit
 
   const fetchMarkdown = useCallback(async (url: string) => {
     if (!url) {
-      setError('No markdown URL configured')
+      setError(i18n.t('activities.markdown_activity.no_url'))
       setLoading(false)
       return
     }
@@ -62,14 +76,17 @@ function MarkdownActivity({ activity, editable = false, style }: MarkdownActivit
     setError(null)
     try {
       const rawUrl = toRawUrl(url)
+      if (!isAllowedMarkdownUrl(rawUrl)) {
+        throw new Error(i18n.t('activities.markdown_activity.unsupported_url'))
+      }
       const res = await fetch(rawUrl)
       if (!res.ok) {
-        throw new Error(`Failed to fetch markdown (${res.status})`)
+        throw new Error(i18n.t('activities.markdown_activity.fetch_failed_status', { status: res.status }))
       }
       const text = await res.text()
       setMarkdown(text)
     } catch (err: any) {
-      setError(err.message || 'Failed to fetch markdown')
+      setError(err.message || i18n.t('activities.markdown_activity.fetch_failed'))
     } finally {
       setLoading(false)
     }
@@ -88,10 +105,10 @@ function MarkdownActivity({ activity, editable = false, style }: MarkdownActivit
         activity.activity_uuid,
         access_token
       )
-      toast.success('Markdown URL updated')
+      toast.success(t('activities.markdown_activity.updated'))
       fetchMarkdown(editUrl.trim())
     } catch {
-      toast.error('Failed to update URL')
+      toast.error(t('activities.markdown_activity.update_failed'))
     } finally {
       setSaving(false)
     }
@@ -115,14 +132,14 @@ function MarkdownActivity({ activity, editable = false, style }: MarkdownActivit
           className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
         >
           <ArrowClockwise size={16} />
-          Retry
+          {t('common.retry')}
         </button>
       </div>
     )
   }
 
   return (
-    <div className="w-full px-6 py-6" style={style}>
+    <div className="w-full px-1 py-2 sm:px-6 sm:py-6" style={style}>
       {editable && (
         <div className="mb-6 flex items-center gap-3">
           <MarkdownLogo size={20} weight="duotone" className="text-rose-400 flex-shrink-0" />
@@ -143,13 +160,13 @@ function MarkdownActivity({ activity, editable = false, style }: MarkdownActivit
             ) : (
               <FloppyDisk size={16} />
             )}
-            Save
+            {t('common.save')}
           </button>
         </div>
       )}
 
       <div className="markdown-body" style={style ? { backgroundColor: 'transparent', color: 'inherit' } : undefined}>
-        <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw, rehypeHighlight]}>
+        <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
           {markdown || ''}
         </ReactMarkdown>
       </div>

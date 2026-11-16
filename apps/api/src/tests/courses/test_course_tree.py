@@ -308,7 +308,7 @@ async def test_non_slim_matches_slim_on_navigation_fields(
     second_activity,
     bypass_rbac,
 ):
-    """Slim and non-slim must agree on every navigation field — only
+    """Slim and non-slim must agree on every navigation field; only
     content/details should differ."""
     slim_tree = await get_course_chapters(
         mock_request,
@@ -349,7 +349,24 @@ async def test_non_slim_matches_slim_on_navigation_fields(
         assert s.content == {}
         assert s.details is None
 
-    # And at least one of the full activities must carry real content/details —
+    # And at least one of the full activities must carry real content/details,
     # otherwise this test would pass vacuously.
     assert any(f.content for f in full_acts)
     assert any(f.details for f in full_acts)
+
+
+def test_slim_extra_metadata_keeps_only_ready_storyboard():
+    from src.services.courses.chapters import _slim_extra_metadata
+
+    thumbs = {"url": "thumbnails/sprite.jpg", "interval": 10, "width": 160, "height": 90, "columns": 10, "rows": 1}
+    meta = {
+        "hls": {"status": "ready", "master": "master.m3u8", "renditions": ["720p"], "thumbnails": thumbs},
+        "captions": {"enabled": True},
+        "chapters": {"status": "ready", "items": []},
+    }
+    assert _slim_extra_metadata(meta) == {"hls": {"status": "ready", "thumbnails": thumbs}}
+    assert _slim_extra_metadata({"hls": {"status": "processing", "thumbnails": thumbs}}) is None
+    assert _slim_extra_metadata({"hls": {"status": "ready"}}) is None
+    assert _slim_extra_metadata({"captions": {}}) is None
+    assert _slim_extra_metadata(None) is None
+    assert _slim_extra_metadata("bad") is None

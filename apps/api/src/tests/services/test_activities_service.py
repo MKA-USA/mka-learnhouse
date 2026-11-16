@@ -4,12 +4,17 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
+from starlette.requests import Request
 
 from src.db.courses.activities import ActivityCreate, ActivityRead, ActivityTypeEnum, ActivitySubTypeEnum, ActivityUpdate
 from src.db.organizations import OrganizationRead
+from src.db.resource_authors import (
+    ResourceAuthor,
+    ResourceAuthorshipEnum,
+    ResourceAuthorshipStatusEnum,
+)
+from src.services.courses.activities.access import apply_activity_lock
 from src.services.courses.activities.activities import (
-    _apply_activity_lock,
-    _trigger_course_embedding,
     create_activity,
     delete_activity,
     get_activities,
@@ -59,8 +64,22 @@ class TestCreateActivity:
         with patch(
             "src.services.courses.activities.activities.check_resource_access",
             new_callable=AsyncMock,
-        ):
+        ), patch("src.services.courses.activities.activities.notify_ee_course_content_changed") as notify, patch(
+            "src.services.courses.activities.utils.track", new_callable=AsyncMock
+        ) as mock_track:
             result = await create_activity(mock_request, activity_obj, admin_user, db)
+        # A new activity changes course progress percentages (LTI).
+        notify.assert_called_once()
+        mock_track.assert_awaited_once_with(
+            event_name="activity_created",
+            org_id=course.org_id,
+            user_id=admin_user.id,
+            properties={
+                "course_uuid": course.course_uuid,
+                "activity_uuid": result.activity_uuid,
+                "activity_type": "TYPE_DYNAMIC",
+            },
+        )
 
         assert isinstance(result, ActivityRead)
         assert result.name == "New Activity"
@@ -75,11 +94,11 @@ class TestGetEditorBootstrap:
             "src.services.courses.activities.activities.check_resource_access",
             new_callable=AsyncMock,
         ), patch(
-            "src.services.courses.activities.activities.check_ee_activity_paid_access",
+            "src.services.courses.activities.access.check_ee_activity_paid_access",
             new_callable=AsyncMock,
             return_value=True,
         ), patch(
-            "src.services.courses.activities.activities._apply_activity_lock",
+            "src.services.courses.activities.access.apply_activity_lock",
             new_callable=AsyncMock,
         ):
             with pytest.raises(HTTPException) as exc:
@@ -96,14 +115,18 @@ class TestGetEditorBootstrap:
             "src.services.courses.activities.activities.check_resource_access",
             new_callable=AsyncMock,
         ), patch(
-            "src.services.courses.activities.activities.check_ee_activity_paid_access",
+            "src.services.courses.activities.access.check_ee_activity_paid_access",
             new_callable=AsyncMock,
             return_value=True,
         ), patch(
-            "src.services.courses.activities.activities._apply_activity_lock",
+            "src.services.courses.activities.access.apply_activity_lock",
             new_callable=AsyncMock,
         ), patch(
             "src.services.orgs.orgs._build_org_read_with_resolved",
+            return_value=fake_org_read,
+        ), patch(
+            "src.services.orgs.orgs._redact_org_email_unless_manager",
+            new_callable=AsyncMock,
             return_value=fake_org_read,
         ):
             result = await get_editor_bootstrap(
@@ -116,29 +139,60 @@ class TestGetEditorBootstrap:
 
     @pytest.mark.asyncio
     async def test_scrubs_content_when_no_paid_access(
-        self, mock_request, db, org, course, chapter, activity, admin_user
+        self, mock_request, db, org, course, chapter, activity, regular_user
     ):
+        # Course editors bypass the paywall scrub, so let a non-editor through
+        # the bootstrap gate (patched) and assert the reader-side scrub still runs.
         fake_org_read = MagicMock(spec=OrganizationRead)
 
         with patch(
             "src.services.courses.activities.activities.check_resource_access",
             new_callable=AsyncMock,
         ), patch(
-            "src.services.courses.activities.activities.check_ee_activity_paid_access",
+            "src.services.courses.activities.access.check_ee_activity_paid_access",
             new_callable=AsyncMock,
             return_value=False,
         ), patch(
-            "src.services.courses.activities.activities._apply_activity_lock",
+            "src.services.courses.activities.access.apply_activity_lock",
             new_callable=AsyncMock,
         ), patch(
             "src.services.orgs.orgs._build_org_read_with_resolved",
             return_value=fake_org_read,
+        ), patch(
+            "src.services.orgs.orgs._redact_org_email_unless_manager",
+            new_callable=AsyncMock,
+            return_value=fake_org_read,
         ):
             result = await get_editor_bootstrap(
-                mock_request, activity.activity_uuid, admin_user, db
+                mock_request, activity.activity_uuid, regular_user, db
             )
 
         assert result.activity.content == {"paid_access": False}
+
+
+class TestEditorBootstrapGates:
+    @pytest.mark.asyncio
+    async def test_learner_gets_403_and_org_email_is_redacted_for_non_managers(
+        self, mock_request, db, org, course, chapter, activity, admin_user, regular_user
+    ):
+        with pytest.raises(HTTPException) as exc:
+            await get_editor_bootstrap(mock_request, activity.activity_uuid, regular_user, db)
+        assert exc.value.status_code == 403
+
+        # A course contributor can edit but doesn't manage the org
+        db.add(ResourceAuthor(
+            resource_uuid=course.course_uuid, user_id=regular_user.id,
+            authorship=ResourceAuthorshipEnum.CONTRIBUTOR,
+            authorship_status=ResourceAuthorshipStatusEnum.ACTIVE,
+            creation_date="now", update_date="now",
+        ))
+        await db.commit()
+        # Fresh requests: RBAC decisions are memoized per request
+        fresh = lambda: Request({"type": "http", "method": "GET", "path": "/", "headers": [], "query_string": b""})  # noqa: E731
+        contributor_view = await get_editor_bootstrap(fresh(), activity.activity_uuid, regular_user, db)
+        admin_view = await get_editor_bootstrap(fresh(), activity.activity_uuid, admin_user, db)
+        assert contributor_view.org.email is None
+        assert admin_view.org.email == org.email
 
 
 class TestGetActivity:
@@ -150,11 +204,11 @@ class TestGetActivity:
             "src.services.courses.activities.activities.check_resource_access",
             new_callable=AsyncMock,
         ), patch(
-            "src.services.courses.activities.activities.check_ee_activity_paid_access",
+            "src.services.courses.activities.access.check_ee_activity_paid_access",
             new_callable=AsyncMock,
             return_value=True,
         ), patch(
-            "src.services.courses.activities.activities._apply_activity_lock",
+            "src.services.courses.activities.access.apply_activity_lock",
             new_callable=AsyncMock,
         ):
             with pytest.raises(HTTPException) as exc:
@@ -169,11 +223,11 @@ class TestGetActivity:
             "src.services.courses.activities.activities.check_resource_access",
             new_callable=AsyncMock,
         ), patch(
-            "src.services.courses.activities.activities.check_ee_activity_paid_access",
+            "src.services.courses.activities.access.check_ee_activity_paid_access",
             new_callable=AsyncMock,
             return_value=True,
         ), patch(
-            "src.services.courses.activities.activities._apply_activity_lock",
+            "src.services.courses.activities.access.apply_activity_lock",
             new_callable=AsyncMock,
         ):
             result = await get_activity(
@@ -229,14 +283,38 @@ class TestUpdateActivity:
             "src.services.courses.activities.activities.create_activity_version",
             new_callable=AsyncMock,
         ) as mock_version, patch(
-            "src.services.courses.activities.activities._trigger_course_embedding",
-            new_callable=AsyncMock,
-        ):
+            "src.services.courses.activities.activities.index_activity",
+        ) as mock_index:
             result = await update_activity(
                 mock_request, update_obj, activity.activity_uuid, admin_user, db
             )
         assert isinstance(result, ActivityRead)
         mock_version.assert_called_once()
+        mock_index.assert_called_once_with(activity.id)
+
+
+    @pytest.mark.asyncio
+    async def test_update_keeps_server_owned_caption_and_hls_state(
+        self, mock_request, db, org, course, chapter, activity, admin_user
+    ):
+        server_captions = {"enabled": True, "status": "ready", "languages": [{"code": "fr", "status": "ready"}]}
+        activity.extra_metadata = {"captions": server_captions, "note": "old"}
+        db.add(activity)
+        await db.commit()
+
+        forged = ActivityUpdate(extra_metadata={
+            "captions": {"enabled": True, "status": "processing", "languages": [{"code": "../../x"}]},
+            "hls": {"status": "ready", "master": "orgs/other/x.m3u8"},
+            "note": "new",
+        })
+        with patch(
+            "src.services.courses.activities.activities.check_resource_access",
+            new_callable=AsyncMock,
+        ):
+            result = await update_activity(
+                mock_request, forged, activity.activity_uuid, admin_user, db
+            )
+        assert result.extra_metadata == {"captions": server_captions, "note": "new"}
 
 
 class TestDeleteActivity:
@@ -299,9 +377,9 @@ class TestGetActivityById:
 # _apply_activity_lock
 # ---------------------------------------------------------------------------
 
-_PATCH_IS_ORG_ADMIN = "src.services.courses.activities.activities.is_org_admin"
-_PATCH_BATCH_ACCESSIBLE = "src.services.courses.activities.activities.batch_accessible_restricted_uuids"
-_PATCH_IS_LOCKED = "src.services.courses.activities.activities.is_locked_for_user"
+_PATCH_IS_ORG_ADMIN = "src.services.courses.activities.access.is_org_admin"
+_PATCH_BATCH_ACCESSIBLE = "src.services.courses.activities.access.batch_accessible_restricted_uuids"
+_PATCH_IS_LOCKED = "src.services.courses.activities.access.is_locked_for_user"
 
 
 class TestApplyActivityLock:
@@ -312,7 +390,7 @@ class TestApplyActivityLock:
         """Admin path: returns immediately without locking (covers lines 272-275)."""
         activity_read = ActivityRead.model_validate(activity)
         with patch(_PATCH_IS_ORG_ADMIN, new_callable=AsyncMock, return_value=True):
-            await _apply_activity_lock(activity_read, activity, course, admin_user, db)
+            await apply_activity_lock(activity_read, activity, course, admin_user, db)
         assert activity_read.is_locked is False
 
     @pytest.mark.asyncio
@@ -324,7 +402,7 @@ class TestApplyActivityLock:
         with patch(_PATCH_IS_ORG_ADMIN, new_callable=AsyncMock, return_value=False), \
              patch(_PATCH_BATCH_ACCESSIBLE, new_callable=AsyncMock, return_value=set()), \
              patch(_PATCH_IS_LOCKED, new_callable=AsyncMock, return_value=False):
-            await _apply_activity_lock(
+            await apply_activity_lock(
                 activity_read, activity, course, regular_user, db, parent_chapter=chapter
             )
         assert activity_read.is_locked is False
@@ -339,7 +417,7 @@ class TestApplyActivityLock:
         with patch(_PATCH_IS_ORG_ADMIN, new_callable=AsyncMock, return_value=False), \
              patch(_PATCH_BATCH_ACCESSIBLE, new_callable=AsyncMock, return_value=set()), \
              patch(_PATCH_IS_LOCKED, new_callable=AsyncMock, return_value=False):
-            await _apply_activity_lock(
+            await apply_activity_lock(
                 activity_read, activity, course, regular_user, db, parent_chapter=None
             )
         assert activity_read.is_locked is False
@@ -353,34 +431,47 @@ class TestApplyActivityLock:
         with patch(_PATCH_IS_ORG_ADMIN, new_callable=AsyncMock, return_value=False), \
              patch(_PATCH_BATCH_ACCESSIBLE, new_callable=AsyncMock, return_value=set()), \
              patch(_PATCH_IS_LOCKED, new_callable=AsyncMock, return_value=True):
-            await _apply_activity_lock(
+            await apply_activity_lock(
                 activity_read, activity, course, regular_user, db
             )
         assert activity_read.is_locked is True
 
 
 # ---------------------------------------------------------------------------
-# _trigger_course_embedding
+# AI search indexing
 # ---------------------------------------------------------------------------
 
 
-class TestTriggerCourseEmbedding:
+class TestIndexing:
     @pytest.mark.asyncio
-    async def test_runs_embedding_when_course_found(self, db, course):
-        """Covers lines 438-439 (lazy imports inside _trigger_course_embedding)."""
-        async def fake_get_db():
-            yield db
-
+    async def test_rename_schedules_reindex(
+        self, mock_request, db, org, course, chapter, activity, admin_user
+    ):
+        # Names are copied onto indexed chunks, so any update re-indexes, not
+        # only content changes.
         with patch(
-            "src.core.events.database.get_db_session",
-            return_value=fake_get_db(),
-        ), patch(
-            "src.services.ai.rag.embedding_service.embed_course_content",
+            "src.services.courses.activities.activities.check_resource_access",
             new_callable=AsyncMock,
-        ) as mock_embed:
-            await _trigger_course_embedding(course.id, course.org_id)
+        ), patch("src.services.courses.activities.activities.index_activity") as mock_index:
+            await update_activity(
+                mock_request, ActivityUpdate(name="Renamed"), activity.activity_uuid, admin_user, db
+            )
+        mock_index.assert_called_once_with(activity.id)
 
-        mock_embed.assert_called_once_with(course.id, course.org_id, db)
+    @pytest.mark.asyncio
+    async def test_scheduling_failure_does_not_fail_the_save(
+        self, mock_request, db, org, course, chapter, activity, admin_user, rag_dispatch
+    ):
+        rag_dispatch.side_effect = RuntimeError("redis down")
+        with patch(
+            "src.services.courses.activities.activities.check_resource_access",
+            new_callable=AsyncMock,
+        ):
+            result = await update_activity(
+                mock_request, ActivityUpdate(name="Still saved"), activity.activity_uuid, admin_user, db
+            )
+        assert result.name == "Still saved"
+        rag_dispatch.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

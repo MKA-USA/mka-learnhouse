@@ -20,11 +20,11 @@ import {
   Book,
   ChatCircleDots,
   Headphones,
+  VideoCamera,
   ChartBar,
   DotsThree,
   UsersThree,
   Shield,
-  ShieldCheck,
   UserPlus,
   ClipboardText,
   Palette,
@@ -38,13 +38,19 @@ import {
   MagnifyingGlass,
   ChalkboardSimple,
   Cube,
+  ShieldCheck,
   ShoppingBag,
   FolderSimple,
   Plus,
   Code,
   Lightning,
+  Steps,
+  SlidersHorizontal,
 } from '@phosphor-icons/react'
 import { motion } from 'motion/react'
+import { useAtlasMini } from '@ee/components/Atlas/AtlasMiniContext'
+import AtlasNavItem from '@ee/components/Atlas/AtlasNavItem'
+import { isOrgAnalyticsAvailable } from '@ee/components/Analytics/availability'
 import { DiscordIcon } from '@components/Objects/Icons/DiscordIcon'
 import CommandPaletteTrigger from '@components/Dashboard/CommandPalette/CommandPaletteTrigger'
 import Link from 'next/link'
@@ -71,7 +77,7 @@ import {
 } from "@components/ui/hover-menu"
 import { FeedbackModal } from '@components/Objects/Modals/FeedbackModal'
 import { AVAILABLE_LANGUAGES } from '@/lib/languages'
-import OrgSquareLogo, { hasOrgLogo } from '@components/Objects/Org/OrgSquareLogo'
+import OrgSquareLogo, { hasOrgLogo, OrgInitial } from '@components/Objects/Org/OrgSquareLogo'
 import { cn } from '@/lib/utils'
 import { useQuery } from '@tanstack/react-query'
 import { queryKeys } from '@/lib/query/keys'
@@ -79,14 +85,21 @@ import { RequestBodyWithAuthHeader } from '@services/utils/ts/requests'
 import { getAssignmentsFromACourse } from '@services/courses/assignments'
 import { getDeploymentMode } from '@services/config/config'
 import PlanBadge from '@components/Dashboard/Shared/PlanRestricted/PlanBadge'
+import {
+  FEATURES_SETTINGS_HREF,
+  OPTIONAL_FEATURES,
+  OptionalFeatureKey,
+  getOptionalFeatureState,
+} from '@services/features/optionalFeatures'
 import { usePlan } from '@components/Hooks/usePlan'
 import { planMeetsRequirement } from '@services/plans/plans'
-import useAdminStatus from '@components/Hooks/useAdminStatus'
+import useAdminStatus, { seesPlatformHubFromSession } from '@components/Hooks/useAdminStatus'
 import useCanModerate from '@components/Hooks/useCanModerate'
 import { useMkaComplianceScope } from '@services/mka/compliance' // MKA fork
 import { useLHAnalytics, AnalyticsEvent } from '@services/analytics'
 import OnboardingSidebarBox from '@components/Dashboard/Onboarding/OnboardingSidebarBox'
 import { useOnboarding } from '@components/Hooks/useOnboarding'
+import { isWhiteLabelPlan } from '@components/Hooks/useLearnHouseBranding'
 
 // Scattered night-sky starfield for the free-plan upgrade box. Fixed positions
 // (top/left %) so the constellation is stable across renders; `north` is the
@@ -120,6 +133,7 @@ function DashLeftMenu() {
   const onboarding = useOnboarding()
   const showOnboarding =
     !isCollapsed && onboarding.welcomeSeen && !onboarding.dismissed && !onboarding.allCompleted
+  const { available: atlasAvailable } = useAtlasMini()
 
   const isActivePath = (path: string) => {
     if (path === '/dash') {
@@ -195,7 +209,7 @@ function DashLeftMenu() {
 
   const plan = usePlan()
   const mode = getDeploymentMode()
-  // Only org managers (admins/superadmins) see billing surfaces — non-admins
+  // Only org managers (admins/superadmins) see billing surfaces; non-admins
   // shouldn't manage the plan/subscription.
   const { canManageOrg } = useAdminStatus()
   const { canModerate } = useCanModerate()
@@ -203,7 +217,7 @@ function DashLeftMenu() {
 
   if (!org || !session) return null
   const planLabel =
-    mode === 'ee' ? 'Enterprise Edition' :
+    mode === 'ee' ? t('dashboard.nav.enterprise_edition') :
     mode === 'oss' ? 'OSS' :
     plan  // SaaS: show actual plan name
 
@@ -220,6 +234,11 @@ function DashLeftMenu() {
     }
     return orgs
   })()
+  // Staff of a single school (an instructor, say) have no use for the platform
+  // hub or for creating organizations; only people who run one do.
+  const managesAnyOrg = seesPlatformHubFromSession(session)
+  // Any second organization, the demo included, is somewhere to switch back from.
+  const showOrgSwitcher = managesAnyOrg || myOrgs.length > 1
   const planPillColor =
     mode === 'ee' ? 'bg-amber-400/15 text-amber-300' :
     mode === 'oss' ? 'bg-green-400/15 text-green-300' :
@@ -228,24 +247,45 @@ function DashLeftMenu() {
     plan === 'standard' ? 'bg-blue-400/15 text-blue-300' :
     'bg-white/[0.08] text-white/50'
 
-  // Feature visibility from API resolved_features
+  // Optional features: 'on' ones get a nav item, the rest are listed in the
+  // "More" menu, split into turned off (a settings change away) and locked
+  // (an upgrade away).
   const rf = org?.config?.config?.resolved_features
-  const isEnabled = (feature: string) => rf?.[feature]?.enabled === true
+  const featureStates = OPTIONAL_FEATURES.map((feature) => ({
+    feature,
+    ...getOptionalFeatureState(rf?.[feature.key]),
+  }))
+  const isOn = (key: OptionalFeatureKey) =>
+    featureStates.find((f) => f.feature.key === key)?.status === 'on'
+  const offFeatures = featureStates.filter((f) => f.status === 'off')
+  const lockedFeatures = featureStates.filter((f) => f.status === 'locked')
 
-  const showLibrary = isEnabled('folders')
-  const showCommunities = isEnabled('communities')
-  const showPodcasts = isEnabled('podcasts')
-  const showBoards = isEnabled('boards')
-  const showPlaygrounds = isEnabled('playgrounds')
-  const showPayments = isEnabled('payments')
+  const showLibrary = isOn('folders')
+  const showPaths = isOn('paths')
+  const showCommunities = isOn('communities')
+  const showPodcasts = isOn('podcasts')
+  const showLiveSessions = isOn('live_sessions')
+  const showBoards = isOn('boards')
+  const showPlaygrounds = isOn('playgrounds')
+  const showPayments = isOn('payments')
+  // Org analytics ship with Enterprise Edition.
+  const showAnalytics = isOrgAnalyticsAvailable()
+
+  // When the user is on the Atlas page, the left nav drops into a slightly
+  // darker flat dark color than the Atlas content (same family), with the
+  // nav reading as a deeper "shelf" the brighter content sits beside.
+  const isOnAtlas = atlasAvailable && pathname.startsWith('/dash/atlas')
 
   return (
     <TooltipProvider delayDuration={0}>
     <nav
       aria-label={t('dashboard.nav.sidebar_navigation')}
       className={cn(
-        "flex flex-col text-white h-screen sticky top-0 z-overlay border-e border-white/[0.08] bg-[#0f0f10] transition-all duration-300",
-        isCollapsed ? "w-[72px]" : "w-64"
+        "flex flex-col text-white h-screen sticky top-0 z-overlay border-e transition-all duration-300",
+        isCollapsed ? "w-[72px]" : "w-64",
+        isOnAtlas
+          ? "bg-[#05040c] border-white/5"
+          : "bg-[#0f0f10] border-white/[0.08]"
       )}
     >
       {/* Header with Logo and Toggle */}
@@ -257,9 +297,9 @@ function DashLeftMenu() {
           className={cn("flex items-center transition-opacity hover:opacity-70", isCollapsed ? "" : "space-x-3")}
           href={'/'}
         >
-          {planMeetsRequirement(plan, 'standard') && hasOrgLogo(org) ? (
+          {(planMeetsRequirement(plan, 'standard') && hasOrgLogo(org)) || isWhiteLabelPlan(plan) ? (
             <div className="h-9 w-9 rounded-lg overflow-hidden bg-white shrink-0">
-              <OrgSquareLogo org={org} wideInsetClassName="p-1" fallback={null} />
+              <OrgSquareLogo org={org} wideInsetClassName="p-1" fallback={<OrgInitial org={org} />} />
             </div>
           ) : (
             <img
@@ -293,7 +333,7 @@ function DashLeftMenu() {
           </button>
         )}
 
-        {/* Onboarding progress reuses this header's bottom border as its track —
+        {/* Onboarding progress reuses this header's bottom border as its track,
             a neon purple gradient that glows out from the border. */}
         {showOnboarding && (
           <>
@@ -314,9 +354,9 @@ function DashLeftMenu() {
         )}
       </div>
 
-      {/* Search trigger — replaced by the onboarding progress in this slot until
+      {/* Search trigger, replaced by the onboarding progress in this slot until
           setup is complete (then the search box returns). */}
-      <div className={cn('px-3', showOnboarding ? 'pt-2' : 'pt-3')}>
+      <div className={cn('px-3 shrink-0', showOnboarding ? 'pt-2' : 'pt-3')}>
         {showOnboarding ? (
           <OnboardingSidebarBox />
         ) : (
@@ -324,10 +364,14 @@ function DashLeftMenu() {
         )}
       </div>
 
-      {/* Main Navigation - Vertically Centered */}
-      <div className="flex-1 flex flex-col justify-center py-4 px-3">
+      {/* Main Navigation: scrolls once the list outgrows the viewport.
+          Centered with `my-auto`, not `justify-center`: the latter would push
+          the first items above scroll origin, out of reach. No
+          `overscroll-contain`: it stops the wheel from scrolling the page
+          over the sidebar even when the list fits. */}
+      <div className="flex-1 min-h-0 overflow-y-auto flex flex-col py-4 px-3">
         <AdminAuthorization authorizationMode="component">
-          <div className="space-y-1">
+          <div className="space-y-1 my-auto">
             <MenuLink
               href="/dash"
               icon={<House size={20} weight="fill" />}
@@ -336,6 +380,8 @@ function DashLeftMenu() {
               active={isActivePath('/dash')}
               onClick={() => track(AnalyticsEvent.DashboardNavClicked, { section: 'home' })}
             />
+
+            <AtlasNavItem isCollapsed={isCollapsed} isActive={isActivePath('/dash/atlas')} />
 
             {/* Courses with hover menu */}
             <HoverMenu
@@ -481,6 +527,15 @@ function DashLeftMenu() {
               })()}
             </HoverMenu>
             </div>
+            {showPaths && (
+              <MenuLink
+                href="/dash/paths"
+                icon={<Steps size={20} weight="fill" />}
+                label={t('paths.title')}
+                isCollapsed={isCollapsed}
+                active={isActivePath('/dash/paths')}
+              />
+            )}
             {showLibrary && (
               <MenuLink
                 href="/dash/library"
@@ -506,6 +561,15 @@ function DashLeftMenu() {
                 label={t('podcasts.podcasts')}
                 isCollapsed={isCollapsed}
                 active={isActivePath('/dash/podcasts')}
+              />
+            )}
+            {showLiveSessions && (
+              <MenuLink
+                href="/dash/live-sessions"
+                icon={<VideoCamera size={20} weight="fill" />}
+                label={t('live_sessions.title')}
+                isCollapsed={isCollapsed}
+                active={isActivePath('/dash/live-sessions')}
               />
             )}
             {showBoards && (
@@ -635,6 +699,12 @@ function DashLeftMenu() {
                     </Link>
                   </HoverMenuItem>
                   <HoverMenuItem asChild>
+                    <Link href={FEATURES_SETTINGS_HREF} className="flex items-center gap-2 px-3 py-2 text-sm text-white/70 hover:text-white hover:bg-white/[0.08] cursor-pointer transition-colors">
+                      <SlidersHorizontal size={16} weight="fill" />
+                      <span>{t('dashboard.organization.settings.tabs.features')}</span>
+                    </Link>
+                  </HoverMenuItem>
+                  <HoverMenuItem asChild>
                     <Link href="/dash/org/settings/branding" className="flex items-center gap-2 px-3 py-2 text-sm text-white/70 hover:text-white hover:bg-white/[0.08] cursor-pointer transition-colors">
                       <Palette size={16} weight="fill" />
                       <span>{t('dashboard.organization.settings.tabs.branding')}</span>
@@ -734,7 +804,7 @@ function DashLeftMenu() {
                   <HoverMenuItem asChild>
                     <Link href="/dash/developers/seo" className="flex items-center gap-2 px-3 py-2 text-sm text-white/70 hover:text-white hover:bg-white/[0.08] cursor-pointer transition-colors">
                       <MagnifyingGlass size={16} weight="fill" />
-                      <span>SEO</span>
+                      <span>{t('dashboard.organization.settings.tabs.seo')}</span>
                     </Link>
                   </HoverMenuItem>
                   <HoverMenuItem asChild>
@@ -785,122 +855,126 @@ function DashLeftMenu() {
             </HoverMenu>
 
             {/* Analytics with hover menu */}
-            <HoverMenu
-              content={
-                <HoverMenuContent className="w-64">
-                  <HoverMenuLabel className="text-white/70 font-medium">Analytics</HoverMenuLabel>
-                  <HoverMenuSeparator />
-                  <HoverMenuItem asChild>
-                    <Link href="/dash/analytics" className="flex items-center gap-2 px-3 py-2 text-sm text-white/70 hover:text-white hover:bg-white/[0.08] cursor-pointer transition-colors">
-                      <ChartBar size={16} weight="fill" />
-                      <span>{t('analytics.tabs.overview')}</span>
-                    </Link>
-                  </HoverMenuItem>
-                  <HoverMenuItem asChild>
-                    <Link href="/dash/analytics" className="flex items-center gap-2 px-3 py-2 text-sm text-white/70 hover:text-white hover:bg-white/[0.08] cursor-pointer transition-colors">
-                      <ChartLine size={16} weight="fill" />
-                      <span className="flex items-center">{t('analytics.tabs.advanced')}<PlanBadge currentPlan={plan} requiredPlan="enterprise" variant="dark" /></span>
-                    </Link>
-                  </HoverMenuItem>
-                </HoverMenuContent>
-              }
-            >
-              {(() => {
-                const active = isActivePath('/dash/analytics')
-                return (
-                  <Link
-                    href="/dash/analytics"
-                    aria-label={t('common.analytics')}
-                    aria-current={active ? 'page' : undefined}
-                    className={cn(
-                      "relative flex items-center w-full rounded-lg transition-all",
-                      active
-                        ? "text-white bg-white/[0.08]"
-                        : "text-white/50 hover:text-white hover:bg-white/[0.08]",
-                      isCollapsed ? "justify-center h-10" : "px-3 py-2 gap-3"
-                    )}
-                  >
-                    {active && (
-                      <span
-                        aria-hidden="true"
-                        className="absolute start-0.5 top-1/2 -translate-y-1/2 h-5 w-[3px] bg-white rounded-full"
-                      />
-                    )}
-                    <span className="relative flex items-center justify-center">
-                      <ChartBar size={20} weight="fill" />
-                      {isCollapsed && (
-                        <CaretDown aria-hidden="true" size={8} weight="bold" className={cn("absolute -end-2.5", active ? "text-white/60" : "text-white/30")} />
-                      )}
-                    </span>
-                    {!isCollapsed && (
-                      <>
-                        <span className="text-sm font-medium flex-1 text-start">{t('common.analytics')}</span>
-                        <CaretDown aria-hidden="true" size={14} weight="bold" className={active ? "text-white/70" : "text-white/40"} />
-                      </>
-                    )}
-                  </Link>
-                )
-              })()}
-            </HoverMenu>
-            {mkaScope !== 'none' && <MenuLink href="/dash/compliance" icon={<ShieldCheck size={20} weight="fill" />} label="Compliance" isCollapsed={isCollapsed} active={isActivePath('/dash/compliance')} />} {/* MKA fork */}
-
-            {/* Disabled features shown in an "Other" hover menu */}
-            {(!showCommunities || !showPodcasts || !showBoards || !showPlaygrounds || !showPayments) && (
+            {showAnalytics && (
               <HoverMenu
                 content={
                   <HoverMenuContent className="w-64">
-                    <HoverMenuLabel className="flex items-center justify-between text-white/70 font-medium">
-                      <span>{t('common.other')}</span>
-                      <span className="text-[9px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded bg-white/[0.06] text-white/25">
-                        {t('common.disabled')}
-                      </span>
-                    </HoverMenuLabel>
+                    <HoverMenuLabel className="text-white/70 font-medium">{t('common.analytics')}</HoverMenuLabel>
                     <HoverMenuSeparator />
-                    {!showCommunities && (
-                      <HoverMenuItem asChild>
-                        <Link href="/dash/communities" className="flex items-center gap-2 px-3 py-2 text-sm text-white/30 hover:text-white/50 hover:bg-white/[0.05] cursor-pointer transition-colors">
-                          <ChatsCircle size={16} weight="fill" />
-                          <span>{t('communities.title')}</span>
-                        </Link>
-                      </HoverMenuItem>
+                    <HoverMenuItem asChild>
+                      <Link href="/dash/analytics" className="flex items-center gap-2 px-3 py-2 text-sm text-white/70 hover:text-white hover:bg-white/[0.08] cursor-pointer transition-colors">
+                        <ChartBar size={16} weight="fill" />
+                        <span>{t('analytics.tabs.overview')}</span>
+                      </Link>
+                    </HoverMenuItem>
+                    <HoverMenuItem asChild>
+                      <Link href="/dash/analytics" className="flex items-center gap-2 px-3 py-2 text-sm text-white/70 hover:text-white hover:bg-white/[0.08] cursor-pointer transition-colors">
+                        <ChartLine size={16} weight="fill" />
+                        <span className="flex items-center">{t('analytics.tabs.advanced')}<PlanBadge currentPlan={plan} requiredPlan="enterprise" variant="dark" /></span>
+                      </Link>
+                    </HoverMenuItem>
+                  </HoverMenuContent>
+                }
+              >
+                {(() => {
+                  const active = isActivePath('/dash/analytics')
+                  return (
+                    <Link
+                      href="/dash/analytics"
+                      aria-label={t('common.analytics')}
+                      aria-current={active ? 'page' : undefined}
+                      className={cn(
+                        "relative flex items-center w-full rounded-lg transition-all",
+                        active
+                          ? "text-white bg-white/[0.08]"
+                          : "text-white/50 hover:text-white hover:bg-white/[0.08]",
+                        isCollapsed ? "justify-center h-10" : "px-3 py-2 gap-3"
+                      )}
+                    >
+                      {active && (
+                        <span
+                          aria-hidden="true"
+                          className="absolute start-0.5 top-1/2 -translate-y-1/2 h-5 w-[3px] bg-white rounded-full"
+                        />
+                      )}
+                      <span className="relative flex items-center justify-center">
+                        <ChartBar size={20} weight="fill" />
+                        {isCollapsed && (
+                          <CaretDown aria-hidden="true" size={8} weight="bold" className={cn("absolute -end-2.5", active ? "text-white/60" : "text-white/30")} />
+                        )}
+                      </span>
+                      {!isCollapsed && (
+                        <>
+                          <span className="text-sm font-medium flex-1 text-start">{t('common.analytics')}</span>
+                          <CaretDown aria-hidden="true" size={14} weight="bold" className={active ? "text-white/70" : "text-white/40"} />
+                        </>
+                      )}
+                    </Link>
+                  )
+                })()}
+              </HoverMenu>
+            )}
+
+            {mkaScope !== 'none' && <MenuLink href="/dash/compliance" icon={<ShieldCheck size={20} weight="fill" />} label="Compliance" isCollapsed={isCollapsed} active={isActivePath('/dash/compliance')} />} {/* MKA fork */}
+
+            {/* Optional features that are not in the nav: turned off, or not in the plan */}
+            {(offFeatures.length > 0 || lockedFeatures.length > 0) && (
+              <HoverMenu
+                content={
+                  <HoverMenuContent className="w-64">
+                    {offFeatures.length > 0 && (
+                      <>
+                        <HoverMenuLabel className="text-white/50 text-xs font-medium">
+                          {t('dashboard.nav.features_off')}
+                        </HoverMenuLabel>
+                        {offFeatures.map(({ feature }) => (
+                          <HoverMenuItem key={feature.key} asChild>
+                            <Link href={feature.href} className="flex items-center gap-2 px-3 py-2 text-sm text-white/40 hover:text-white/70 hover:bg-white/[0.05] cursor-pointer transition-colors">
+                              <feature.Icon size={16} weight="fill" />
+                              <span className="flex-1">{t(feature.labelKey)}</span>
+                              <span className="text-[9px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded bg-white/[0.06] text-white/35">
+                                {t('dashboard.nav.feature_off_badge')}
+                              </span>
+                            </Link>
+                          </HoverMenuItem>
+                        ))}
+                      </>
                     )}
-                    {!showPodcasts && (
-                      <HoverMenuItem asChild>
-                        <Link href="/dash/podcasts" className="flex items-center gap-2 px-3 py-2 text-sm text-white/30 hover:text-white/50 hover:bg-white/[0.05] cursor-pointer transition-colors">
-                          <Headphones size={16} weight="fill" />
-                          <span>{t('podcasts.podcasts')}</span>
-                        </Link>
-                      </HoverMenuItem>
+                    {offFeatures.length > 0 && lockedFeatures.length > 0 && <HoverMenuSeparator />}
+                    {lockedFeatures.length > 0 && (
+                      <>
+                        <HoverMenuLabel className="text-white/50 text-xs font-medium">
+                          {t('dashboard.nav.features_locked')}
+                        </HoverMenuLabel>
+                        {lockedFeatures.map(({ feature, upgradePlan }) => (
+                          <HoverMenuItem key={feature.key} asChild>
+                            <Link href={feature.href} className="flex items-center gap-2 px-3 py-2 text-sm text-white/40 hover:text-white/70 hover:bg-white/[0.05] cursor-pointer transition-colors">
+                              <feature.Icon size={16} weight="fill" />
+                              <span className="flex-1">{t(feature.labelKey)}</span>
+                              {upgradePlan && (
+                                <PlanBadge currentPlan={plan} requiredPlan={upgradePlan} variant="dark" alwaysShow noMargin />
+                              )}
+                            </Link>
+                          </HoverMenuItem>
+                        ))}
+                      </>
                     )}
-                    {!showBoards && (
-                      <HoverMenuItem asChild>
-                        <Link href="/dash/boards" className="flex items-center gap-2 px-3 py-2 text-sm text-white/30 hover:text-white/50 hover:bg-white/[0.05] cursor-pointer transition-colors">
-                          <ChalkboardSimple size={16} weight="fill" />
-                          <span>{t('common.boards')}</span>
-                        </Link>
-                      </HoverMenuItem>
-                    )}
-                    {!showPlaygrounds && (
-                      <HoverMenuItem asChild>
-                        <Link href="/dash/playgrounds" className="flex items-center gap-2 px-3 py-2 text-sm text-white/30 hover:text-white/50 hover:bg-white/[0.05] cursor-pointer transition-colors">
-                          <Cube size={16} weight="fill" />
-                          <span>{t('common.playgrounds')}</span>
-                        </Link>
-                      </HoverMenuItem>
-                    )}
-                    {!showPayments && (
-                      <HoverMenuItem asChild>
-                        <Link href="/dash/payments/overview" className="flex items-center gap-2 px-3 py-2 text-sm text-white/30 hover:text-white/50 hover:bg-white/[0.05] cursor-pointer transition-colors">
-                          <CurrencyCircleDollar size={16} weight="fill" />
-                          <span>{t('common.payments')}</span>
-                        </Link>
-                      </HoverMenuItem>
+                    {canManageOrg && (
+                      <>
+                        <HoverMenuSeparator />
+                        <HoverMenuItem asChild>
+                          <Link href={FEATURES_SETTINGS_HREF} className="flex items-center gap-2 px-3 py-2 text-sm text-white/60 hover:text-white hover:bg-white/[0.05] cursor-pointer transition-colors">
+                            <SlidersHorizontal size={16} weight="bold" />
+                            <span>{t('dashboard.nav.manage_features')}</span>
+                          </Link>
+                        </HoverMenuItem>
+                      </>
                     )}
                   </HoverMenuContent>
                 }
               >
                 <button
-                  aria-label={t('dashboard.nav.other')}
+                  aria-label={t('dashboard.nav.more_features')}
                   className={cn(
                     "flex items-center w-full rounded-lg text-white/30 hover:text-white/50 hover:bg-white/[0.05] transition-all",
                     isCollapsed ? "justify-center h-10" : "px-3 py-2 gap-3"
@@ -914,7 +988,7 @@ function DashLeftMenu() {
                   </span>
                   {!isCollapsed && (
                     <>
-                      <span className="text-sm font-medium flex-1 text-start">{t('common.other')}</span>
+                      <span className="text-sm font-medium flex-1 text-start">{t('dashboard.nav.more_features')}</span>
                       <CaretDown aria-hidden="true" size={14} weight="bold" className="text-white/20" />
                     </>
                   )}
@@ -925,7 +999,7 @@ function DashLeftMenu() {
         </AdminAuthorization>
       </div>
 
-      {/* Free-plan upgrade box — replaces the old full-width top banner.
+      {/* Free-plan upgrade box: replaces the old full-width top banner.
           Sits in the sidebar's empty space; multi-org / SaaS, free plan only.
           Twinkling stars on top; on hover it reveals the premium features the
           org is missing, the gold glow swells and the button sweeps a shimmer. */}
@@ -935,7 +1009,7 @@ function DashLeftMenu() {
           onHoverStart={() => setUpgradeHovered(true)}
           onHoverEnd={() => setUpgradeHovered(false)}
         >
-          {/* Blueprint grid — same motif as the login/home pages, fading in
+          {/* Blueprint grid, same motif as the login/home pages, fading in
               from the bottom. No card/border; it blends into the sidebar. */}
           <div
             className="absolute inset-0 pointer-events-none"
@@ -950,7 +1024,7 @@ function DashLeftMenu() {
               WebkitMaskImage: 'linear-gradient(to top, black 0%, transparent 80%)',
             }}
           />
-          {/* Gold glow rising from the bottom — swells on hover. */}
+          {/* Gold glow rising from the bottom; swells on hover. */}
           <motion.div
             className="absolute inset-x-0 bottom-0 h-2/3 pointer-events-none"
             initial={false}
@@ -961,7 +1035,7 @@ function DashLeftMenu() {
                 'radial-gradient(120% 90% at 50% 100%, rgba(250,204,21,0.12), rgba(255,255,255,0.05) 38%, transparent 72%)',
             }}
           />
-          {/* Night-sky starfield — scattered points of light that twinkle and
+          {/* Night-sky starfield: scattered points of light that twinkle and
               brighten on hover. The single amber "north star" is the plan you're
               reaching for; the white stars are the features it unlocks below. */}
           <div className="absolute inset-x-0 top-0 h-1/2 pointer-events-none">
@@ -1004,7 +1078,7 @@ function DashLeftMenu() {
               {t('plan.free_plan_cta', { defaultValue: 'Unlock the full platform' })}
             </p>
 
-            {/* Stable one-line pitch — no layout shift on hover; hover only
+            {/* Stable one-line pitch: no layout shift on hover; hover only
                 intensifies the gold glow / starfield / button halo. */}
             <p className="mt-1 text-[11px] leading-relaxed text-white/40">
               {t('plan.free_plan_desc', {
@@ -1143,7 +1217,7 @@ function DashLeftMenu() {
                 </HoverMenuItem>
                 <HoverMenuItem asChild>
                   <a
-                    href="https://discord.gg/learnhouse"
+                    href="http://learnhouse.to/discord"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center gap-2 px-3 py-2 text-sm text-white/70 hover:text-white hover:bg-white/[0.08] cursor-pointer transition-colors"
@@ -1175,7 +1249,7 @@ function DashLeftMenu() {
           </HoverMenu>
 
           {/* My Organizations with hover menu (multi-org / SaaS only) */}
-          {multiOrg && (
+          {multiOrg && showOrgSwitcher && (
             <HoverMenu
               align="end"
               content={
@@ -1185,12 +1259,14 @@ function DashLeftMenu() {
                     <span>{t('common.organizations', { defaultValue: 'Organizations' })}</span>
                   </HoverMenuLabel>
                   <HoverMenuSeparator />
-                  <HoverMenuItem asChild>
-                    <a href={getMainDomainUri('/home')} className="flex items-center gap-2 px-3 py-2 text-sm text-white/70 hover:text-white hover:bg-white/[0.08] cursor-pointer transition-colors">
-                      <House size={16} weight="fill" />
-                      <span>{t('common.home', { defaultValue: 'Home' })}</span>
-                    </a>
-                  </HoverMenuItem>
+                  {managesAnyOrg && (
+                    <HoverMenuItem asChild>
+                      <a href={getMainDomainUri('/home')} className="flex items-center gap-2 px-3 py-2 text-sm text-white/70 hover:text-white hover:bg-white/[0.08] cursor-pointer transition-colors">
+                        <House size={16} weight="fill" />
+                        <span>{t('common.home', { defaultValue: 'Home' })}</span>
+                      </a>
+                    </HoverMenuItem>
+                  )}
                   {canManageOrg && (
                     <HoverMenuItem asChild>
                       <a href={getMainDomainUri(`/billing?org=${org?.slug ?? ''}`)} className="flex items-center gap-2 px-3 py-2 text-sm text-white/70 hover:text-white hover:bg-white/[0.08] cursor-pointer transition-colors">
@@ -1212,13 +1288,17 @@ function DashLeftMenu() {
                       </a>
                     </HoverMenuItem>
                   ))}
-                  <HoverMenuSeparator />
-                  <HoverMenuItem asChild>
-                    <a href={getMainDomainUri('/new')} className="flex items-center gap-2 px-3 py-2 text-sm font-semibold text-white/80 hover:text-white hover:bg-white/[0.08] cursor-pointer transition-colors">
-                      <Plus size={16} weight="bold" />
-                      <span>{t('common.create_organization', { defaultValue: 'Create organization' })}</span>
-                    </a>
-                  </HoverMenuItem>
+                  {managesAnyOrg && (
+                    <>
+                      <HoverMenuSeparator />
+                      <HoverMenuItem asChild>
+                        <a href={getMainDomainUri('/new')} className="flex items-center gap-2 px-3 py-2 text-sm font-semibold text-white/80 hover:text-white hover:bg-white/[0.08] cursor-pointer transition-colors">
+                          <Plus size={16} weight="bold" />
+                          <span>{t('common.create_organization', { defaultValue: 'Create organization' })}</span>
+                        </a>
+                      </HoverMenuItem>
+                    </>
+                  )}
                 </HoverMenuContent>
               }
             >

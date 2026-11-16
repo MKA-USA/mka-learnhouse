@@ -1,16 +1,25 @@
 import {
-  calloutInfo, calloutWarning, doc, h, p, table, text, ul, bold, type PMDoc, type PMNode,
+  audience, audienceId, calloutInfo, calloutWarning, doc, h, p, table, text, ul, bold, type PMDoc, type PMNode,
 } from "../content/pm";
 import type { RosterRow } from "../roster/generate";
 import { MAJLIS_TO_REGION, REGION_NAMES } from "../roster/generate";
 import type { DepartmentSeed } from "../seed/departments";
-import { contactSelfCheckTasks, signOffTasks } from "./attestation";
+import { signOffTasks } from "./attestation";
 import { buildPlanQuiz, extractObjectives } from "./quiz";
 import type { ActivitySpec, ChapterSpec, CourseSpec, PlanInput, QuizQuestion, SourceRef } from "./types";
-import { courseName } from "./util";
+import { COMPLETION_SENTENCE, QUIZ_INSTRUCTION, withCompletion, QUIZ_MAX_ATTEMPTS, SIGNOFF_INSTRUCTION, courseName, deptLabel } from "./util";
+
+/** Estimated time for a department course: ~4 short pages (about 1,500 words at 200 wpm, about 8 min), 3 quiz questions (about 2 min), contacts lookup and sign-off (about 5 min), plus margin. */
+export const DEPT_COURSE_MINUTES = 20;
 
 export const STALE_NOTE = "Last year's content — update pending";
 const LEVEL_ORDER = ["all", "national", "region", "majlis"];
+/** Audience rule per CSV level: national officeholders see every level; `all` stays unwrapped. */
+const LEVEL_AUDIENCE: Record<string, { groups: Record<string, string[]>[]; label: string }> = {
+  national: { groups: [{ level: ["national"] }], label: "National team" },
+  region: { groups: [{ level: ["regional"] }, { level: ["national"] }], label: "Regional officeholders" },
+  majlis: { groups: [{ level: ["local"] }, { level: ["national"] }], label: "Local officeholders" },
+};
 const LEVEL_TITLE: Record<string, string> = { all: "", national: "National level", region: "Regional level", majlis: "Local (Majlis) level" };
 
 function pendingCallout(deptName: string, cycle: string): PMNode {
@@ -18,42 +27,71 @@ function pendingCallout(deptName: string, cycle: string): PMNode {
 }
 
 /** Render a plan section across levels; stale content gets a visible callout. */
-export function renderPlanSection(plans: PlanInput[], pick: (p: PlanInput) => PMDoc | null, deptName: string, cycle: string): PMNode[] {
+export function renderPlanSection(plans: PlanInput[], pick: (p: PlanInput) => PMDoc | null, deptName: string, cycle: string, opts: { fillMissingLevels?: boolean } = {}): PMNode[] {
   const rows = plans.filter((x) => pick(x)).sort((a, b) => LEVEL_ORDER.indexOf(a.level) - LEVEL_ORDER.indexOf(b.level));
   if (!rows.length) return [pendingCallout(deptName, cycle)];
   const out: PMNode[] = [];
   if (rows.some((r) => r.stale)) out.push(calloutWarning(STALE_NOTE));
   for (const r of rows) {
     const title = LEVEL_TITLE[r.level];
-    if (title) out.push(h(2, title));
-    out.push(...pick(r)!.content);
+    const section: PMNode[] = [...(title ? [h(2, title)] : []), ...pick(r)!.content];
+    const aud = LEVEL_AUDIENCE[r.level];
+    out.push(...(aud ? [audience(audienceId(cycle, r.departmentSlug, r.level), aud.groups, aud.label, section)] : section));
+  }
+  // A level with no key results still gets its (audience-gated) section, so regional and local officeholders are told so instead of seeing nothing.
+  // Also when an `all`-level plan exists: a regional or local viewer must always see their own section.
+  if (opts.fillMissingLevels) {
+    for (const lvl of ["region", "majlis"]) {
+      if (rows.some((r) => r.level === lvl)) continue;
+      const aud = LEVEL_AUDIENCE[lvl]!;
+      out.push(audience(audienceId(cycle, plans[0]?.departmentSlug ?? deptName, lvl), aud.groups, aud.label, [h(2, LEVEL_TITLE[lvl]!), p("This department has no key results at this level.")]));
+    }
   }
   return out;
 }
 
+/** Small notice at the top of every GENERATED page: edits belong in the source, not here (apply overwrites them). */
+export const generatedNote = (source: string, how: string): PMNode =>
+  calloutInfo(`This page is generated from the ${source}. To change it, ${how}, not this page.`);
+
+/** National officeholders have no region/majlis attribute, so a region-only rule would hide everything from them: always add this group. */
+const NATIONAL_VIEWERS = { level: ["national"] };
 const dash = (s: string | null | undefined) => s || "—";
 
 export function renderDirectory(args: { cycle: string; dept: DepartmentSeed; roster: RosterRow[] }): PMDoc {
-  const { dept, roster } = args;
+  const { cycle, dept, roster } = args;
   const mine = roster.filter((r) => r.departmentSlug === dept.slug);
   const nat = mine.filter((r) => r.level === "national");
   const local = mine.filter((r) => r.level === "majlis");
   const qaids = new Map(roster.filter((r) => r.role === "qaid").map((r) => [r.majlis, r]));
   const regionalQaids = roster.filter((r) => r.role === "regional_qaid");
   const regionalDept = mine.filter((r) => r.level === "region");
+  const byMajlis = new Map<string, RosterRow[]>();
+  for (const r of local) byMajlis.set(r.majlis, [...(byMajlis.get(r.majlis) ?? []), r]);
+  const localByMajlis = [...byMajlis.entries()].sort(([a], [b]) => a.localeCompare(b));
   const blocks: PMNode[] = [
     p([text("Find your counterparts below. Mailboxes are role mailboxes: they pass to the next officeholder. A dash means the name has not been recorded yet.")]),
     h(2, "National"),
     table(["Role", "Mailbox", "Name"], nat.map((r) => [r.roleTitle, r.learnerEmail, dash(r.personName)])),
     h(2, "Regional"),
-    table(["Region", "Role", "Mailbox", "Name"], REGION_NAMES.flatMap((rg) => {
+    p([text("Regional contacts are shown for your own region only.")]),
+    ...REGION_NAMES.map((rg) => {
       const rd = regionalDept.find((x) => x.region === rg); const q = regionalQaids.find((x) => x.region === rg);
-      return [[rg, rd?.roleTitle ?? `Regional ${dept.name}`, dash(rd?.learnerEmail), dash(rd?.personName)], [rg, "Regional Qaid", dash(q?.learnerEmail), dash(q?.personName)]];
-    })),
+      return audience(audienceId(cycle, dept.slug, "directory", "region", rg), [{ region: [rg] }, NATIONAL_VIEWERS], `${rg} region`, [
+        h(3, rg),
+        table(["Role", "Mailbox", "Name"], [
+          [rd?.roleTitle ?? `Regional ${dept.name}`, dash(rd?.learnerEmail), dash(rd?.personName)],
+          ["Regional Qaid", dash(q?.learnerEmail), dash(q?.personName)],
+        ]),
+      ]);
+    }),
     h(2, `Local: ${dept.name}`),
-    table(["Region", "Majlis", "Role", "Mailbox", "Name", "Majlis Qaid mailbox"],
-      local.sort((a, b) => a.region.localeCompare(b.region) || a.majlis.localeCompare(b.majlis) || a.role.localeCompare(b.role))
-        .map((r) => [r.region, r.majlis, r.roleTitle, r.learnerEmail, dash(r.personName), dash(qaids.get(r.majlis)?.learnerEmail)])),
+    p([text("Local contacts are shown for your own Majlis, or for every Majlis in your region if you are a regional officeholder.")]),
+    ...localByMajlis.map(([mj, rows]) => audience(audienceId(cycle, dept.slug, "directory", "majlis", mj), [{ majlis: [mj] }, { level: ["regional"], region: [rows[0]!.region] }, NATIONAL_VIEWERS], `${mj} Majlis`, [
+      h(3, `${mj} (${rows[0]!.region})`),
+      table(["Role", "Mailbox", "Name", "Majlis Qaid mailbox"],
+        rows.sort((a, b) => a.role.localeCompare(b.role)).map((r) => [r.roleTitle, r.learnerEmail, dash(r.personName), dash(qaids.get(r.majlis)?.learnerEmail)])),
+    ])),
   ];
   return doc(...blocks);
 }
@@ -76,13 +114,15 @@ export function buildDepartmentCourse(a: DepartmentCourseInput): CourseSpec {
 
   const roleTitle = dept.slug === "aitmad" ? "Motamid" : `Nazim ${dept.name}`;
   const goals = renderPlanSection(a.plans, (x) => x.responsibilitiesDoc, dept.name, cycle);
-  const okrs = renderPlanSection(a.plans, (x) => x.okrsDoc, dept.name, cycle);
+  const okrs = renderPlanSection(a.plans, (x) => x.okrsDoc, dept.name, cycle, { fillMissingLevels: true });
   const resources = a.plans.map((x) => x.resourcesDoc).filter((d): d is PMDoc => !!d);
 
-  const glance: PMNode[] = [
+  // ONE author-owned page: role at a glance, responsibilities, resources. Apply seeds it once; Mohtamims edit it from then on.
+  const rolePage: PMNode[] = [
     h(2, "Your role at a glance"),
-    ul([[bold("Role: "), text(roleTitle)], `Department: ${dept.name} (${dept.translation})`, `Local mailbox format: ${dept.mailboxPrefix}.<majlis>@${dept.slug === "atfal" ? "atfalusa.org (nazim / murabbi)" : "mkausa.org"}`, `Complete this course by ${a.deadline}.`]),
-    ...resources.flatMap((d) => [h(2, "Resources"), ...d.content]),
+    ul([[bold("Role: "), text(roleTitle)], `Department: ${deptLabel(dept.name, dept.translation)}`, `Local mailbox format: ${dept.mailboxPrefix}.<majlis>@${dept.slug === "atfal" ? "atfalusa.org (nazim / murabbi)" : "mkausa.org"}`]),
+    ...goals,
+    ...(resources.length ? [h(2, "Resources"), ...resources.flatMap((d) => d.content)] : []),
   ];
 
   const ownObjectives = a.plans.flatMap((x) => extractObjectives(x.okrsDoc));
@@ -92,29 +132,27 @@ export function buildDepartmentCourse(a: DepartmentCourseInput): CourseSpec {
   if (quiz.basis === "fallback") flags.push("knowledge check is the generic fallback (no usable plan objectives)");
 
   const chapters: ChapterSpec[] = [
-    { key: "ch-role", name: "Your role", description: "Goals and responsibilities", activities: [
-      { kind: "page", key: "goals", name: "Goals and responsibilities", doc: doc(...goals), ...(a.sources?.goals ? { source: a.sources.goals } : {}) },
-      { kind: "page", key: "role", name: `Responsibilities of ${roleTitle}`, doc: doc(...glance) },
+    { key: "ch-role", name: "Your role", description: "Your responsibilities and resources", activities: [
+      { kind: "page", key: "role", name: "Your role and resources", doc: doc(...rolePage), owner: "author", ...(a.sources?.goals ? { source: a.sources.goals } : {}) },
     ] },
-    { key: "ch-plan", name: "Annual plan", description: "This cycle's plan and objectives", activities: [
-      { kind: "page", key: "plan", name: "Annual department plan and OKRs", doc: doc(...okrs), ...(a.sources?.plan ? { source: a.sources.plan } : {}) },
-      { kind: "assignment", key: "knowledge-check", name: "Knowledge check: department plan", title: "Knowledge check: department plan", description: `Check your understanding of the ${dept.name} plan.`, ungraded: false, passThreshold: 60,
+    { key: "ch-plan", name: `Your ${cycle} plan`, description: "This cycle's plan and objectives", activities: [
+      { kind: "page", key: "plan", name: "Annual department plan and OKRs", doc: doc(...withCompletion([generatedNote(`${cycle} Department Plan`, "update the plan with Aitmad"), ...okrs])), ...(a.sources?.plan ? { source: a.sources.plan } : {}) },
+      { kind: "assignment", key: "knowledge-check", name: "Knowledge check: department plan", title: "Knowledge check: department plan", description: `Check your understanding of the ${dept.name} plan. ${QUIZ_INSTRUCTION(60)}`, ungraded: false, maxAttempts: QUIZ_MAX_ATTEMPTS, passThreshold: 60,
         tasks: [{ key: "plan-quiz", type: "QUIZ", title: "Department plan", description: "Choose the best answer.", hint: "Review the plan lesson if unsure.", contents: { grading_mode: "ALL_OR_NOTHING", questions: quiz.questions as QuizQuestion[] } }] },
     ] },
-    { key: "ch-contacts", name: "Important contacts", description: "Your national, regional and local counterparts", activities: [
-      { kind: "page", key: "directory", name: "Contacts directory", doc: renderDirectory({ cycle, dept, roster: a.roster }) },
-      { kind: "assignment", key: "contact-selfcheck", name: "Contact self-check", title: "Contact self-check", description: "Confirm that you know your counterparts.", ungraded: true, tasks: contactSelfCheckTasks(cycle, dept.name) },
+    { key: "ch-contacts", name: "Contacts", description: "Your national, regional and local counterparts", activities: [
+      { kind: "page", key: "directory", name: "Contacts directory", doc: doc(...withCompletion([generatedNote(`${cycle} officeholder roster`, "contact Aitmad"), ...renderDirectory({ cycle, dept, roster: a.roster }).content])) },
     ] },
-    { key: "ch-attest", name: "Attestation", description: "Final sign-off", activities: [
-      { kind: "assignment", key: "signoff", name: "Final sign-off", title: "Final sign-off", description: "Confirm and sign to complete this course.", ungraded: true, tasks: signOffTasks(cycle, dept.slug) },
+    { key: "ch-attest", name: "Finish", description: "Final sign-off", activities: [
+      { kind: "assignment", key: "signoff", name: "Final sign-off", title: "Final sign-off", description: `Confirm and sign to complete this course. ${SIGNOFF_INSTRUCTION}`, ungraded: true, tasks: signOffTasks(cycle, dept.slug) },
     ] },
   ];
 
   return {
     key: `${cycle}|dept:${dept.slug}`, kind: "department", departmentSlug: dept.slug, cycle,
     name: courseName(cycle, dept.name),
-    description: `Annual compliance training for ${dept.name} (${dept.translation}) officeholders, ${cycle}. Complete by ${a.deadline}.`,
-    about: `Required annual training for ${roleTitle} and counterparts: goals, the annual plan, your contacts and a final sign-off.`,
+    description: `Your role, this year's ${dept.name} plan and the people to contact, then a short knowledge check and sign-off. About ${DEPT_COURSE_MINUTES} minutes. ${COMPLETION_SENTENCE} Complete by ${a.deadline}.`,
+    about: `Required annual training for ${roleTitle} and counterparts: goals, the annual plan, your contacts and a final sign-off. ${COMPLETION_SENTENCE}`,
     learnings: "Your responsibilities, this year's plan, who to contact, attestation",
     tags: `mka,compliance,${cycle},${dept.slug}`, chapters, flags,
   };

@@ -48,15 +48,15 @@ export async function applyManualGrade({
 }: ApplyManualGradeArgs): Promise<ManualGradeResult> {
     if (!assignmentTaskUUID) return { success: false, reason: 'missing-task' }
     if (Number.isNaN(grade) || grade < 0) {
-        toast.error('Grade must be a positive number.')
+        toast.error(i18n.t('dashboard.assignments.editor.grading.positive_number'))
         return { success: false, reason: 'invalid-grade' }
     }
     if (grade > maxPoints) {
-        toast.error(`Grade cannot be more than ${maxPoints} points`)
+        toast.error(i18n.t('dashboard.assignments.editor.grading.max_points', { max: maxPoints }))
         return { success: false, reason: 'grade-above-max' }
     }
     // Defence in depth for every task type: with no target submission row the
-    // API falls back to a branch keyed on the SUBMITTER — the instructor —
+    // API falls back to a branch keyed on the SUBMITTER (the instructor),
     // creating a phantom instructor-owned row that is forced to 0 while the UI
     // cheerfully reported "Task graded successfully". Refuse loudly instead.
     if (!assignmentTaskSubmissionUUID) {
@@ -68,7 +68,7 @@ export async function applyManualGrade({
     const trimmed = feedback?.trim()
     const finalFeedback = trimmed && trimmed.length > 0
         ? trimmed
-        : `Graded by teacher : @${username ?? ''}`
+        : i18n.t('dashboard.assignments.editor.grading.default_feedback', { username: username ?? '' })
     const values = {
         assignment_task_submission_uuid: assignmentTaskSubmissionUUID,
         task_submission: taskSubmissionPayload,
@@ -84,9 +84,9 @@ export async function applyManualGrade({
     )
     if (res.success) {
         onSuccess()
-        toast.success(`Task graded successfully with ${grade} points`)
+        toast.success(i18n.t('dashboard.assignments.editor.grading.graded_success', { grade }))
         return { success: true }
     }
-    toast.error('Error grading task, please retry later.')
+    toast.error(i18n.t('dashboard.assignments.editor.grading.graded_error'))
     return { success: false, reason: 'request-failed' }
 }

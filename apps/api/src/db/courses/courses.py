@@ -4,7 +4,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, SQLModel
 from enum import Enum
 from pydantic import BaseModel
-from src.db.users import UserRead
+from src.db.users import UserReadAuthor
 from src.db.trails import TrailRead
 from src.db.courses.chapters import ChapterRead
 from src.db.resource_authors import ResourceAuthorshipEnum, ResourceAuthorshipStatusEnum
@@ -38,7 +38,10 @@ class ThumbnailType(str, Enum):
 
 
 class AuthorWithRole(SQLModel):
-    user: UserRead
+    # SECURITY: authors are returned to every reader of the resource (anonymous
+    # included on public ones), so only the author-chip projection goes out,
+    # never email/is_superadmin/signup_method/extra_metadata.
+    user: UserReadAuthor
     authorship: ResourceAuthorshipEnum
     authorship_status: ResourceAuthorshipStatusEnum
     creation_date: str
@@ -77,6 +80,9 @@ class Course(CourseBase, table=True):
     update_date: str = ""
     seo: Optional[dict] = Field(default=None, sa_column=Column(JSONB))
     extra_metadata: Optional[dict] = Field(default=None, sa_column=Column(JSONB))
+    # Drip content schedule (see db/courses/drip.py). Only written through the
+    # course drip schedule endpoint, which checks the plan.
+    drip_settings: Optional[dict] = Field(default=None, sa_column=Column(JSONB))
 
 
 class CourseCreate(CourseBase):
@@ -116,6 +122,7 @@ class CourseRead(CourseBase):
     thumbnail_video: Optional[str] = Field(default="")
     seo: Optional[dict] = None
     extra_metadata: Optional[dict] = None
+    drip_settings: Optional[dict] = None
 
 
 class FullCourseRead(CourseBase):
@@ -130,6 +137,7 @@ class FullCourseRead(CourseBase):
     thumbnail_video: Optional[str] = Field(default="")
     seo: Optional[dict] = None
     extra_metadata: Optional[dict] = None
+    drip_settings: Optional[dict] = None
     # Chapters, Activities
     chapters: List[ChapterRead]
     authors: List[AuthorWithRole]
@@ -144,6 +152,7 @@ class FullCourseReadWithTrail(CourseBase):
     org_id: int = Field(default=None, foreign_key="organization.id")
     seo: Optional[dict] = None
     extra_metadata: Optional[dict] = None
+    drip_settings: Optional[dict] = None
     authors: List[AuthorWithRole]
     # Chapters, Activities
     chapters: List[ChapterRead]

@@ -1,7 +1,7 @@
 # ───────────────────────────────────────────────
 # Stage 1: Frontend dependency install
 # ───────────────────────────────────────────────
-FROM oven/bun:1.4.2-alpine AS frontend-deps
+FROM oven/bun:1.4.4-alpine AS frontend-deps
 RUN apk upgrade --no-cache && apk add --no-cache libc6-compat
 WORKDIR /app
 
@@ -11,7 +11,7 @@ RUN bun install --frozen-lockfile
 # ───────────────────────────────────────────────
 # Stage 2: Frontend build
 # ───────────────────────────────────────────────
-FROM oven/bun:1.4.2-alpine AS frontend-builder
+FROM oven/bun:1.4.4-alpine AS frontend-builder
 WORKDIR /app
 COPY --from=frontend-deps /app/node_modules ./node_modules
 COPY apps/web .
@@ -22,12 +22,20 @@ ENV NEXT_TELEMETRY_DISABLED=1
 # Remove .env files to avoid leaking secrets into the build
 RUN rm -f .env*
 
+# Remove Enterprise Edition folder for public builds (@ee/* falls back to
+# ee-stub), and drop an ee symlink that does not resolve inside the image
+ARG LEARNHOUSE_PUBLIC=false
+RUN if [ "$LEARNHOUSE_PUBLIC" = "true" ] || { [ -L /app/ee ] && [ ! -e /app/ee ]; }; then rm -rf /app/ee; fi
+
+# Commit sha from CI; lets Next tell deploys apart (see generateBuildId)
+ARG BUILD_ID
+ENV BUILD_ID=$BUILD_ID
 RUN bun run build
 
 # ───────────────────────────────────────────────
 # Stage 3: Frontend production image
 # ───────────────────────────────────────────────
-FROM oven/bun:1.4.2-alpine AS frontend-runner
+FROM oven/bun:1.4.4-alpine AS frontend-runner
 WORKDIR /app
 
 RUN apk upgrade --no-cache && apk add --no-cache curl
@@ -53,7 +61,7 @@ RUN chmod +x server-wrapper.js
 # ───────────────────────────────────────────────
 # Stage 4: Collab server build
 # ───────────────────────────────────────────────
-FROM oven/bun:1.4.2-alpine AS collab-builder
+FROM oven/bun:1.4.4-alpine AS collab-builder
 WORKDIR /app
 
 COPY apps/collab/package.json apps/collab/bun.lock* ./
@@ -69,11 +77,18 @@ RUN bun run build
 # ───────────────────────────────────────────────
 FROM python:3.14.7-alpine3.24 AS runner
 
+# Node (for pm2 and collab) comes from the official image, not Alpine's nodejs
+# package, which trails Node security releases by weeks. Pinned so Renovate
+# raises the bump alongside the collab image.
+COPY --from=node:26.13.1-alpine3.24 /usr/local/bin/node /usr/local/bin/node
+COPY --from=node:26.13.1-alpine3.24 /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
+
 # Apply the stable distribution's security updates at build time. The Python
 # image can be published before a newer package fix reaches Alpine's mirrors.
 RUN apk upgrade --no-cache \
-    && apk add --no-cache nginx curl netcat-openbsd ca-certificates bash nodejs npm libstdc++ \
-    && npm install -g pm2 \
+    && apk add --no-cache nginx curl netcat-openbsd ca-certificates bash libstdc++ libatomic \
+    && ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+    && npm install -g pm2@7.1.0 \
     && rm -rf /root/.npm \
     && mkdir -p /run/nginx
 
@@ -108,7 +123,8 @@ WORKDIR /app
 COPY ./docker/nginx.conf /etc/nginx/http.d/default.conf
 COPY ./apps/api/docker-entrypoint.sh /app/api/docker-entrypoint.sh
 COPY ./docker/start.sh /app/start.sh
-RUN chmod +x /app/api/docker-entrypoint.sh /app/start.sh
+RUN chmod +x /app/api/docker-entrypoint.sh /app/start.sh /app/api/bin/learnhouse-lms-import \
+    && ln -s /app/api/bin/learnhouse-lms-import /usr/local/bin/learnhouse-lms-import
 
 # PYTHONDONTWRITEBYTECODE: the image ships read-only source and gains nothing
 # from writing .pyc files back into it. It also keeps __pycache__ out of the

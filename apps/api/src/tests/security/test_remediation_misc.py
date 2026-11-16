@@ -5,7 +5,6 @@ F-15 : password-reset endpoints accept email in body (no more email-in-URL).
 F-17 : cookie-domain validation at boot refuses single-label public parents.
 F-20 : webhook / invite / search rate limiters return a standard 429.
 F-22 : file validator enforces per-type size caps.
-F-24 : analytics course_uuid validator rejects SQL-injection characters.
 """
 
 from unittest.mock import MagicMock, patch
@@ -62,7 +61,7 @@ async def test_platform_reset_accepts_email_in_body(users_client):
 @pytest.mark.asyncio
 async def test_platform_reset_legacy_path_variant_still_works(users_client):
     """
-    F-15: legacy URL variant kept for backwards compatibility — marked
+    F-15: legacy URL variant kept for backwards compatibility. It is marked
     deprecated in OpenAPI but not removed, so any frontend caller on the
     old contract keeps working.
     """
@@ -105,7 +104,7 @@ def test_single_label_cookie_domain_refused_in_prod(monkeypatch):
 
 
 def test_dotted_cookie_domain_ok(monkeypatch):
-    """F-17: ``.app.example.com`` — normal SaaS setup — must load cleanly."""
+    """F-17: ``.app.example.com`` (the normal SaaS setup) must load cleanly."""
     monkeypatch.setenv("LEARNHOUSE_AUTH_JWT_SECRET_KEY", "x" * 40)
     monkeypatch.setenv("LEARNHOUSE_DEVELOPMENT_MODE", "false")
     monkeypatch.setenv("LEARNHOUSE_COOKIE_DOMAIN", ".app.example.com")
@@ -121,13 +120,65 @@ def test_dotted_cookie_domain_ok(monkeypatch):
     assert cfg.hosting_config.cookie_config.domain == ".app.example.com"
 
 
+def test_documented_example_jwt_secret_warns_but_boots(monkeypatch, caplog):
+    """The docs' example secret is public, but rotating it re-keys stored secrets,
+    so an existing install must keep booting and get a loud warning instead."""
+    monkeypatch.setenv("LEARNHOUSE_AUTH_JWT_SECRET_KEY", "replace-with-at-least-32-random-characters")
+    monkeypatch.setenv("TESTING", "false")
+
+    import importlib
+
+    import config.config as cfg_module
+
+    importlib.reload(cfg_module)
+    with caplog.at_level("CRITICAL"):
+        cfg_module.get_learnhouse_config()
+        # Config loads on every request; the warning must not repeat with it
+        cfg_module.get_learnhouse_config()
+    assert caplog.text.count("example value from the docs") == 1
+
+
+@pytest.mark.asyncio
+async def test_collab_internal_key_left_at_example_value_opens_nothing(monkeypatch):
+    from fastapi import HTTPException
+
+    from src.routers.boards.boards import verify_internal_key
+
+    monkeypatch.setenv("COLLAB_INTERNAL_KEY", "replace-with-random-shared-secret")
+    with pytest.raises(HTTPException) as exc:
+        await verify_internal_key("replace-with-random-shared-secret")
+    assert exc.value.status_code == 403
+
+
+def test_shared_secret_from_env_ignores_example_values(monkeypatch):
+    from config.config import shared_secret_from_env
+
+    monkeypatch.setenv("COLLAB_INTERNAL_KEY", "your-internal-key")
+    assert shared_secret_from_env("COLLAB_INTERNAL_KEY") == ""
+    monkeypatch.setenv("COLLAB_INTERNAL_KEY", "a-real-random-key-0123456789abcdef")
+    assert shared_secret_from_env("COLLAB_INTERNAL_KEY") == "a-real-random-key-0123456789abcdef"
+    monkeypatch.delenv("COLLAB_INTERNAL_KEY")
+    assert shared_secret_from_env("COLLAB_INTERNAL_KEY") == ""
+
+
+def test_example_internal_key_does_not_exempt_from_csrf(monkeypatch):
+    from src.security.csrf import _matches_any_key
+
+    keys = ("COLLAB_INTERNAL_KEY", "CLOUD_INTERNAL_KEY")
+    monkeypatch.setenv("COLLAB_INTERNAL_KEY", "replace-with-random-shared-secret")
+    monkeypatch.delenv("CLOUD_INTERNAL_KEY", raising=False)
+    assert _matches_any_key("replace-with-random-shared-secret", keys) is False
+    monkeypatch.setenv("COLLAB_INTERNAL_KEY", "a-real-random-key-0123456789abcdef")
+    assert _matches_any_key("a-real-random-key-0123456789abcdef", keys) is True
+
+
 # ---------------------------------------------------------------------------
 # F-20: rate limiters return the existing 429 envelope
 # ---------------------------------------------------------------------------
 
 def test_webhook_rate_limiter_returns_standard_envelope():
     """
-    F-20: limiter signature returns (is_allowed, retry_after) — routers then
+    F-20: limiter signature returns (is_allowed, retry_after); routers then
     raise the existing ``{code, message, retry_after}`` envelope with a
     Retry-After header. Frontend 429 handler is unchanged.
     """
@@ -191,34 +242,3 @@ def test_file_validator_rejects_svg_outright():
     with pytest.raises(HTTPException) as exc:
         validate_upload(f, allowed_types=["image"])
     assert exc.value.status_code == 415
-
-
-# ---------------------------------------------------------------------------
-# F-24: analytics course_uuid validator rejects SQL injection
-# ---------------------------------------------------------------------------
-
-@pytest.mark.parametrize(
-    "bad_uuid",
-    [
-        "course'; DROP TABLE events;--",
-        "course_test UNION SELECT * FROM users",
-        "course_test) OR 1=1",
-        "course_test;SELECT",
-        "' OR '1'='1",
-        "x" * 101,  # > 100 chars
-        "course_test with spaces",
-    ],
-)
-def test_analytics_validator_rejects_sql_injection_attempts(bad_uuid):
-    """F-24: course_uuid validator refuses every SQL-meaningful character."""
-    from src.routers.analytics import _validate_course_uuid
-
-    with pytest.raises(HTTPException) as exc:
-        _validate_course_uuid(bad_uuid)
-    assert exc.value.status_code == 400
-
-
-def test_analytics_validator_accepts_legitimate_uuid():
-    from src.routers.analytics import _validate_course_uuid
-
-    assert _validate_course_uuid("course_abc-123") == "course_abc-123"

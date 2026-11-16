@@ -308,7 +308,7 @@ export default function PlaygroundBlockComponent({
       height={height}
       className="rounded-2xl"
     >
-      {/* Floating toolbar — appears on hover or when selected */}
+      {/* Floating toolbar: appears on hover or when selected */}
       <div className={`absolute inset-x-0 top-0 z-20 flex justify-center pt-2.5 transition-opacity pointer-events-none ${isBlockSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
         <div
           className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white/90 backdrop-blur-sm nice-shadow pointer-events-auto cursor-grab active:cursor-grabbing"
@@ -342,7 +342,7 @@ export default function PlaygroundBlockComponent({
             style={{ border: 'none' }}
             // srcDoc content runs on an opaque origin (no allow-same-origin)
             sandbox="allow-scripts allow-forms allow-modals allow-popups"
-            title="Playground"
+            title={t('boards.playground_block.iframe_title')}
           />
         )}
       </div>
@@ -497,7 +497,7 @@ function PlaygroundModal({
                     className="w-full h-full bg-white block"
                     style={{ border: 'none' }}
                     sandbox="allow-scripts allow-forms allow-modals allow-popups"
-                    title="Playground Preview"
+                    title={t('boards.playground_block.preview_iframe_title')}
                   />
                 </div>
               )}

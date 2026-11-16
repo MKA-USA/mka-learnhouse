@@ -155,7 +155,6 @@ async def test_the_last_day_rule_reaches_but_does_not_lift_the_weekly_cap(db, or
         window_start=date(2026, 11, 16),
     )
     assert set(sel.pending) == manual and sel.cooled == 0  # the cooldown lift let them through to the cap check
-    before = len(transport.calls)
     rep = await rem.run_all(db, dry_run=False, kind="reminder", now=last_day)
     block = next(o for o in rep["orgs"] if o["org_id"] == org.id)["reminder"]
     assert block["sent"] == 4 and block["skipped_recent"] == 4  # the other 4 people are mailed; the manual ones are capped

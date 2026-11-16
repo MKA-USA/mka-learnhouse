@@ -9,7 +9,7 @@ import InviteOnlySignUpComponent from './InviteOnlySignUp'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { validateInviteCode } from '@services/organizations/invites'
 import { joinOrg } from '@services/organizations/orgs'
-import { getUriWithOrg } from '@services/config/config'
+import { getDeploymentMode, getUriWithOrg } from '@services/config/config'
 import { getErrorMessage } from '@services/utils/ts/errorMessage'
 import { useTranslation } from 'react-i18next'
 import AuthLayout from '@components/Auth/AuthLayout'
@@ -34,18 +34,20 @@ function SignUpClient(props: SignUpClientProps) {
   const isAuthenticated = session.status === 'authenticated'
   // There is only an org to JOIN when we actually resolved one (a subdomain or an
   // invite). On the org-less apex (`learnhouse.io/signup`) props.org is null, so a
-  // signed-in visitor has nothing to sign up for and no org to join → send them to
-  // the hub instead of a broken "Join <nothing>" screen.
+  // signed-in visitor has nothing to join; signing up there means they want their
+  // own LearnHouse, so send them to create an organization.
   const hasOrgToJoin = !!props.org
 
   useEffect(() => {
     if (isAuthenticated && !hasOrgToJoin) {
-      router.replace('/home')
+      // /new only exists in SaaS; an invite code means they came to join, and
+      // the hub forwards them to their school.
+      router.replace(getDeploymentMode() === 'saas' && !inviteCodeParam ? '/new' : '/home')
     }
-  }, [isAuthenticated, hasOrgToJoin, router])
+  }, [isAuthenticated, hasOrgToJoin, inviteCodeParam, router])
 
   useEffect(() => {
-    // On the org-less apex (learn.io/signup) props.org is null — guard it and
+    // On the org-less apex (learn.io/signup) props.org is null; guard it and
     // fall back to open signup instead of crashing.
     if (props.org?.config) {
       const config = props.org?.config?.config
@@ -71,7 +73,7 @@ function SignUpClient(props: SignUpClientProps) {
     >
       {session.status === 'loading' && (
         // Don't flash the open/invite signup form while the session is still
-        // resolving — a logged-in user would otherwise briefly see it.
+        // resolving; a logged-in user would otherwise briefly see it.
         <div className="flex-1 flex items-center justify-center px-6 md:px-12 lg:px-20">
           <Loader2 size={22} className="animate-spin text-black/30" />
         </div>
@@ -81,7 +83,7 @@ function SignUpClient(props: SignUpClientProps) {
           hasOrgToJoin ? (
             <LoggedInJoinScreen inviteCode={inviteCode} org={props.org} />
           ) : (
-            // Signed in on the org-less apex — the effect above redirects to /home.
+            // Signed in on the org-less apex; the effect above redirects them.
             <div className="flex-1 flex items-center justify-center px-6 md:px-12 lg:px-20">
               <Loader2 size={22} className="animate-spin text-black/30" />
             </div>
@@ -261,7 +263,7 @@ const NoTokenScreen = ({ org }: NoTokenScreenProps) => {
       setShowMessage(true)
       return
     }
-    // A whitespace-only code isn't a real invite — treat it as empty.
+    // A whitespace-only code isn't a real invite, so treat it as empty.
     const trimmedCode = inviteCode.trim()
     if (!trimmedCode) {
       setError(t('auth.invite_code_invalid'))

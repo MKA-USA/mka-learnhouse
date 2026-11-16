@@ -33,8 +33,13 @@ import CodePlayground from './Extensions/CodePlayground/CodePlayground'
 import UserBlock from './Extensions/Users/UserBlock'
 import MagicBlock from './Extensions/MagicBlocks/MagicBlock'
 import { mkaEditorExtensions } from '@components/mka/editor' // MKA fork
+import Callout from './Extensions/Callout/Callout'
+import ConditionalBlock from './Extensions/Dynamic/ConditionalBlock'
+import DynamicVariable from './Extensions/Dynamic/DynamicVariable'
+import { CommunityTag } from '@components/Objects/Communities/Tags/CommunityTag'
+import { normalizeCalloutContent } from './Extensions/Callout/calloutContent'
 
-// Lowlight — slim grammar set; see editorLowlight.ts
+// Lowlight with a slim grammar set; see editorLowlight.ts
 import { lowlight } from './editorLowlight'
 import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight'
 
@@ -63,6 +68,7 @@ function EditorPreview({ content, activity }: EditorPreviewProps) {
           },
         },
       }),
+      Callout,
       InfoCallout.configure({
         editable: false,
       }),
@@ -156,16 +162,24 @@ function EditorPreview({ content, activity }: EditorPreviewProps) {
         activity: activity,
       }),
       ...mkaEditorExtensions({ editable: false, activity }), // MKA fork
+      ConditionalBlock,
+      DynamicVariable,
+      CommunityTag,
     ],
-    content: content,
+    content: normalizeCalloutContent(content),
     immediatelyRender: false,
   })
 
-  // Update content when it changes
+  // Update content when it changes. The editor was created with the first
+  // value, so skip that one. Deferred: React node views mount with flushSync,
+  // which React refuses while it is still committing this render.
+  const initialContent = React.useRef(content)
   React.useEffect(() => {
-    if (editor && content) {
-      editor.commands.setContent(content)
-    }
+    if (!editor || !content || content === initialContent.current) return
+    initialContent.current = content
+    queueMicrotask(() => {
+      if (!editor.isDestroyed) editor.commands.setContent(normalizeCalloutContent(content))
+    })
   }, [editor, content])
 
   if (!editor) {

@@ -15,13 +15,16 @@ from src.db.users import PublicUser
 from src.db.courses.activities import Activity, ActivityRead
 from src.security.auth import get_current_user, resolve_acting_user_id
 from src.security.org_auth import enforce_org_mfa, is_org_member
-from src.security.rbac import check_resource_access, AccessAction
 from src.services.ai.base import (
     ask_ai,
+    chat_session_belongs_to_user,
     get_chat_session_history,
     save_message_to_history,
 )
 from src.services.ai.llm import model_for_tier
+from src.services.ai.llm.errors import ai_error_message, is_quota_error
+from src.services.ai.rag.access import can_read_activity
+from src.services.courses.activities.dynamic_context import render_for_reader
 from src.services.mka.audience_strip import mka_content_for_ai  # MKA fork
 
 from src.services.ai.schemas.ai import (
@@ -37,9 +40,38 @@ from src.services.courses.activities.utils import (
 logger = logging.getLogger(__name__)
 
 
+async def track_ai_message(
+    org_id: int | None,
+    user_id: int | None,
+    surface: str,
+    model: str,
+    course_uuid: str | None = None,
+    activity_uuid: str | None = None,
+) -> None:
+    """``ai_message_sent`` once a chat turn got an answer (failed or empty turns
+    are refunded and not counted)."""
+    if not org_id:
+        return
+    from src.services.analytics import events as analytics_events
+    from src.services.analytics.analytics import track
+
+    properties = {"surface": surface, "model": model}
+    if course_uuid:
+        properties["course_uuid"] = course_uuid
+    if activity_uuid:
+        properties["activity_uuid"] = activity_uuid
+    await track(
+        event_name=analytics_events.AI_MESSAGE_SENT,
+        org_id=org_id,
+        user_id=user_id or 0,
+        properties=properties,
+    )
+
+
 async def _authorize_activity_ai_access(
     request: Request,
     course: CourseRead,
+    activity: ActivityRead,
     org_id: int,
     current_user: PublicUser,
     db_session: AsyncSession,
@@ -47,7 +79,7 @@ async def _authorize_activity_ai_access(
     """Gate activity AI chat on the owning organization and course.
 
     ``activity_uuid`` is client-supplied, so without this any authenticated
-    user could stream another org's activity content back through the model —
+    user could stream another org's activity content back through the model,
     and have that org billed for the credit. Must run before rate limiting and
     credit reservation so an unauthorized caller never spends the victim's quota.
     """
@@ -58,9 +90,28 @@ async def _authorize_activity_ai_access(
             detail="You are not a member of this organization",
         )
     await enforce_org_mfa(acting_user_id, org_id, db_session)
-    await check_resource_access(
-        request, db_session, current_user, course.course_uuid, AccessAction.READ
-    )
+    # Course READ alone is not enough: the activity's content goes into the
+    # model context, so drafts, chapter/activity locks and paid access apply
+    # exactly as they do when the activity is opened directly.
+    if activity.id is None or not await can_read_activity(
+        request, current_user, course, activity.id, db_session
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have access to this activity",
+        )
+
+
+def _require_own_chat_session(aichat_uuid: str, current_user: PublicUser) -> None:
+    """404 unless the client-supplied session belongs to the caller.
+
+    The session uuid is echoed to the browser in every SSE event, so another
+    user's uuid is easy to come by; without this a caller could read someone
+    else's turns through the model and append to their history. Same rule as
+    the RAG router.
+    """
+    if not chat_session_belongs_to_user(aichat_uuid, resolve_acting_user_id(current_user)):
+        raise HTTPException(status_code=404, detail="Chat session not found")
 
 
 async def ai_start_activity_chat_session(
@@ -104,7 +155,8 @@ async def ai_start_activity_chat_session(
     # Get course authors
     from src.db.resource_authors import ResourceAuthor
     from src.db.users import User
-    from src.services.courses.courses import AuthorWithRole, UserRead
+    from src.db.courses.courses import AuthorWithRole
+    from src.db.users import UserReadAuthor
 
     authors_statement = (
         select(ResourceAuthor, User)
@@ -117,7 +169,7 @@ async def ai_start_activity_chat_session(
     # Convert to AuthorWithRole objects
     authors = [
         AuthorWithRole(
-            user=UserRead.model_validate(user),
+            user=UserReadAuthor.model_validate(user),
             authorship=resource_author.authorship,
             authorship_status=resource_author.authorship_status,
             creation_date=resource_author.creation_date,
@@ -140,7 +192,7 @@ async def ai_start_activity_chat_session(
 
     # F5/F6: authorize the client-supplied activity before any spend.
     await _authorize_activity_ai_access(
-        request, course, org.id, current_user, db_session
+        request, course, activity, org.id, current_user, db_session
     )
 
     # F-9: per-user + per-org rate limit before any compute / credit spend.
@@ -152,8 +204,12 @@ async def ai_start_activity_chat_session(
     # Reserve credit atomically before the AI call; refund below on failure.
     await reserve_ai_credit(org.id, db_session)
 
-    # Get Activity Content Blocks
-    content = activity.content
+    # Get Activity Content Blocks, as this reader sees them: the model must
+    # not quote a conditional block the learner can't see.
+    content = await render_for_reader(
+        request, activity.content, course=course, current_user=current_user,
+        db_session=db_session, activity_name=activity.name, activity_uuid=activity.activity_uuid,
+    )
     content = await mka_content_for_ai(content, current_user, db_session, request, course=course)  # MKA fork
 
     # Serialize Activity Content Blocks to a text comprehensible by the AI
@@ -203,14 +259,27 @@ async def ai_start_activity_chat_session(
     except Exception as e:
         # Refund the credit we reserved up-front since the AI call failed.
         refund_ai_credit(org.id)
-        logger.error("AI service error in ai_start_activity_chat_session: %s", e)
-        raise HTTPException(status_code=503, detail={"code": "AI_UNAVAILABLE", "message": "AI service is temporarily unavailable"})
+        (logger.warning if is_quota_error(e) else logger.error)(
+            "AI service error in ai_start_activity_chat_session: %s", e
+        )
+        raise HTTPException(status_code=503, detail={"code": "AI_UNAVAILABLE", "message": ai_error_message(e, "AI service is temporarily unavailable")})
 
-    # Save the message exchange to history
+    # Save the message exchange to history (and record who owns the session)
     save_message_to_history(
         chat_session["aichat_uuid"],
         chat_session_object.message,
-        response["output"]
+        response["output"],
+        user_id=resolve_acting_user_id(current_user),
+        course_uuid=course.course_uuid,
+        org_id=course.org_id,
+    )
+    await track_ai_message(
+        course.org_id,
+        resolve_acting_user_id(current_user),
+        "activity_chat",
+        ai_model,
+        course_uuid=course.course_uuid,
+        activity_uuid=activity.activity_uuid,
     )
 
     return ActivityAIChatSessionResponse(
@@ -260,7 +329,8 @@ async def ai_send_activity_chat_message(
     # Get course authors
     from src.db.resource_authors import ResourceAuthor
     from src.db.users import User
-    from src.services.courses.courses import AuthorWithRole, UserRead
+    from src.db.courses.courses import AuthorWithRole
+    from src.db.users import UserReadAuthor
 
     authors_statement = (
         select(ResourceAuthor, User)
@@ -273,7 +343,7 @@ async def ai_send_activity_chat_message(
     # Convert to AuthorWithRole objects
     authors = [
         AuthorWithRole(
-            user=UserRead.model_validate(user),
+            user=UserReadAuthor.model_validate(user),
             authorship=resource_author.authorship,
             authorship_status=resource_author.authorship_status,
             creation_date=resource_author.creation_date,
@@ -290,8 +360,9 @@ async def ai_send_activity_chat_message(
 
     # F5/F6: authorize the client-supplied activity before any spend.
     await _authorize_activity_ai_access(
-        request, course, course.org_id, current_user, db_session
+        request, course, activity, course.org_id, current_user, db_session
     )
+    _require_own_chat_session(chat_session_object.aichat_uuid, current_user)
 
     # F-9: per-user + per-org rate limit before any compute / credit spend.
     from src.services.security.rate_limiting import enforce_ai_rate_limit
@@ -300,8 +371,12 @@ async def ai_send_activity_chat_message(
     # Reserve credit atomically before the AI call; refund below on failure.
     await reserve_ai_credit(course.org_id, db_session)
 
-    # Get Activity Content Blocks
-    content = activity.content
+    # Get Activity Content Blocks, as this reader sees them: the model must
+    # not quote a conditional block the learner can't see.
+    content = await render_for_reader(
+        request, activity.content, course=course, current_user=current_user,
+        db_session=db_session, activity_name=activity.name, activity_uuid=activity.activity_uuid,
+    )
     content = await mka_content_for_ai(content, current_user, db_session, request, course=course)  # MKA fork
 
     # Serialize Activity Content Blocks to a text comprehensible by the AI
@@ -351,11 +426,22 @@ async def ai_send_activity_chat_message(
         logger.error("AI service error in ai_send_activity_chat_message: %s", e)
         raise HTTPException(status_code=503, detail={"code": "AI_UNAVAILABLE", "message": "AI service is temporarily unavailable"})
 
-    # Save the message exchange to history
+    # Save the message exchange to history (and record who owns the session)
     save_message_to_history(
         chat_session["aichat_uuid"],
         chat_session_object.message,
-        response["output"]
+        response["output"],
+        user_id=resolve_acting_user_id(current_user),
+        course_uuid=course.course_uuid,
+        org_id=course.org_id,
+    )
+    await track_ai_message(
+        course.org_id,
+        resolve_acting_user_id(current_user),
+        "activity_chat",
+        ai_model,
+        course_uuid=course.course_uuid,
+        activity_uuid=activity.activity_uuid,
     )
 
     return ActivityAIChatSessionResponse(
@@ -404,7 +490,8 @@ async def _get_activity_and_course_info(
     # Get course authors
     from src.db.resource_authors import ResourceAuthor
     from src.db.users import User
-    from src.services.courses.courses import AuthorWithRole, UserRead
+    from src.db.courses.courses import AuthorWithRole
+    from src.db.users import UserReadAuthor
 
     authors_statement = (
         select(ResourceAuthor, User)
@@ -417,7 +504,7 @@ async def _get_activity_and_course_info(
     # Convert to AuthorWithRole objects
     authors = [
         AuthorWithRole(
-            user=UserRead.model_validate(user),
+            user=UserReadAuthor.model_validate(user),
             authorship=resource_author.authorship,
             authorship_status=resource_author.authorship_status,
             creation_date=resource_author.creation_date,
@@ -439,13 +526,17 @@ async def _get_activity_and_course_info(
         )
 
     # F5: authorize before serializing any of the activity's content into the
-    # model context — and before the callers rate-limit / reserve credits.
+    # model context, and before the callers rate-limit / reserve credits.
     await _authorize_activity_ai_access(
-        request, course, org.id, current_user, db_session
+        request, course, activity, org.id, current_user, db_session
     )
 
-    # Get Activity Content Blocks
-    content = activity.content
+    # Get Activity Content Blocks, as this reader sees them: the model must
+    # not quote a conditional block the learner can't see.
+    content = await render_for_reader(
+        request, activity.content, course=course, current_user=current_user,
+        db_session=db_session, activity_name=activity.name, activity_uuid=activity.activity_uuid,
+    )
     content = await mka_content_for_ai(content, current_user, db_session, request, course=course)  # MKA fork
 
     # Serialize Activity Content Blocks to a text comprehensible by the AI
@@ -532,6 +623,7 @@ async def ai_send_activity_chat_message_stream(
     activity, course, org, ai_model, ai_friendly_text = await _get_activity_and_course_info(
         chat_session_object.activity_uuid, db_session, request, current_user
     )
+    _require_own_chat_session(chat_session_object.aichat_uuid, current_user)
 
     # F-9: per-user + per-org rate limit before any compute / credit spend.
     # Resolve through helper so API tokens bucket under their creator rather

@@ -82,6 +82,21 @@ export const uploadOrganizationPreview = async (orgId: string, file: File, acces
   return res
 };
 
+/** Turn an optional feature on or off (see services/features/optionalFeatures). */
+export async function updateOrgFeatureToggle(
+  org_id: string | number,
+  feature: string,
+  enabled: boolean,
+  access_token: string
+) {
+  const result: any = await fetch(
+    `${getAPIUrl()}orgs/${org_id}/config/features/${encodeURIComponent(feature)}?enabled=${enabled}`,
+    RequestBodyWithAuthHeader('PUT', null, null, access_token)
+  )
+  const res = await errorHandling(result)
+  return res
+}
+
 export async function updateOrgCommunitiesConfig(
   org_id: string,
   communities_enabled: boolean,
@@ -124,7 +139,7 @@ export async function updateOrgFooterTextConfig(
 /**
  * Set the display name shown on transactional email for this organization.
  *
- * Only the NAME is configurable — the sending address stays the platform's
+ * Only the NAME is configurable; the sending address stays the platform's
  * verified system address, so SPF/DKIM keep aligning. Pass an empty string to
  * fall back to the platform default.
  */
@@ -240,7 +255,7 @@ export type SignupFieldType =
   | 'date'
 
 export interface SignupFieldItem {
-  /** JSON key on the user's extra_metadata. Immutable once created — renaming
+  /** JSON key on the user's extra_metadata. Immutable once created, since renaming
    *  it orphans every answer already collected. */
   key: string
   label: string
@@ -250,7 +265,7 @@ export interface SignupFieldItem {
   order: number
   help_text?: string
   placeholder?: string
-  /** select only — also the server-side allowlist. */
+  /** select only; also the server-side allowlist. */
   options?: string[]
   max_length?: number | null
   min_value?: number | null

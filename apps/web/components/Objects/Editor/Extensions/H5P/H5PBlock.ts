@@ -1,9 +1,9 @@
 import { mergeAttributes, Node } from '@tiptap/core'
-import { ReactNodeViewRenderer } from '@tiptap/react'
+import { lhNodeView } from '@components/Objects/Editor/core/nodeView'
 import dynamic from 'next/dynamic'
 
 /*
- H5P interactive content — EMBED ONLY, by design.
+ H5P interactive content: EMBED ONLY, by design.
 
  The H5P core (the player, the editor, the content types) is AGPL-licensed, so
  vendoring it into LearnHouse would put the whole application under the AGPL.
@@ -14,7 +14,7 @@ import dynamic from 'next/dynamic'
  So there is no authoring integration here, and there never was one removed.
  The author creates the content on their own H5P host (H5P.com, Lumi, or a
  self-hosted Drupal/Moodle/WordPress site), pastes the embed URL, and we render
- it in a sandboxed iframe. The content — and its licence — stays on their host.
+ it in a sandboxed iframe. The content, and its licence, stays on their host.
 */
 
 const H5PBlockComponent = dynamic(() => import('./H5PBlockComponent'), {
@@ -65,6 +65,6 @@ export default Node.create({
   },
 
   addNodeView() {
-    return ReactNodeViewRenderer(H5PBlockComponent as any)
+    return lhNodeView(H5PBlockComponent as any)
   },
 })

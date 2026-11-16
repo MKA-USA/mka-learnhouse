@@ -1,10 +1,18 @@
 """
 CSRF Protection Middleware
 
-Validates Origin header on state-changing requests (POST, PUT, DELETE, PATCH)
-to protect against Cross-Site Request Forgery attacks.
+Validates the Origin header on state-changing requests (POST, PUT, DELETE,
+PATCH) that carry browser auth cookies, to protect against Cross-Site Request
+Forgery attacks.
+
+Rule: a request is rejected only when it carries an auth cookie AND names an
+Origin (or, without Origin, a Referer) that is not allowed. ``Origin: null``
+counts as not allowed. Requests with neither header pass: browsers always
+send Origin on cross-site non-GET requests, so a header-less request is a
+server-to-server call (Next.js route handlers, collab, cron, integrations).
 """
 
+import hmac
 import logging
 import re
 import time
@@ -13,13 +21,25 @@ from urllib.parse import urlparse
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
-from config.config import get_learnhouse_config
+from config.config import get_learnhouse_config, shared_secret_from_env
+from src.core.middleware.cors import (
+    _host_from,
+    _single_tenancy_origin_regex,
+    effective_allowed_regexp,
+)
+from src.security.auth import JWT_COOKIE_NAME, JWT_REFRESH_COOKIE_NAME
 
 logger = logging.getLogger(__name__)
 
 
 # Methods that require CSRF protection
 STATE_CHANGING_METHODS = {"POST", "PUT", "DELETE", "PATCH"}
+
+# The LTI 1.3 OIDC login and launch are cross-site form posts from the LMS by
+# design. They are authorized by the platform-signed id_token, state and nonce
+# and never read the session cookie, so a cookie the browser happens to carry
+# (an LMS on the same site as LearnHouse) is not what lets them through.
+_LTI_LAUNCH_PATH = re.compile(r"^/api/v1/lti/[A-Za-z0-9_-]+/(login|launch)$")
 
 # Short-TTL cache for the verified-custom-domain origin check, so we don't hit the
 # DB on every mutation. Only consulted when the static allowlist/regex fails, so
@@ -28,6 +48,42 @@ STATE_CHANGING_METHODS = {"POST", "PUT", "DELETE", "PATCH"}
 _CUSTOM_DOMAIN_CACHE: dict[str, tuple[bool, float]] = {}
 _CUSTOM_DOMAIN_TTL_SECONDS = 60.0
 _CUSTOM_DOMAIN_CACHE_MAX = 2048
+
+# Cookies that authenticate a browser session. Only requests carrying one of
+# these can be forged cross-site with the victim's credentials.
+AUTH_COOKIE_NAMES = (JWT_COOKIE_NAME, JWT_REFRESH_COOKIE_NAME)
+
+
+def _cors_origin_regex(config) -> str | None:
+    """The origin regex CORS admits with credentials, built from ``config``.
+
+    Mirrors ``get_cors_origin_regex`` so every origin the browser is allowed to
+    send credentialed requests from also passes CSRF (otherwise mounting this
+    middleware would break the platform's own subdomains when
+    LEARNHOUSE_ALLOWED_REGEXP is unset).
+    """
+    tenancy = getattr(config.hosting_config, "tenancy", None)
+    if tenancy == "single":
+        return _single_tenancy_origin_regex(config)
+    if tenancy == "multi":
+        domain = config.hosting_config.domain
+        host = _host_from(domain) if isinstance(domain, str) else ""
+        if host:
+            return rf"^https?://(?:[a-z0-9-]+\.)*{re.escape(host)}(:\d+)?$"
+    return None
+
+
+def _matches_any_key(provided: str | None, env_names: tuple[str, ...]) -> bool:
+    """Constant-time compare of ``provided`` against each set, non-example env key."""
+    if not provided:
+        return False
+    provided_b = provided.encode()
+    matched = False
+    for name in env_names:
+        expected = shared_secret_from_env(name)
+        if expected and hmac.compare_digest(provided_b, expected.encode()):
+            matched = True
+    return matched
 
 
 class CSRFProtectionMiddleware(BaseHTTPMiddleware):
@@ -42,11 +98,17 @@ class CSRFProtectionMiddleware(BaseHTTPMiddleware):
         super().__init__(app)
         config = get_learnhouse_config()
         self.allowed_origins = config.hosting_config.allowed_origins
-        self.allowed_regexp = config.hosting_config.allowed_regexp
+        # Shares the catch-all guard with CORS: a pattern that admits any
+        # origin is treated as unset rather than disabling the check.
+        self.allowed_regexp = effective_allowed_regexp(config)
         self.development_mode = config.general_config.development_mode
 
         # Compile the regexp for performance
         self.compiled_regexp = None
+        self.cors_regexp = None
+        cors_pattern = _cors_origin_regex(config)
+        if cors_pattern:
+            self.cors_regexp = re.compile(cors_pattern)
         if self.allowed_regexp:
             try:
                 self.compiled_regexp = re.compile(self.allowed_regexp)
@@ -76,6 +138,9 @@ class CSRFProtectionMiddleware(BaseHTTPMiddleware):
         if self.compiled_regexp and self.compiled_regexp.fullmatch(origin):
             return True
 
+        if self.cors_regexp and self.cors_regexp.fullmatch(origin):
+            return True
+
         if self.development_mode:
             if "localhost" in origin or "127.0.0.1" in origin:
                 return True
@@ -85,13 +150,13 @@ class CSRFProtectionMiddleware(BaseHTTPMiddleware):
     def is_allowed_origin(self, origin: str | None, referer: str | None = None) -> bool:
         """Check if the request origin is allowed.
 
-        Uses Origin header first, falls back to Referer header.
-        Rejects state-changing requests that have neither.
+        Uses Origin header first, falls back to Referer header. Returns False
+        when neither is present; ``dispatch`` decides what that means.
         """
         if origin:
             return self._is_origin_allowed(origin)
 
-        # No Origin header — fall back to Referer
+        # No Origin header: fall back to Referer
         if referer:
             referer_origin = self._extract_origin_from_url(referer)
             if referer_origin:
@@ -107,7 +172,7 @@ class CSRFProtectionMiddleware(BaseHTTPMiddleware):
         mutations. We resolve the host against the custom_domains table (verified
         only), short-cached. This does NOT weaken CSRF: browsers set the Origin
         header themselves, so a cross-site request from attacker.com carries
-        Origin: attacker.com (rejected) — only genuine custom-domain requests carry
+        Origin: attacker.com (rejected); only genuine custom-domain requests carry
         the custom-domain Origin.
         """
         try:
@@ -154,14 +219,16 @@ class CSRFProtectionMiddleware(BaseHTTPMiddleware):
         - API tokens (Bearer lh_*): validated independently, rejected if invalid
           (auth.py never falls back to cookies for lh_ tokens)
         - Stripe webhooks: use HMAC signature verification, no cookies involved
+        - LTI login/launch posts from an LMS: authorized by the signed launch,
+          never by cookies
 
         Regular Bearer JWT tokens are NOT exempt because get_current_user()
-        falls back to cookie auth when the JWT is invalid — an attacker could
+        falls back to cookie auth when the JWT is invalid, so an attacker could
         send a fake Bearer header to bypass CSRF while the real auth happens
         via the victim's cookies.
         """
         auth_header = request.headers.get("authorization", "")
-        # Only exempt API tokens (lh_*) — these never fall back to cookies
+        # Only exempt API tokens (lh_*); these never fall back to cookies
         if auth_header.lower().startswith("bearer lh_"):
             return True
 
@@ -169,15 +236,30 @@ class CSRFProtectionMiddleware(BaseHTTPMiddleware):
         if request.headers.get("stripe-signature"):
             return True
 
-        # Internal service-to-service calls (collab server) use a shared key, not cookies
-        if request.headers.get("x-internal-key"):
+        path = getattr(getattr(request, "url", None), "path", None)
+        if isinstance(path, str) and _LTI_LAUNCH_PATH.match(path):
             return True
 
-        # Platform service-to-service calls use a shared key, not cookies
-        if request.headers.get("x-platform-key"):
+        # Service-to-service calls use a shared key, not cookies; only a valid
+        # key exempts (a bare header would let any page skip CSRF).
+        if _matches_any_key(
+            request.headers.get("x-internal-key"),
+            ("COLLAB_INTERNAL_KEY", "CLOUD_INTERNAL_KEY"),
+        ):
+            return True
+
+        if _matches_any_key(
+            request.headers.get("x-platform-key"),
+            ("LEARNHOUSE_PLATFORM_API_KEY",),
+        ):
             return True
 
         return False
+
+    @staticmethod
+    def _has_auth_cookie(request: Request) -> bool:
+        cookies = request.cookies
+        return any(cookies.get(name) for name in AUTH_COOKIE_NAMES)
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         # Only check state-changing methods
@@ -188,22 +270,39 @@ class CSRFProtectionMiddleware(BaseHTTPMiddleware):
         if self._is_csrf_exempt(request):
             return await call_next(request)
 
-        # Get origin and referer headers
+        # Without a browser auth cookie there is nothing to forge.
+        if not self._has_auth_cookie(request):
+            return await call_next(request)
+
         origin = request.headers.get("origin")
         referer = request.headers.get("referer")
 
-        # Validate origin. If it fails the static allowlist/regex, fall back to a
-        # DB check for VERIFIED org custom domains (which the platform-domain-only
-        # config can't express), so custom-domain browsers can make same-origin
-        # mutations. The DB check runs only on this slow path (cached).
-        if not self.is_allowed_origin(origin, referer):
-            candidate = origin or (self._extract_origin_from_url(referer) if referer else None)
-            if not (candidate and await self._is_verified_custom_domain_origin(candidate)):
-                return JSONResponse(
-                    status_code=403,
-                    content={
-                        "detail": "CSRF validation failed: Origin not allowed"
-                    }
-                )
+        # Browsers always send Origin on cross-site non-GET requests, so a
+        # request with neither header is a server-to-server call.
+        if origin:
+            candidate = origin
+        elif referer:
+            candidate = self._extract_origin_from_url(referer)
+            if candidate is None:
+                return self._reject()
+        else:
+            return await call_next(request)
 
-        return await call_next(request)
+        # "null" (sandboxed iframes, data: URLs, some redirects) never matches
+        # the allowlist and has no host, so it is rejected below.
+        if self._is_origin_allowed(candidate):
+            return await call_next(request)
+
+        # Fall back to a DB check for VERIFIED org custom domains (which the
+        # platform-domain-only config can't express). Slow path only, cached.
+        if await self._is_verified_custom_domain_origin(candidate):
+            return await call_next(request)
+
+        return self._reject()
+
+    @staticmethod
+    def _reject() -> JSONResponse:
+        return JSONResponse(
+            status_code=403,
+            content={"detail": "CSRF validation failed: Origin not allowed"},
+        )

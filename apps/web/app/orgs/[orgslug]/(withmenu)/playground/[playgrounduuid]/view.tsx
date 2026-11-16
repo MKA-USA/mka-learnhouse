@@ -23,6 +23,7 @@ import UserAvatar from '@components/Objects/UserAvatar'
 import { Playground } from '@services/playgrounds/playgrounds'
 import { getPlaygroundThumbnailMediaDirectory, getUserAvatarMediaDirectory } from '@services/media/media'
 import { useTrackView, AnalyticsEvent } from '@services/analytics'
+import ThumbnailImage from '@components/Objects/Thumbnails/ThumbnailImage'
 
 dayjs.extend(relativeTime)
 
@@ -48,7 +49,7 @@ export default function PlaygroundViewClient({
 
   useTrackView(
     AnalyticsEvent.PlaygroundViewed,
-    { has_content: !!playground.html_content, is_author: canEdit },
+    { playground_uuid: playground.playground_uuid, has_content: !!playground.html_content, is_author: canEdit },
     true,
     'learner',
   )
@@ -114,14 +115,14 @@ export default function PlaygroundViewClient({
 
       <div className="flex flex-col md:flex-row gap-5 pt-2">
 
-        {/* ── Left Sidebar — 220px ── */}
+        {/* ── Left Sidebar (220px) ── */}
         <div className="hidden md:block w-56 flex-shrink-0">
           <div className="sticky top-24 space-y-3">
 
             {/* Thumbnail */}
             {thumbnailUrl && (
               <div className="bg-white nice-shadow rounded-lg overflow-hidden">
-                <img
+                <ThumbnailImage
                   src={thumbnailUrl}
                   alt={playground.name}
                   className="w-full aspect-video object-cover"
@@ -220,7 +221,7 @@ export default function PlaygroundViewClient({
             className="relative bg-white nice-shadow rounded-lg overflow-hidden"
             style={{ height: 'calc(100vh - 200px)', minHeight: 480 }}
           >
-            {/* Toolbar — top right of preview */}
+            {/* Toolbar: top right of preview */}
             <div className="absolute top-3 end-3 z-10 flex items-center gap-2">
               <button
                 onClick={handleDownload}

@@ -11,7 +11,8 @@ let registered = false
 export function registerMkaSlashItems(): void {
   if (registered) return
   registered = true
-  const items: SlashCommandItem[] = [
+  type MkaSlashItem = Omit<SlashCommandItem, 'titleKey' | 'descriptionKey'>
+  const items: MkaSlashItem[] = [
     {
       id: 'mka-audience',
       title: 'Audience section',
@@ -23,7 +24,7 @@ export function registerMkaSlashItems(): void {
         editor.chain().focus().setMkaAudience().run()
       },
     },
-    ...VIEWER_FIELDS.map<SlashCommandItem>((field) => ({
+    ...VIEWER_FIELDS.map<MkaSlashItem>((field) => ({
       id: `mka-field-${field}`,
       title: `Viewer's ${FIELD_LABELS[field]}`,
       description: `Fills in the viewer's ${FIELD_LABELS[field].toLowerCase()}, or "${FIELD_FALLBACKS[field]}"`,
@@ -50,5 +51,7 @@ export function registerMkaSlashItems(): void {
       },
     },
   ]
-  slashCommands.push(...items)
+  // Upstream renders `t(item.titleKey)`; with no catalogue entry i18next returns the key itself, so the
+  // English title/description double as keys (no '.' or ':' in any of them).
+  slashCommands.push(...items.map((item) => ({ ...item, titleKey: item.title, descriptionKey: item.description })))
 }

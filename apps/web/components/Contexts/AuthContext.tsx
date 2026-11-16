@@ -6,6 +6,7 @@ import React, {
   useState,
   useEffect,
   useCallback,
+  useMemo,
   useRef,
 } from 'react'
 import {
@@ -15,6 +16,7 @@ import {
 } from '@services/config/config'
 import { isSubdomainOf, isSameHost, isLocalhost as isLocalhostCheck } from '@services/utils/ts/hostUtils'
 import { safeRedirectUrl } from '@services/auth/redirects'
+import i18n from '@/lib/i18n'
 import { safeExternalUrl } from '@services/security/url'
 import { AUTH_EXPIRED_EVENT, AUTH_REFRESHED_EVENT } from '@/lib/auth/events'
 
@@ -56,7 +58,6 @@ export interface SignInOptions {
   // SSO fields
   sso?: string
   sso_access_token?: string
-  sso_refresh_token?: string
   sso_user?: string
   sso_expiry?: number
   // For OAuth
@@ -70,10 +71,13 @@ export interface SignInResult {
   url: string | null
   status: number
   // Set when the password was correct but the account carries a second factor.
-  // `ok` stays false — nothing is authenticated yet — and the caller must hand
+  // `ok` stays false (nothing is authenticated yet) and the caller must hand
   // `mfa_token` back to completeMfaLogin() along with a code.
   mfa_required?: boolean
   mfa_token?: string
+  // Sign-in links only: where the link itself asks to land, for a link URL
+  // that carries no ?next of its own.
+  redirect_to?: string | null
 }
 
 export interface SignOutOptions {
@@ -82,7 +86,7 @@ export interface SignOutOptions {
 }
 
 // Result of a passwordless (magic link) request. The backend ALWAYS answers 200
-// with a generic `detail` so it never reveals whether the account exists — the
+// with a generic `detail` so it never reveals whether the account exists; the
 // UI treats any non-rate-limited answer as "check your email". `rateLimited`
 // carries the 429 case so the caller can show a distinct retry message.
 export interface MagicLinkRequestResult {
@@ -98,7 +102,7 @@ interface SessionCache {
   timestamp: number
 }
 
-// Keep this SHORT — the cached session carries the user's org roles, which the
+// Keep this SHORT: the cached session carries the user's org roles, which the
 // admin feature-gating reads. A long TTL means revoked membership/roles linger
 // in the UI. 2 min balances freshness against redundant /users/session fetches
 // (the authenticated refetch interval is ~1 min).
@@ -123,7 +127,7 @@ interface AuthContextValue {
   // Passwordless (magic link) login. `requestMagicLink` sends the email; it never
   // throws on the generic 200. `completeMagicLink` consumes the token from the
   // link and either establishes a session or (for 2FA accounts) returns an
-  // mfa_token the login page can pick up — mirroring completeMfaLogin.
+  // mfa_token the login page can pick up, mirroring completeMfaLogin.
   requestMagicLink: (_email: string, _orgSlug?: string) => Promise<MagicLinkRequestResult>
   completeMagicLink: (
     _token: string,
@@ -260,14 +264,14 @@ export function SessionProvider({
     try {
       broadcastChannelRef.current = new BroadcastChannel(AUTH_BROADCAST_CHANNEL)
     } catch (e) {
-      // Some privacy modes throw on BroadcastChannel — degrade gracefully.
+      // Some privacy modes throw on BroadcastChannel; degrade gracefully.
       console.warn('[auth] BroadcastChannel unavailable:', e)
       return
     }
 
     broadcastChannelRef.current.onmessage = (event) => {
       if (event.data.type === 'LOGOUT') {
-        // Another tab logged out — clear our state (and the session marker) too.
+        // Another tab logged out, so clear our state (and the session marker) too.
         authEpochRef.current++
         setSession(null)
         setAccessToken(null)
@@ -284,7 +288,7 @@ export function SessionProvider({
           if (Date.now() - last < 3000) return
           localStorage.setItem('lh_xtab_refresh_at', String(Date.now()))
         } catch {
-          /* localStorage unavailable — fall through and just refresh */
+          /* localStorage unavailable; fall through and just refresh */
         }
         refreshSessionInternalRef.current().catch((e) =>
           console.error('[auth] cross-tab session refresh failed:', e),
@@ -332,7 +336,7 @@ export function SessionProvider({
   }, [])
 
   // Check if a session might exist (marker cookie is set alongside httpOnly auth cookies).
-  // Match the cookie name EXACTLY — `includes('LH_session')` also matched unrelated
+  // Match the cookie name EXACTLY: `includes('LH_session')` also matched unrelated
   // names like `LH_session_backup`, falsely reporting a session.
   const hasSessionMarker = useCallback((): boolean => {
     if (typeof document === 'undefined') return false
@@ -345,8 +349,8 @@ export function SessionProvider({
   // bad minute" into "you are logged out" is what made sessions evaporate: a
   // single 429 from the shared-IP refresh rate limit, or one 502 during an API
   // rollout, used to tear down a session that still had weeks of validity.
-  // Only `unauthenticated` — the backend explicitly rejecting the refresh
-  // credential — may end a session.
+  // Only `unauthenticated` (the backend explicitly rejecting the refresh
+  // credential) may end a session.
   const refreshAccessToken = useCallback(async (): Promise<RefreshOutcome> => {
     // Deduplicate refresh requests within this tab
     if (isRefreshingRef.current && refreshPromiseRef.current) {
@@ -370,7 +374,7 @@ export function SessionProvider({
             return { status: 'unauthenticated' } as const
           }
           console.warn(
-            `[auth] refresh failed with ${response.status} — keeping session, will retry`,
+            `[auth] refresh failed with ${response.status}; keeping session, will retry`,
           )
           return { status: 'transient' } as const
         }
@@ -420,7 +424,7 @@ export function SessionProvider({
     try {
       sessionData = await fetchUserSession(token, expiry)
     } catch (error) {
-      // Transient — the profile lookup did not complete. We hold a freshly
+      // Transient: the profile lookup did not complete. We hold a freshly
       // issued access token, so the user IS signed in, but without user data
       // there is nothing to render as authenticated. Leave the cookies alone
       // and settle on 'unauthenticated', which is the state the refetch
@@ -430,7 +434,7 @@ export function SessionProvider({
       setStatus('unauthenticated')
       return false
     }
-    // A logout/clear that fired during the await bumped the epoch — abort the
+    // A logout/clear that fired during the await bumped the epoch, so abort the
     // write so we don't resurrect a session that was just invalidated.
     if (authEpochRef.current !== epoch) return false
     if (!sessionData) {
@@ -499,7 +503,7 @@ export function SessionProvider({
           setAccessToken(currentToken)
           setTokenExpiry(currentExpiry)
         } else if (refreshResult.status === 'unauthenticated') {
-          // The backend rejected the refresh credential — genuinely signed out.
+          // The backend rejected the refresh credential: genuinely signed out.
           clearAuthState()
           return null
         } else {
@@ -511,7 +515,7 @@ export function SessionProvider({
 
       // Fetch session data with the CURRENT expiry (from refresh, not stale state)
       const sessionData = await fetchUserSession(currentToken, currentExpiry || undefined)
-      // A logout/clear during the awaits bumped the epoch — abort the write so we
+      // A logout/clear during the awaits bumped the epoch, so abort the write so we
       // don't resurrect a session that was just invalidated (cross-tab logout).
       if (authEpochRef.current !== epoch) return null
       if (sessionData) {
@@ -540,7 +544,7 @@ export function SessionProvider({
     let isMounted = true
 
     const initSession = async () => {
-      // Skip entirely if no session marker — no httpOnly refresh token exists
+      // Skip entirely if no session marker; no httpOnly refresh token exists
       if (!hasSessionMarker()) {
         clearAuthState(false)
         return
@@ -559,7 +563,7 @@ export function SessionProvider({
         clearAuthState()
       } else {
         // Transient failure on a cold start. The refresh cookie is very likely
-        // still good, so don't wipe it — drop back to 'unauthenticated' status
+        // still good, so don't wipe it. Drop back to 'unauthenticated' status
         // WITHOUT clearing cookies, and let the refetch interval recover the
         // session once the backend is reachable again.
         setStatus('unauthenticated')
@@ -577,7 +581,7 @@ export function SessionProvider({
   //
   // Also runs while unauthenticated IF the session marker cookie is still
   // present. That combination means "we hold a refresh cookie but couldn't
-  // turn it into a session yet" — i.e. a transient failure — and polling is
+  // turn it into a session yet" (i.e. a transient failure), and polling is
   // what lets the tab heal itself once the backend is reachable again, instead
   // of stranding the user on a logged-out UI until they reload.
   useEffect(() => {
@@ -599,15 +603,17 @@ export function SessionProvider({
 
   // Establish a client-side session from a token-bearing auth response.
   // Shared by password login and by second-factor completion so the two cannot
-  // drift apart — a session established one way must be identical to the other.
+  // drift apart: a session established one way must be identical to the other.
   const establishSession = useCallback(
     async (data: any, callbackUrl: string, redirect: boolean): Promise<SignInResult> => {
+      // A refresh still in flight for whoever was signed in before must not
+      // write its (older) session over this one when it resolves.
+      authEpochRef.current++
       const newSession: Session = {
         user: data.user,
         roles: [],
         tokens: {
           access_token: data.tokens.access_token,
-          refresh_token: data.tokens.refresh_token,
           expiry: data.tokens.expiry,
         },
       }
@@ -618,12 +624,18 @@ export function SessionProvider({
       setStatus('authenticated')
       sessionCacheRef.current = { data: newSession, timestamp: Date.now() }
 
-      // Fetch full session with roles
-      const fullSession = await fetchUserSession(data.tokens.access_token, data.tokens.expiry)
-      if (fullSession) {
-        fullSession.tokens = newSession.tokens
-        setSession(fullSession)
-        sessionCacheRef.current = { data: fullSession, timestamp: Date.now() }
+      // Fetch full session with roles. The sign-in already succeeded (cookies
+      // are set), so a failed lookup only means the roles arrive on the next
+      // session fetch; reporting it as a failed sign-in would misdescribe it.
+      try {
+        const fullSession = await fetchUserSession(data.tokens.access_token, data.tokens.expiry)
+        if (fullSession) {
+          fullSession.tokens = newSession.tokens
+          setSession(fullSession)
+          sessionCacheRef.current = { data: fullSession, timestamp: Date.now() }
+        }
+      } catch (error) {
+        console.warn('[auth] session lookup after sign-in failed, keeping session:', error)
       }
 
       // Notify other tabs
@@ -667,7 +679,7 @@ export function SessionProvider({
             ok: false,
             error: JSON.stringify({
               code: errorData?.code || 'UNKNOWN_ERROR',
-              message: errorData?.message || 'Verification failed',
+              message: errorData?.message || i18n.t('auth.errors.verification_failed'),
               retry_after: errorData?.retry_after,
             }),
             url: null,
@@ -678,7 +690,7 @@ export function SessionProvider({
         if (!data.tokens?.access_token) {
           return {
             ok: false,
-            error: JSON.stringify({ code: 'INVALID_RESPONSE', message: 'Invalid server response' }),
+            error: JSON.stringify({ code: 'INVALID_RESPONSE', message: i18n.t('auth.errors.invalid_response') }),
             url: null,
             status: 500,
           }
@@ -689,7 +701,7 @@ export function SessionProvider({
         console.error('MFA verification error:', error)
         return {
           ok: false,
-          error: JSON.stringify({ code: 'NETWORK_ERROR', message: 'Could not reach the server' }),
+          error: JSON.stringify({ code: 'NETWORK_ERROR', message: i18n.t('auth.errors.network') }),
           url: null,
           status: 0,
         }
@@ -700,7 +712,7 @@ export function SessionProvider({
 
   // Request a passwordless login link. The backend ALWAYS returns 200 with a
   // generic detail (never revealing whether the account exists), except for a
-  // 429 rate-limit — so this never throws on the happy path.
+  // 429 rate-limit, so this never throws on the happy path.
   const requestMagicLink = useCallback(
     async (email: string, orgSlug?: string): Promise<MagicLinkRequestResult> => {
       try {
@@ -759,22 +771,25 @@ export function SessionProvider({
           credentials: 'include',
         })
 
-        const data = await response.json()
+        // A gateway error page is not JSON; keep its status so the caller can
+        // tell "try again" from "this link is dead".
+        const data = await response.json().catch(() => ({}))
 
         if (!response.ok) {
-          const errorData = data.detail || data
+          const detail = data.detail ?? data
+          const errorData = typeof detail === 'string' ? { message: detail } : detail
           return {
             ok: false,
             error: JSON.stringify({
               code: errorData?.code || 'UNKNOWN_ERROR',
-              message: errorData?.message || 'This link is no longer valid.',
+              message: errorData?.message || i18n.t('auth.errors.link_invalid'),
             }),
             url: null,
             status: response.status,
           }
         }
 
-        // Account carries a second factor — no session yet. Hand the pending
+        // Account carries a second factor, so no session yet. Hand the pending
         // token to the caller (the /auth/magic page forwards it to /login).
         if (data.mfa_required && data.mfa_token) {
           return {
@@ -784,24 +799,28 @@ export function SessionProvider({
             status: response.status,
             mfa_required: true,
             mfa_token: data.mfa_token,
+            redirect_to: data.redirect_to ?? null,
           }
         }
 
         if (!data.tokens?.access_token) {
           return {
             ok: false,
-            error: JSON.stringify({ code: 'INVALID_RESPONSE', message: 'Invalid server response' }),
+            error: JSON.stringify({ code: 'INVALID_RESPONSE', message: i18n.t('auth.errors.invalid_response') }),
             url: null,
             status: 500,
           }
         }
 
-        return await establishSession(data, callbackUrl, redirect)
+        return {
+          ...(await establishSession(data, callbackUrl, redirect)),
+          redirect_to: data.redirect_to ?? null,
+        }
       } catch (error) {
         console.error('Magic link verification error:', error)
         return {
           ok: false,
-          error: JSON.stringify({ code: 'NETWORK_ERROR', message: 'Could not reach the server' }),
+          error: JSON.stringify({ code: 'NETWORK_ERROR', message: i18n.t('auth.errors.network') }),
           url: null,
           status: 0,
         }
@@ -828,7 +847,6 @@ export function SessionProvider({
               roles: [],
               tokens: {
                 access_token: options.sso_access_token,
-                refresh_token: options.sso_refresh_token,
                 expiry,
               },
             }
@@ -843,7 +861,7 @@ export function SessionProvider({
 
             // Resolve the real org/role list, exactly as the password login below
             // does. The SSO handoff only carries tokens and the user, so without
-            // this the session stayed `roles: []` — and because that empty list
+            // this the session stayed `roles: []`, and because that empty list
             // was written into the session cache, the user spent the cache window
             // looking like a non-member of the org they had just signed in to:
             // the "join this organization" banner instead of their courses.
@@ -860,7 +878,7 @@ export function SessionProvider({
                 }
               }
             } catch {
-              // Transient failure — the cached role-less session is refreshed by
+              // Transient failure; the cached role-less session is refreshed by
               // the next /users/session read rather than blocking the redirect.
             }
 
@@ -901,7 +919,7 @@ export function SessionProvider({
               ok: false,
               error: JSON.stringify({
                 code: errorData?.code || 'UNKNOWN_ERROR',
-                message: errorData?.message || 'Login failed',
+                message: errorData?.message || i18n.t('auth.errors.login_failed'),
                 email: errorData?.email,
                 retry_after: errorData?.retry_after,
               }),
@@ -911,7 +929,7 @@ export function SessionProvider({
           }
 
           // Password was correct but the account has a second factor. No
-          // session exists yet — hand the pending token to the caller, which
+          // session exists yet, so hand the pending token to the caller, which
           // collects a code and calls completeMfaLogin().
           if (data.mfa_required && data.mfa_token) {
             return {
@@ -928,7 +946,7 @@ export function SessionProvider({
           if (!data.tokens?.access_token) {
             return {
               ok: false,
-              error: JSON.stringify({ code: 'INVALID_RESPONSE', message: 'Invalid server response' }),
+              error: JSON.stringify({ code: 'INVALID_RESPONSE', message: i18n.t('auth.errors.invalid_response') }),
               url: null,
               status: 500,
             }
@@ -951,32 +969,30 @@ export function SessionProvider({
             }
           }
 
-          // Generate CSRF token for state parameter
+          // Generate CSRF token for state parameter. The server signs the final
+          // state (with returnOrigin pinned to this request's origin) so the
+          // callback can trust where it bounces the code.
           const csrfToken = generateSecureToken()
-          const stateData: Record<string, any> = {
+          const stateData = {
             callbackUrl,
             csrf: csrfToken,
             timestamp: Date.now(),
           }
 
-          // For custom domains, embed returnOrigin so the main domain callback can bounce back
-          if (isCustomDomain()) {
-            stateData.returnOrigin = window.location.origin
-          }
-
-          const state = btoa(JSON.stringify(stateData))
+          // For custom domains, ask for returnOrigin so the main domain callback can bounce back
+          const returnOrigin = isCustomDomain() ? window.location.origin : undefined
 
           // Store CSRF token in cookie for validation on callback
           setOAuthStateCookie(csrfToken)
 
-          // Always use main domain for redirect URI — only one URI registered with Google
+          // Always use main domain for redirect URI; only one URI registered with Google
           const redirectUri = `${window.location.protocol}//${getLEARNHOUSE_DOMAIN_VAL()}/auth/callback/google`
 
           // Get Google OAuth URL from server (client ID lives server-side only)
           const authResponse = await fetch('/api/auth/google/authorize', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ redirect_uri: redirectUri, state, scope: 'openid email profile' }),
+            body: JSON.stringify({ redirect_uri: redirectUri, state: stateData, returnOrigin }),
           })
 
           if (!authResponse.ok) {
@@ -984,7 +1000,7 @@ export function SessionProvider({
             console.error('Google OAuth initiation failed:', errorData)
             return {
               ok: false,
-              error: errorData.error || 'Google OAuth not configured',
+              error: errorData.error || i18n.t('auth.errors.google_not_configured'),
               url: null,
               status: authResponse.status,
             }
@@ -1007,7 +1023,7 @@ export function SessionProvider({
         console.error('Sign in error:', error)
         return {
           ok: false,
-          error: error.message || 'Sign in failed',
+          error: error.message || i18n.t('auth.errors.sign_in_failed'),
           url: null,
           status: 500,
         }
@@ -1115,17 +1131,32 @@ export function SessionProvider({
     }
   }, [applySessionFromToken, handleSignOut, hasSessionMarker])
 
-  const contextValue: AuthContextValue = {
-    session,
-    status,
-    accessToken,
-    refreshSession,
-    signIn: handleSignIn,
-    signOut: handleSignOut,
-    completeMfaLogin,
-    requestMagicLink,
-    completeMagicLink,
-  }
+  // Memoized so consumers only re-render when auth state actually changes,
+  // not on every render of the provider.
+  const contextValue: AuthContextValue = useMemo(
+    () => ({
+      session,
+      status,
+      accessToken,
+      refreshSession,
+      signIn: handleSignIn,
+      signOut: handleSignOut,
+      completeMfaLogin,
+      requestMagicLink,
+      completeMagicLink,
+    }),
+    [
+      session,
+      status,
+      accessToken,
+      refreshSession,
+      handleSignIn,
+      handleSignOut,
+      completeMfaLogin,
+      requestMagicLink,
+      completeMagicLink,
+    ]
+  )
 
   return (
     <AuthContext.Provider value={contextValue}>{children}</AuthContext.Provider>
@@ -1135,31 +1166,54 @@ export function SessionProvider({
 // useSession hook - matches NextAuth's API exactly
 export function useSession(): UseSessionReturn {
   const context = useContext(AuthContext)
+  const refreshSession = context?.refreshSession
 
-  if (!context) {
-    // Return unauthenticated state if used outside provider
-    return {
-      data: null,
-      status: 'unauthenticated',
-      update: async () => {},
-    }
-  }
-
-  return {
-    data: context.session,
-    status: context.status,
-    update: async (force?: boolean) => {
-      await context.refreshSession(force)
+  // Stable across renders so callers can put it in effect deps.
+  const update = useCallback(
+    async (force?: boolean) => {
+      await refreshSession?.(force)
     },
+    [refreshSession]
+  )
+
+  const session = context?.session ?? null
+  const status: SessionStatus = context ? context.status : 'unauthenticated'
+
+  // Same object until the session or status changes, so context consumers
+  // downstream (LHSessionProvider) don't re-render on every parent render.
+  return useMemo(
+    () => ({
+      data: session,
+      status,
+      update,
+    }),
+    [session, status, update]
+  )
+}
+
+// Decode the payload half of a server-signed OAuth state (`payload.sig`,
+// base64url). This does NOT verify the signature; /api/auth/google/state does.
+export function decodeOAuthStatePayload(state: string): Record<string, any> | null {
+  try {
+    const body = state.split('.')[0]
+    const b64 = body.replace(/-/g, '+').replace(/_/g, '/')
+    const json = new TextDecoder().decode(
+      Uint8Array.from(atob(b64 + '='.repeat((4 - (b64.length % 4)) % 4)), c => c.charCodeAt(0))
+    )
+    return JSON.parse(json)
+  } catch {
+    return null
   }
 }
 
-// Validate OAuth state parameter (call this on callback page)
+// Validate OAuth state parameter (call this on callback page, after the
+// server has verified its signature)
 export function validateOAuthState(state: string): { valid: boolean; callbackUrl: string } {
   const defaultResult = { valid: false, callbackUrl: '/redirect_from_auth' }
 
   try {
-    const stateData = JSON.parse(atob(state))
+    const stateData = decodeOAuthStatePayload(state)
+    if (!stateData) return defaultResult
     const stored = getOAuthStateCookie()
 
     if (!stored) {
@@ -1225,7 +1279,7 @@ export async function signIn(
     // Store CSRF token in cookie for validation on callback
     setOAuthStateCookie(csrfToken)
 
-    // Always use main domain for redirect URI — only one URI registered with Google
+    // Always use main domain for redirect URI; only one URI registered with Google
     const redirectUri = `${window.location.protocol}//${getLEARNHOUSE_DOMAIN_VAL()}/auth/callback/google`
 
     // Get Google OAuth URL from server (client ID lives server-side only)
@@ -1240,7 +1294,7 @@ export async function signIn(
       console.error('Google OAuth initiation failed:', errorData)
       return {
         ok: false,
-        error: errorData.error || 'Google OAuth not configured',
+        error: errorData.error || i18n.t('auth.errors.google_not_configured'),
         url: null,
         status: authResponse.status,
       }

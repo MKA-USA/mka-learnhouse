@@ -1,5 +1,5 @@
 /**
- * API Reference configuration — single source of truth for the base URL,
+ * API Reference configuration: single source of truth for the base URL,
  * caching, token placeholder, and which OpenAPI tags are documented.
  *
  * The FastAPI spec ships without servers/securitySchemes/tag metadata,
@@ -12,6 +12,77 @@ export const API_BASE_URL = (
 
 export const SPEC_REVALIDATE_SECONDS = 3600 // 1h ISR window for all reference pages
 
+/** Public origin of the docs site (canonical URLs, JSON-LD, llms.txt links). */
+export const SITE_URL = 'https://docs.learnhouse.app'
+
+/** Where the API lives, per deployment type. Paths below are relative to these. */
+export const BASE_URLS = [
+  {
+    key: 'cloud',
+    label: 'LearnHouse Cloud',
+    url: 'https://api.learnhouse.io',
+    note: 'Hosted LearnHouse. API tokens need the Pro plan or higher.',
+  },
+  {
+    key: 'self-hosted',
+    label: 'Self-hosted',
+    url: 'https://your-domain.com',
+    note: 'The API is served under /api/v1 on the domain of your instance.',
+  },
+  {
+    key: 'local',
+    label: 'Local development',
+    url: 'http://localhost:1338',
+    note: 'The default port of the API when you run LearnHouse locally.',
+  },
+]
+
+/** Guide pages that live inside the reference, in nav order. */
+export const GUIDES = [
+  {
+    slug: 'authentication',
+    title: 'Authentication',
+    description: 'API tokens and user sessions, token rights, and which endpoints refuse tokens.',
+  },
+  {
+    slug: 'errors',
+    title: 'Errors',
+    description: 'Status codes, the FastAPI detail shape and the 422 validation format.',
+  },
+  {
+    slug: 'rate-limits',
+    title: 'Rate limits & pagination',
+    description: 'Per-endpoint limits enforced by the API, 429 handling and paginated lists.',
+  },
+  {
+    slug: 'sdk',
+    title: 'SDK',
+    description: 'How every endpoint here maps to a typed @learnhouse/sdk call.',
+  },
+]
+
+/** Human labels for the API-token rights buckets (dashboard wording). */
+export const RIGHTS_LABEL = {
+  courses: 'Courses',
+  coursechapters: 'Chapters',
+  activities: 'Activities',
+  assignments: 'Assignments',
+  folders: 'Folders',
+  media: 'Media',
+  certifications: 'Certifications',
+  usergroups: 'User Groups',
+  payments: 'Payments',
+  search: 'Search',
+}
+
+/** Short access labels, used by the nav, cards, llms.txt and JSON output. */
+export const ACCESS_LABEL = {
+  token: 'API token or session',
+  'token-required': 'API token only',
+  session: 'Session only',
+  public: 'Public / credentials',
+}
+
 export const TOKEN_PLACEHOLDER = 'lh_YOUR_API_TOKEN'
 export const TOKEN_STORAGE_KEY = 'lh:api-token'
 export const LANG_STORAGE_KEY = 'lh:ref-lang'
@@ -19,16 +90,16 @@ export const LANG_STORAGE_KEY = 'lh:ref-lang'
 /**
  * Documented endpoint groups, in display order.
  * `tags` are OpenAPI tags folded into the group (first tag of each operation wins).
- * Any operation whose first tag is not listed here is NOT documented —
+ * Any operation whose first tag is not listed here is NOT documented;
  * internal surfaces (superadmin, cloud_internal, ee, dev, …) stay out by default.
  *
  * `access` mirrors the router-level auth wiring in apps/api/src/router.py:
- *   'token'          — accepts lh_ API tokens or a user session
- *   'token-required' — API token only (the headless /admin surface)
- *   'session'        — user session only, API tokens are rejected
- *   'public'         — credential/public endpoints (login, refresh, …)
+ *   'token':           accepts lh_ API tokens or a user session
+ *   'token-required':  API token only (the headless /admin surface)
+ *   'session':         user session only, API tokens are rejected
+ *   'public':          credential/public endpoints (login, refresh, …)
  * `rightsBucket` is the API-token rights bucket enforced by the RBAC layer
- * (apps/api/src/security/rbac/rbac.py) — the docs derive the required action
+ * (apps/api/src/security/rbac/rbac.py); the docs derive the required action
  * from the HTTP method (GET → read, POST → create, PUT/PATCH → update,
  * DELETE → delete).
  */
@@ -117,7 +188,7 @@ export const API_GROUPS = [
     access: 'token',
     rightsBucket: 'assignments',
     description:
-      'Assignment authoring, tasks, submissions and grading — fully drivable headlessly with an API token. Learner-side "/me" and submission endpoints remain session-only.',
+      'Assignment authoring, tasks, submissions and grading, all fully drivable headlessly with an API token. Learner-side "/me" and submission endpoints remain session-only.',
   },
   {
     slug: 'folders',

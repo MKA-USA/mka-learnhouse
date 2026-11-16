@@ -1,11 +1,15 @@
-from typing import List, Dict
+from typing import List, Dict, Optional
 from fastapi import APIRouter, Depends, Request, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
+from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 from src.core.events.database import get_db_session
+from src.db.courses.courses import Course
 from src.db.users import PublicUser
 from src.db.communities.discussions import (
+    Discussion,
+    DiscussionReadWithCounts,
     DiscussionReadWithVoteStatus,
     DiscussionUpdate,
     DiscussionPinUpdate,
@@ -15,6 +19,7 @@ from src.db.communities.discussions import (
 )
 from src.db.communities.discussion_votes import DiscussionVoteRead
 from src.db.communities.discussion_comments import (
+    DiscussionComment,
     DiscussionCommentReadWithVoteStatus,
     DiscussionCommentUpdate,
 )
@@ -23,6 +28,7 @@ from src.db.communities.discussion_reactions import (
     DiscussionReactionSummary,
 )
 from src.security.auth import get_current_user
+from src.security.features_utils.plan_check import check_org_plan
 from src.services.communities.discussions import (
     create_discussion,
     get_discussion,
@@ -55,7 +61,35 @@ from src.services.communities.reactions import (
 )
 
 
-router = APIRouter()
+async def require_communities_plan_by_child(
+    request: Request,
+    db_session: AsyncSession = Depends(get_db_session),
+) -> None:
+    """Communities plan gate for routes addressed by a discussion, comment or
+    course uuid. The shared community gate only resolves a community_uuid and
+    lets everything else through, so resolve the org from the child here."""
+    params = request.path_params
+    statement = None
+    if "discussion_uuid" in params:
+        statement = select(Discussion.org_id).where(
+            Discussion.discussion_uuid == params["discussion_uuid"]
+        )
+    elif "comment_uuid" in params:
+        statement = (
+            select(Discussion.org_id)
+            .join(DiscussionComment, DiscussionComment.discussion_id == Discussion.id)
+            .where(DiscussionComment.comment_uuid == params["comment_uuid"])
+        )
+    elif "course_uuid" in params:
+        statement = select(Course.org_id).where(Course.course_uuid == params["course_uuid"])
+    if statement is None:
+        return
+    org_id = (await db_session.execute(statement)).scalars().first()
+    if org_id is not None:
+        await check_org_plan(org_id, "standard", "Communities", db_session)
+
+
+router = APIRouter(dependencies=[Depends(require_communities_plan_by_child)])
 
 
 class DiscussionCreateRequest(BaseModel):
@@ -119,11 +153,11 @@ async def api_create_discussion(
 
 @router.get(
     "/communities/{community_uuid}/discussions",
-    response_model=List[DiscussionReadWithVoteStatus],
+    response_model=List[DiscussionReadWithCounts],
     summary="List discussions in a community",
-    description="Retrieve a paginated list of discussions for a community with sorting and optional label filtering. Pinned discussions are always returned first.",
+    description="Retrieve a paginated list of discussions for a community with sorting and optional label filtering. Pinned discussions are always returned first. Each discussion includes `comment_count`, the same total as `GET /discussions/{discussion_uuid}/comments/count`.",
     responses={
-        200: {"description": "Discussions for the community.", "model": List[DiscussionReadWithVoteStatus]},
+        200: {"description": "Discussions for the community.", "model": List[DiscussionReadWithCounts]},
         401: {"description": "Authentication required"},
         403: {"description": "User does not have access to this community"},
         404: {"description": "Community not found"},
@@ -138,7 +172,7 @@ async def api_get_discussions_by_community(
     label: str | None = Query(default=None),
     current_user: PublicUser = Depends(get_current_user),
     db_session: AsyncSession = Depends(get_db_session),
-) -> List[DiscussionReadWithVoteStatus]:
+) -> List[DiscussionReadWithCounts]:
     """
     Get paginated list of discussions for a community with sorting.
 
@@ -157,11 +191,11 @@ async def api_get_discussions_by_community(
 
 @router.get(
     "/discussions/{discussion_uuid}",
-    response_model=DiscussionReadWithVoteStatus,
+    response_model=DiscussionReadWithCounts,
     summary="Get a discussion",
-    description="Retrieve a single discussion by its UUID, including the current user's vote status.",
+    description="Retrieve a single discussion by its UUID, including the current user's vote status and its `comment_count`.",
     responses={
-        200: {"description": "Discussion retrieved.", "model": DiscussionReadWithVoteStatus},
+        200: {"description": "Discussion retrieved.", "model": DiscussionReadWithCounts},
         401: {"description": "Authentication required"},
         403: {"description": "User does not have access to this discussion's community"},
         404: {"description": "Discussion not found"},
@@ -172,7 +206,7 @@ async def api_get_discussion(
     discussion_uuid: str,
     current_user: PublicUser = Depends(get_current_user),
     db_session: AsyncSession = Depends(get_db_session),
-) -> DiscussionReadWithVoteStatus:
+) -> DiscussionReadWithCounts:
     """
     Get a discussion by UUID.
     """
@@ -464,7 +498,7 @@ async def api_get_comment_count(
 
     Authorized by community read access (not blanket auth): public-community
     counts remain visible to anonymous callers, while private-community counts
-    require membership — matching the discussion read endpoint.
+    require membership, matching the discussion read endpoint.
     """
     count = await get_comment_count(request, discussion_uuid, current_user, db_session)
     return {"count": count}
@@ -582,6 +616,13 @@ async def api_delete_comment(
 
 class ReactionRequest(BaseModel):
     emoji: str
+    active: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Desired state. `true` adds the reaction if missing, `false` removes it if present; "
+            "both are no-ops otherwise, so the call is safe to repeat. Omit to toggle."
+        ),
+    )
 
 
 @router.get(
@@ -616,10 +657,10 @@ async def api_get_reactions(
 
 @router.post(
     "/discussions/{discussion_uuid}/reactions",
-    summary="Toggle a reaction on a discussion",
-    description="Toggle an emoji reaction on a discussion for the current user. If the user has already reacted with this emoji it is removed; otherwise it is added. Requires read access to the community.",
+    summary="Toggle or set a reaction on a discussion",
+    description="Toggle an emoji reaction on a discussion for the current user. If the user has already reacted with this emoji it is removed; otherwise it is added. Pass `active` to set the state idempotently instead: `true` adds the reaction only if missing, `false` removes it only if present. Requires read access to the community.",
     responses={
-        200: {"description": "Reaction toggled; response indicates the new state."},
+        200: {"description": "Reaction toggled or set; `action` reports the resulting state (`added` or `removed`)."},
         401: {"description": "Authentication required"},
         403: {"description": "User does not have access to this discussion's community"},
         404: {"description": "Discussion not found"},
@@ -637,9 +678,15 @@ async def api_toggle_reaction(
 
     If the user has already reacted with this emoji, it will be removed.
     If the user has not reacted with this emoji, it will be added.
+    With ``active`` set, the reaction is set to that state instead (idempotent).
 
     Requires authenticated user who can read the community.
     """
     return await toggle_reaction(
-        request, discussion_uuid, reaction_data.emoji, current_user, db_session
+        request,
+        discussion_uuid,
+        reaction_data.emoji,
+        current_user,
+        db_session,
+        active=reaction_data.active,
     )

@@ -1,37 +1,57 @@
 from sqlalchemy import func
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
+from src.core.ee_hooks import notify_ee_course_content_changed
 from src.db.courses.courses import Course
 from src.db.courses.chapters import Chapter
 from src.db.courses.activities import ActivityCreate, Activity, ActivityRead, ActivityUpdate
+from src.db.courses.assignments import Assignment
 from src.db.courses.chapter_activities import ChapterActivity
 from src.db.organizations import Organization, OrganizationRead
 from src.db.organization_config import OrganizationConfig
 from src.db.users import AnonymousUser, PublicUser, User
+from src.db.usergroups import UserGroup
 from src.security.auth import resolve_acting_user_id
 from fastapi import HTTPException, Request
+from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel
 from uuid import uuid4
+from dataclasses import replace
 from datetime import datetime
+from typing import Optional
 
-import asyncio
+import json
 import logging
 
-from src.core.ee_hooks import check_ee_activity_paid_access
+from src.services.courses.activities.access import (
+    redact_activity_for_reader,
+)
 from src.security.rbac import check_resource_access, AccessAction
+from src.services.ai.rag.queue import index_activity
 from src.services.courses.activities.versioning import create_activity_version
-from src.services.courses.locks import (
-    batch_accessible_restricted_uuids,
-    is_locked_for_user,
-    is_org_admin,
+from src.services.courses.activities.utils import track_activity_created
+from src.services.courses.activities.dynamic_content import (
+    conditional_blocks,
+    conditional_reach,
+    count_conditions,
+    render_document,
+)
+from src.services.courses.activities.dynamic_context import (
+    DynamicLearner,
+    DynamicPreviewRequest,
+    DynamicPreviewResponse,
+    DynamicReachResponse,
+    build_render_context,
+    DynamicOptions,
+    course_dynamic_options,
+    course_learner_contexts,
+    enrolled_learner_context,
+    with_references,
+    persona_context,
+    search_enrolled_learners,
 )
 
 logger = logging.getLogger(__name__)
-
-# Module-level set to hold strong references to background embedding tasks,
-# preventing them from being garbage-collected before they complete.
-_embedding_tasks: set = set()
-
 
 ####################################################
 # CRUD
@@ -71,6 +91,8 @@ async def create_activity(
     activity = Activity(**activity_object.model_dump())
 
     activity.activity_uuid = str(f"activity_{uuid4()}")
+    if activity.extra_metadata:
+        activity.extra_metadata = keep_server_owned_metadata(activity.extra_metadata, None)
     activity.creation_date = str(datetime.now())
     activity.update_date = str(datetime.now())
     activity.org_id = chapter.org_id
@@ -109,6 +131,9 @@ async def create_activity(
     db_session.add(activity_chapter)
     await db_session.commit()
     await db_session.refresh(activity)
+    index_activity(activity.id)
+    notify_ee_course_content_changed(chapter.course_id)
+    await track_activity_created(activity, course, current_user)
 
     return ActivityRead.model_validate(activity)
 
@@ -119,11 +144,14 @@ async def get_activity(
     current_user: PublicUser,
     db_session: AsyncSession,
 ):
-    # Optimize by joining Activity with Course and last modified user in a single query
+    # Activity, course, last modified user and parent chapter (the lock check
+    # needs it) in a single query
     statement = (
-        select(Activity, Course, User)
-        .join(Course)
+        select(Activity, Course, User, Chapter)
+        .join(Course, Course.id == Activity.course_id)
         .outerjoin(User, Activity.last_modified_by_id == User.id)
+        .outerjoin(ChapterActivity, ChapterActivity.activity_id == Activity.id)
+        .outerjoin(Chapter, Chapter.id == ChapterActivity.chapter_id)
         .where(Activity.activity_uuid == activity_uuid)
     )
     result = (await db_session.execute(statement)).first()
@@ -134,27 +162,19 @@ async def get_activity(
             detail="Activity not found",
         )
 
-    activity, course, last_modified_user = result
+    activity, course, last_modified_user, parent_chapter = result
 
     # RBAC check
     await check_resource_access(request, db_session, current_user, course.course_uuid, AccessAction.READ)
 
-    # Paid access check (via EE hook with fallback to True if EE not available)
-    has_paid_access = await check_ee_activity_paid_access(
-        request=request,
-        activity_id=activity.id,
-        user=current_user,
-        db_session=db_session
-    )
-
     activity_read = ActivityRead.model_validate(activity)
-    activity_read.content = activity_read.content if has_paid_access else { "paid_access": False }
     # Include last modified user info
     activity_read.last_modified_by_username = last_modified_user.username if last_modified_user else None
 
-    await _apply_activity_lock(activity_read, activity, course, current_user, db_session)
-
-    return activity_read
+    return await redact_activity_for_reader(
+        request, activity_read, activity, course, current_user, db_session,
+        parent_chapter=parent_chapter,
+    )
 
 
 class EditorBootstrapCourse(BaseModel):
@@ -185,7 +205,7 @@ async def get_editor_bootstrap(
     OrganizationConfig and the parent Chapter (for lock checks) so the lock
     helper does not need a follow-up query.
 
-    Intentionally not cached — activity content must always reflect the latest
+    Intentionally not cached: activity content must always reflect the latest
     saved state for collaborators to avoid editing against stale data.
     """
     statement = (
@@ -205,37 +225,29 @@ async def get_editor_bootstrap(
 
     activity, course, org, org_config, last_modified_user, parent_chapter = db_result
 
+    # Only the editor loads this; learners read the activity via GET /activities/{uuid}.
     await check_resource_access(
-        request, db_session, current_user, course.course_uuid, AccessAction.READ
-    )
-
-    has_paid_access = await check_ee_activity_paid_access(
-        request=request,
-        activity_id=activity.id,
-        user=current_user,
-        db_session=db_session,
+        request, db_session, current_user, course.course_uuid, AccessAction.UPDATE
     )
 
     activity_read = ActivityRead.model_validate(activity)
-    activity_read.content = (
-        activity_read.content if has_paid_access else {"paid_access": False}
-    )
     activity_read.last_modified_by_username = (
         last_modified_user.username if last_modified_user else None
     )
-    await _apply_activity_lock(
-        activity_read,
-        activity,
-        course,
-        current_user,
-        db_session,
+    await redact_activity_for_reader(
+        request, activity_read, activity, course, current_user, db_session,
         parent_chapter=parent_chapter,
     )
 
     # Build org with resolved_features (same shape the existing /orgs/uuid/{uuid}
     # endpoint returns, so the frontend doesn't have to reshape anything).
-    from src.services.orgs.orgs import _build_org_read_with_resolved
-    org_read = _build_org_read_with_resolved(org, org_config)
+    from src.services.orgs.orgs import (
+        _build_org_read_with_resolved,
+        _redact_org_email_unless_manager,
+    )
+    org_read = await _redact_org_email_unless_manager(
+        request, _build_org_read_with_resolved(org, org_config), current_user, db_session
+    )
 
     return EditorBootstrapResponse(
         activity=activity_read,
@@ -251,82 +263,142 @@ async def get_editor_bootstrap(
     )
 
 
-async def _apply_activity_lock(
-    activity_read: ActivityRead,
-    activity: Activity,
-    course: Course,
-    current_user,
+# A larger body than any real page; stops the preview being used to burn CPU.
+MAX_PREVIEW_CONTENT_BYTES = 5 * 1024 * 1024
+MAX_REACH_BLOCKS = 200
+# Condition checks per reach request; a real page uses a few percent of it.
+MAX_REACH_WORK = 2_000_000
+
+
+async def _load_for_editor(
+    request: Request, activity_uuid: str, current_user: PublicUser, db_session: AsyncSession
+) -> tuple[Activity, Course]:
+    row = (await db_session.execute(
+        select(Activity, Course)
+        .join(Course, Course.id == Activity.course_id)  # type: ignore[arg-type]
+        .where(Activity.activity_uuid == activity_uuid)
+    )).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Activity not found")
+    activity, course = row
+    await check_resource_access(
+        request, db_session, current_user, course.course_uuid, AccessAction.UPDATE
+    )
+    return activity, course
+
+
+def _editor_content(content: Optional[dict], activity: Activity) -> dict:
+    content = content if content is not None else activity.content
+    if len(json.dumps(content)) > MAX_PREVIEW_CONTENT_BYTES:
+        raise HTTPException(status_code=413, detail="Content too large to preview")
+    return content or {}
+
+
+async def get_dynamic_preview(
+    request: Request,
+    activity_uuid: str,
+    preview: DynamicPreviewRequest,
+    current_user: PublicUser,
     db_session: AsyncSession,
-    *,
-    parent_chapter: Chapter | None = None,
-) -> None:
-    """Enforce chapter/activity lock_type on a single-activity read.
+) -> DynamicPreviewResponse:
+    """Render the activity as a simulated reader ("view as") would get it.
 
-    Admins/maintainers bypass. A usergroup attached at the course level also
-    unlocks every restricted chapter/activity inside that course (same
-    inheritance rule as the TOC read). For everyone else, if either the
-    activity or its parent chapter is locked, we scrub content/details and set
-    ``is_locked=True`` so the client renders a gate instead of an empty page.
+    Editors only: the persona can claim any group, so this must never become
+    a way for a learner to read blocks hidden from them. ``preview.content``
+    lets the editor preview its unsaved document.
     """
-    is_anon = isinstance(current_user, AnonymousUser)
-    acting_user_id = resolve_acting_user_id(current_user)
-    admin = False if is_anon else await is_org_admin(acting_user_id, course.org_id, db_session)
-    if admin:
-        return
+    activity, course = await _load_for_editor(request, activity_uuid, current_user, db_session)
+    content = _editor_content(preview.content, activity)
 
-    # Caller may have already fetched the parent chapter (e.g. via the editor
-    # bootstrap join); only run the extra query when it wasn't supplied.
-    if parent_chapter is not None:
-        parent_chapter_row = parent_chapter
+    persona = preview.persona
+    if persona.user_uuid:
+        ctx = await enrolled_learner_context(
+            request, course, persona.user_uuid, db_session,
+            activity_name=activity.name, activity_uuid=activity.activity_uuid,
+        )
+        if ctx is None:
+            raise HTTPException(status_code=404, detail="Learner not enrolled in this course")
+        # Course editors don't otherwise see learners' addresses: keep the
+        # domain (email-domain rules still apply) and hide the rest.
+        ctx = replace(ctx, email=f"***@{ctx.email_domain}" if ctx.email_domain else "")
+        if persona.today:
+            ctx = replace(ctx, today=persona.today)
     else:
-        parent_chapter_row = (await db_session.execute(
-            select(Chapter)
-            .join(ChapterActivity, ChapterActivity.chapter_id == Chapter.id)  # type: ignore
-            .where(ChapterActivity.activity_id == activity.id)
-        )).scalars().first()
-
-    check_uuids: list[str] = [course.course_uuid]
-    if (activity.lock_type or "public") == "restricted":
-        check_uuids.append(activity.activity_uuid)
-    if parent_chapter_row and (parent_chapter_row.lock_type or "public") == "restricted":
-        check_uuids.append(parent_chapter_row.chapter_uuid)
-
-    accessible: set[str] = set()
-    if not is_anon:
-        accessible = await batch_accessible_restricted_uuids(
-            acting_user_id, check_uuids, db_session
+        base = await build_render_context(
+            request, current_user, course, db_session,
+            activity_name=activity.name, activity_uuid=activity.activity_uuid,
         )
+        group_names = tuple((await db_session.execute(
+            select(UserGroup.name).where(
+                UserGroup.org_id == course.org_id,
+                UserGroup.usergroup_uuid.in_(persona.usergroup_uuids),  # type: ignore[attr-defined]
+            )
+        )).scalars().all()) if persona.usergroup_uuids else ()
+        ctx = persona_context(base, persona, current_user, group_names=group_names, org_id=course.org_id)
 
-    # Course-level usergroup membership unlocks everything below it.
-    if course.course_uuid in accessible:
-        return
-
-    chapter_locked = False
-    if parent_chapter_row:
-        chapter_locked = await is_locked_for_user(
-            parent_chapter_row.lock_type,
-            parent_chapter_row.chapter_uuid,
-            course.org_id,
-            current_user,
-            db_session,
-            accessible_restricted_uuids=accessible,
-            is_admin=admin,
-        )
-
-    activity_locked = chapter_locked or await is_locked_for_user(
-        activity.lock_type,
-        activity.activity_uuid,
-        course.org_id,
-        current_user,
-        db_session,
-        accessible_restricted_uuids=accessible,
-        is_admin=admin,
+    ctx = await with_references(ctx, course.org_id, content, db_session)
+    rendered, stats = render_document(content, ctx)
+    return DynamicPreviewResponse(
+        content=rendered if isinstance(rendered, dict) else {},
+        shown_blocks=stats.shown_blocks,
+        hidden_blocks=stats.hidden_blocks,
+        variables=stats.variables,
     )
 
-    if activity_locked:
-        activity_read.content = {}
-        activity_read.details = None
-        activity_read.is_locked = True
+
+async def get_dynamic_reach(
+    request: Request,
+    activity_uuid: str,
+    content: Optional[dict],
+    current_user: PublicUser,
+    db_session: AsyncSession,
+) -> DynamicReachResponse:
+    """How many of the course's enrolled learners see each conditional block.
+    Editors only; counts, never who."""
+    activity, course = await _load_for_editor(request, activity_uuid, current_user, db_session)
+    content = _editor_content(content, activity)
+    blocks = conditional_blocks(content)
+    if not blocks:
+        return DynamicReachResponse(learners=0, blocks=[])
+    if len(blocks) > MAX_REACH_BLOCKS:
+        raise HTTPException(status_code=413, detail="Too many conditional blocks to count")
+    contexts, truncated = await course_learner_contexts(
+        request, course, db_session, activity_name=activity.name, activity_uuid=activity.activity_uuid
+    )
+    # Work is (conditions in the document) x learners: cap the product, and
+    # keep the loop off the event loop.
+    conditions = sum(max(1, count_conditions(rules)) for rules, _ in blocks)
+    if conditions * len(contexts) > MAX_REACH_WORK:
+        raise HTTPException(status_code=413, detail="Too many rules to count for this many learners")
+    counts = await run_in_threadpool(conditional_reach, content, contexts)
+    return DynamicReachResponse(learners=len(contexts), blocks=counts, truncated=truncated)
+
+
+async def list_dynamic_learners(
+    request: Request,
+    activity_uuid: str,
+    query: str,
+    current_user: PublicUser,
+    db_session: AsyncSession,
+) -> list[DynamicLearner]:
+    """Enrolled learners an editor can preview the activity as."""
+    _, course = await _load_for_editor(request, activity_uuid, current_user, db_session)
+    return [
+        DynamicLearner(
+            user_uuid=u.user_uuid, username=u.username,
+            first_name=u.first_name or "", last_name=u.last_name or "",
+        )
+        for u in await search_enrolled_learners(course, query, db_session)
+    ]
+
+
+async def get_dynamic_options(
+    request: Request, activity_uuid: str, current_user: PublicUser, db_session: AsyncSession
+) -> DynamicOptions:
+    """The course's assignments, for rules about submissions. Editors only."""
+    _, course = await _load_for_editor(request, activity_uuid, current_user, db_session)
+    return await course_dynamic_options(course, db_session)
+
 
 async def get_activityby_id(
     request: Request,
@@ -353,7 +425,26 @@ async def get_activityby_id(
     # RBAC check
     await check_resource_access(request, db_session, current_user, course.course_uuid, AccessAction.READ)
 
-    return ActivityRead.model_validate(activity)
+    return await redact_activity_for_reader(
+        request, ActivityRead.model_validate(activity), activity, course, current_user, db_session
+    )
+
+
+_SERVER_OWNED_METADATA_KEYS = ("captions", "chapters", "hls")
+
+
+def keep_server_owned_metadata(incoming: dict | None, current: dict | None) -> dict:
+    """Client-supplied ``extra_metadata`` with the pipeline-owned keys taken
+    from ``current`` (or dropped when it has none), so a write can never
+    forge caption or HLS state."""
+    merged = dict(incoming or {})
+    current = current or {}
+    for key in _SERVER_OWNED_METADATA_KEYS:
+        if key in current:
+            merged[key] = current[key]
+        else:
+            merged.pop(key, None)
+    return merged
 
 
 async def update_activity(
@@ -392,7 +483,7 @@ async def update_activity(
     # This preserves the current state for version history.
     # resolve_acting_user_id unwraps APITokenUser → the creating human's id,
     # because current_user.id on a token is 0 (the token id, not a user id)
-    # and created_by_id is an FK to user.id — writing 0 triggers a FK
+    # and created_by_id is an FK to user.id, so writing 0 triggers a FK
     # violation and the whole update 500s.
     if 'content' in update_data and activity.content:
         user_id = resolve_acting_user_id(current_user)
@@ -402,11 +493,27 @@ async def update_activity(
         # Track who made the change
         activity.last_modified_by_id = user_id
 
-    if 'content' in update_data and isinstance(update_data['content'], str):
-        logger.warning("[Activity Update] Content is STRING not dict for %s", activity_uuid)
+    # Caption and HLS state is written only by their pipelines (configure_captions,
+    # the background jobs); a client-supplied copy would feed forged codes,
+    # statuses or keys back into those jobs and the player.
+    if 'extra_metadata' in update_data:
+        incoming = keep_server_owned_metadata(update_data['extra_metadata'], activity.extra_metadata)
+        # Clearing (null) stays null unless pipeline state has to survive it
+        if update_data['extra_metadata'] is not None or incoming:
+            update_data['extra_metadata'] = incoming
 
     for field, value in update_data.items():
         setattr(activity, field, value)
+
+    # An assignment activity and its assignment each carry a published flag;
+    # publishing from the course structure only touches this one, so mirror it
+    # (update_assignment does the reverse) and the two can't drift apart.
+    if 'published' in update_data:
+        for assignment in (await db_session.execute(
+            select(Assignment).where(Assignment.activity_id == activity.id)
+        )).scalars().all():
+            assignment.published = activity.published
+            db_session.add(assignment)
 
     # Update the update_date timestamp
     activity.update_date = str(datetime.now())
@@ -419,35 +526,14 @@ async def update_activity(
     db_session.add(activity)
     await db_session.commit()
     await db_session.refresh(activity)
+    if update_data.keys() & {"name", "published"}:
+        notify_ee_course_content_changed(activity.course_id)
 
-    # Trigger background re-indexing for RAG when content changes
-    if 'content' in update_data:
-        task = asyncio.create_task(_trigger_course_embedding(activity.course_id, activity.org_id))
-        _embedding_tasks.add(task)
-        task.add_done_callback(_embedding_tasks.discard)
-        task.add_done_callback(
-            lambda t: logger.error("Embedding task failed: %s", t.exception()) if t.exception() else None
-        )
+    index_activity(activity.id)
 
     activity = ActivityRead.model_validate(activity)
 
     return activity
-
-
-async def _trigger_course_embedding(course_id: int, org_id: int) -> None:
-    """Background task to re-index course embeddings after content update."""
-    try:
-        from src.core.events.database import get_db_session
-        from src.services.ai.rag.embedding_service import embed_course_content
-
-        async for session in get_db_session():
-            course = (await session.execute(select(Course).where(Course.id == course_id))).scalars().first()
-            if not course:
-                logger.warning("Skipping embedding for deleted course %d", course_id)
-                return
-            await embed_course_content(course_id, org_id, session)
-    except Exception as e:
-        logger.warning("Background embedding update failed (non-critical): %s", e)
 
 
 async def delete_activity(
@@ -501,6 +587,7 @@ async def delete_activity(
     await db_session.delete(activity_chapter)
     await db_session.delete(activity)
     await db_session.commit()
+    notify_ee_course_content_changed(course.id)
 
     return {"detail": "Activity deleted"}
 
@@ -538,4 +625,10 @@ async def get_activities(
     _, chapter, course = results[0]
     await check_resource_access(request, db_session, current_user, course.course_uuid, AccessAction.READ)
 
-    return [ActivityRead.model_validate(activity) for activity, _, _ in results]
+    return [
+        await redact_activity_for_reader(
+            request, ActivityRead.model_validate(activity), activity, course, current_user, db_session,
+            parent_chapter=chapter,
+        )
+        for activity, _, _ in results
+    ]

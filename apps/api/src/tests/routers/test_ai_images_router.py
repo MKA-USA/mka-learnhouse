@@ -40,6 +40,14 @@ def _user(id=1):
     return SimpleNamespace(id=id)
 
 
+@pytest.fixture(autouse=True)
+def _authoring_gate_passes():
+    """These tests cover the endpoint mechanics; the authoring-rights gate
+    added on top of org membership is exercised in the security suite."""
+    with patch.object(img, "require_org_create_permission", new=AsyncMock()):
+        yield
+
+
 def _patches(member=True):
     """Common happy-path patches; returns a contextlib-style list to enter."""
     return [
@@ -183,6 +191,34 @@ async def test_generation_failure_refunds_and_502():
         with pytest.raises(HTTPException) as exc:
             await img.api_generate_image(body, _user(), _db_returning(_org()))
     assert exc.value.status_code == 502
+    refund.assert_called_once()
+
+
+async def test_provider_quota_refunds_and_503_with_quota_message():
+    """A spent AI budget is not the prompt's fault: say so instead of asking
+    the user to rephrase."""
+    from pydantic_ai.exceptions import ModelHTTPError
+
+    from src.services.ai.llm.errors import AI_QUOTA_MESSAGE
+
+    try:
+        try:
+            raise ModelHTTPError(429, "gemini", {"error": {"message": "exceeded its monthly spending cap"}})
+        except ModelHTTPError as e:
+            raise RuntimeError("Image generation failed") from e
+    except RuntimeError as e:
+        failure = e
+
+    body = GenerateImageRequest(org_id=5, prompt="x")
+    with patch.object(img, "is_org_member", new=AsyncMock(return_value=True)), \
+         patch.object(img, "enforce_ai_rate_limit"), \
+         patch.object(img, "reserve_ai_credit", new=AsyncMock()), \
+         patch.object(img, "generate_image", new=AsyncMock(side_effect=failure)), \
+         patch.object(img, "refund_ai_credit") as refund:
+        with pytest.raises(HTTPException) as exc:
+            await img.api_generate_image(body, _user(), _db_returning(_org()))
+    assert exc.value.status_code == 503
+    assert exc.value.detail == AI_QUOTA_MESSAGE
     refund.assert_called_once()
 
 

@@ -105,7 +105,7 @@ class TestPlaygroundsRouter:
 
     @pytest.mark.asyncio
     async def test_playground_generator_helpers_and_error_paths(
-        self, client, db, org, other_org, admin_user
+        self, client, db, org, other_org, admin_user, mock_request
     ):
         board = Playground(
             id=2,
@@ -199,8 +199,8 @@ class TestPlaygroundsRouter:
         db.add(course)
         await db.commit()
 
-        assert await _get_course_context(None, org.id, db, "Prompt") == (None, None)
-        assert await _get_course_context("missing-course", org.id, db, "Prompt") == (None, None)
+        assert await _get_course_context(mock_request, admin_user, None, org.id, db, "Prompt") == (None, None)
+        assert await _get_course_context(mock_request, admin_user, "missing-course", org.id, db, "Prompt") == (None, None)
         other_org_course = Course(
             id=11,
             name="Other",
@@ -215,14 +215,14 @@ class TestPlaygroundsRouter:
         )
         db.add(other_org_course)
         await db.commit()
-        assert await _get_course_context("course_other", org.id, db, "Prompt") == (None, None)
+        assert await _get_course_context(mock_request, admin_user, "course_other", org.id, db, "Prompt") == (None, None)
 
         with patch(
             "src.services.ai.rag.query_service.query_course_rag",
             new_callable=AsyncMock,
             return_value={"context": "rag-context"},
         ):
-            assert await _get_course_context("course_test", org.id, db, "Prompt") == (
+            assert await _get_course_context(mock_request, admin_user, "course_test", org.id, db, "Prompt") == (
                 "rag-context",
                 course.id,
             )
@@ -232,7 +232,7 @@ class TestPlaygroundsRouter:
             new_callable=AsyncMock,
             side_effect=RuntimeError("rag boom"),
         ):
-            assert await _get_course_context("course_test", org.id, db, "Prompt") == (
+            assert await _get_course_context(mock_request, admin_user, "course_test", org.id, db, "Prompt") == (
                 None,
                 course.id,
             )
@@ -790,6 +790,50 @@ class TestPlaygroundsRouter:
                 "/api/v1/playgrounds/generate/session/session1"
             )
         assert response.status_code == 403
+
+    async def test_playground_generator_session_belongs_to_its_creator(
+        self, client, db, org, admin_user
+    ):
+        """Another editor of the same playground can't read or continue a
+        generation session they didn't start (it holds their prompts)."""
+        db.add(Playground(
+            id=81, org_id=org.id, name="Playground", description="Desc",
+            thumbnail_image="", access_type="authenticated", published=False,
+            course_uuid=None, html_content="<div></div>",
+            playground_uuid="playground_session_owner", course_id=None,
+            created_by=admin_user.id, creation_date="2024-01-01", update_date="2024-01-01",
+        ))
+        await db.commit()
+        session = SimpleNamespace(
+            session_uuid="session_other",
+            iteration_count=0,
+            max_iterations=3,
+            current_html="<div></div>",
+            playground_uuid="playground_session_owner",
+            context=SimpleNamespace(course_uuid=None),
+            message_history=[],
+        )
+        with patch(
+            "src.routers.playgrounds.playgrounds_generator.get_playground_session",
+            return_value=session,
+        ), patch(
+            "src.routers.playgrounds.playgrounds_generator.get_playground_session_owner",
+            return_value=admin_user.id + 1,
+        ), patch(
+            "src.services.playgrounds.playgrounds._get_user_rights",
+            return_value={"playgrounds": {"action_update": True}},
+        ):
+            state = await client.get("/api/v1/playgrounds/generate/session/session_other")
+            iterate = await client.post(
+                "/api/v1/playgrounds/generate/iterate",
+                json={
+                    "session_uuid": "session_other",
+                    "playground_uuid": "playground_session_owner",
+                    "message": "Refine it",
+                },
+            )
+        assert state.status_code == 404
+        assert iterate.status_code == 404
 
     async def test_playground_generator_rejects_missing_session(self, client):
         with patch(

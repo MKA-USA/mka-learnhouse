@@ -1,7 +1,7 @@
 """
 Account lockout service.
 
-Locks an account after 10 failed login attempts for 5 minutes — but only
+Locks an account after 10 failed login attempts for 5 minutes, but only
 when the attempts span multiple source IPs. Per-account lockout paired with
 IP-only login rate limiting would otherwise be a DoS amplifier: a single
 attacker rotating IPs could lock any account with 10 requests while staying
@@ -95,7 +95,7 @@ async def record_failed_login(
     bypass the lockout by both reading the counter before either increments.
 
     The lockout only engages when ``distinct_ips >= 2`` in the tracking
-    window — see the module docstring for why single-IP lockouts would be
+    window; see the module docstring for why single-IP lockouts would be
     a DoS amplifier. The failure counter still increments for single-IP
     attacks so the audit trail is preserved, but ``locked_until`` stays
     unset; the existing per-IP login rate limiter handles that case.
@@ -114,9 +114,12 @@ async def record_failed_login(
     distinct_ips = _record_failed_ip(user.id, ip_address)
     MIN_DISTINCT_IPS_FOR_LOCK = 2
 
+    # An active lock is never pushed forward. Login answers a locked account
+    # like a wrong password even when the password is right, so extending
+    # the lock here would let the real owner's own retries keep them out.
     lock_trigger = (
         (User.failed_login_attempts + 1 >= MAX_FAILED_ATTEMPTS)
-        if distinct_ips >= MIN_DISTINCT_IPS_FOR_LOCK
+        if distinct_ips >= MIN_DISTINCT_IPS_FOR_LOCK and not check_account_locked(user)[0]
         else False
     )
 
@@ -166,13 +169,14 @@ async def reset_failed_attempts(user: User, db_session: AsyncSession) -> None:
         user: User who logged in successfully
         db_session: Database session
     """
-    from sqlmodel import select
-
-    # Fetch fresh user from session to avoid detached object issues
-    statement = select(User).where(User.id == user.id)
-    db_user = (await db_session.execute(statement)).scalars().first()
+    # The session's own instance of the user (no query when the login already
+    # loaded it), so it is never a detached object.
+    db_user = await db_session.get(User, user.id)
 
     if not db_user:
+        return
+    # Nearly every login has nothing to reset; skip the write and its commit.
+    if not db_user.failed_login_attempts and db_user.locked_until is None:
         return
 
     db_user.failed_login_attempts = 0
@@ -189,11 +193,8 @@ async def update_login_info(user: User, ip_address: str, db_session: AsyncSessio
         ip_address: Client IP address
         db_session: Database session
     """
-    from sqlmodel import select
-
-    # Fetch fresh user from session to avoid detached object issues
-    statement = select(User).where(User.id == user.id)
-    db_user = (await db_session.execute(statement)).scalars().first()
+    # The session's own instance of the user (no query when already loaded).
+    db_user = await db_session.get(User, user.id)
 
     if not db_user:
         return
@@ -231,7 +232,7 @@ def format_lockout_message(remaining_seconds: int) -> str:
         Generic message string that does not reveal the remaining lock duration
     """
     # SECURITY: Do not include the exact remaining duration in the user-facing
-    # message — it leaks information that could help an attacker time requests
+    # message. It leaks information that could help an attacker time requests
     # to avoid triggering the lockout check.  The remaining_seconds argument is
     # retained so callers can still log the actual value for operations purposes.
     return "Account is temporarily locked due to too many failed login attempts. Please try again later."

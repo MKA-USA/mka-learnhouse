@@ -39,6 +39,8 @@ from src.services.courses.courses import (
     get_course_user_rights,
     clone_course,
 )
+from src.db.courses.drip import DripScheduleRead, DripScheduleUpdate
+from src.services.courses.drip import get_drip_schedule, update_drip_schedule
 from src.services.courses.updates import (
     create_update,
     delete_update,
@@ -53,6 +55,14 @@ from src.services.courses.contributors import (
     remove_bulk_course_contributors,
 )
 from src.db.resource_authors import ResourceAuthorshipEnum, ResourceAuthorshipStatusEnum
+from src.services.courses.lms_import.sources import SOURCE_MODULES as LMS_SOURCE_KEYS
+from src.services.courses.transfer.lms_import_service import (
+    LmsImportStatus,
+    LmsImportSources,
+    get_lms_import_status,
+    list_sources,
+    start_lms_import_request,
+)
 from src.services.courses.transfer import (
     export_course,
     export_courses_batch,
@@ -219,6 +229,85 @@ async def api_analyze_import_package(
     return await analyze_import_package(
         request, zip_file, org_id, current_user, db_session
     )
+
+
+@router.get(
+    "/import/lms/sources",
+    response_model=LmsImportSources,
+    summary="List the LMS export formats that can be imported, and the upload size limit",
+)
+async def api_list_lms_import_sources() -> LmsImportSources:
+    return list_sources()
+
+
+@router.post(
+    "/import/lms/analyze",
+    response_model=LmsImportStatus,
+    summary="Upload a course exported from another LMS",
+    description=(
+        "Upload a course export from Moodle (.mbz), Canvas (.imscc), Blackboard Learn (.zip), "
+        "D2L Brightspace (.zip), Open edX (.tar.gz) or any IMS Common Cartridge. The export is "
+        "converted into LearnHouse content in the background: poll "
+        "`GET /courses/import/lms/analyze/{temp_id}` until `status` is `ready`, then import the "
+        "listed courses with `POST /courses/import` and the same `temp_id`."
+    ),
+    responses={
+        200: {"description": "Upload accepted, conversion started", "model": LmsImportStatus},
+        400: {"description": "Unknown source, invalid quiz_mode or empty file"},
+        403: {"description": "User lacks permission to create courses in the organization"},
+        404: {"description": "Organization not found"},
+        411: {"description": "The request has no Content-Length"},
+        413: {"description": "Export larger than the configured limit"},
+        429: {"description": "Too many conversions running, for this user or on this server"},
+    },
+    # The file is read by hand after authorization and a size check, so it is
+    # not a parameter here; this keeps it in the API schema
+    openapi_extra={
+        "requestBody": {
+            "required": True,
+            "content": {
+                "multipart/form-data": {
+                    "schema": {
+                        "type": "object",
+                        "required": ["package"],
+                        "properties": {"package": {"type": "string", "format": "binary"}},
+                    }
+                }
+            },
+        }
+    },
+)
+async def api_start_lms_import(
+    request: Request,
+    org_id: int,
+    source: str = Query("auto", description="auto, " + ", ".join(LMS_SOURCE_KEYS)),
+    quiz_mode: str = Query(
+        "assignment",
+        description="assignment: quizzes become graded assignments; page: quizzes become pages with quiz blocks",
+    ),
+    db_session: AsyncSession = Depends(get_db_session),
+    current_user: PublicUser = Depends(get_current_user),
+) -> LmsImportStatus:
+    return await start_lms_import_request(request, org_id, source, quiz_mode, current_user, db_session)
+
+
+@router.get(
+    "/import/lms/analyze/{temp_id}",
+    response_model=LmsImportStatus,
+    summary="Status of an LMS export conversion",
+    responses={
+        200: {"description": "Conversion status, with the courses and report once ready", "model": LmsImportStatus},
+        404: {"description": "Unknown temp_id, or one uploaded by someone else"},
+    },
+)
+async def api_get_lms_import_status(
+    request: Request,
+    org_id: int,
+    temp_id: str,
+    db_session: AsyncSession = Depends(get_db_session),
+    current_user: PublicUser = Depends(get_current_user),
+) -> LmsImportStatus:
+    return await get_lms_import_status(request, temp_id, org_id, current_user, db_session)
 
 
 @router.post(
@@ -467,6 +556,57 @@ async def api_get_course_meta(
     return await get_course_meta(
         request, course_uuid, with_unpublished_activities, current_user=current_user, db_session=db_session, slim=slim
     )
+
+
+@router.get(
+    "/{course_uuid}/drip",
+    response_model=DripScheduleRead,
+    summary="Get the drip content schedule",
+    description=(
+        "Return the course's drip content settings and the release rule of "
+        "every chapter, in course order. Requires permission to edit the course."
+    ),
+    responses={
+        200: {"description": "Drip schedule", "model": DripScheduleRead},
+        403: {"description": "User lacks permission to update the course"},
+        404: {"description": "Course not found"},
+    },
+)
+async def api_get_course_drip_schedule(
+    request: Request,
+    course_uuid: str,
+    db_session: AsyncSession = Depends(get_db_session),
+    current_user: PublicUser = Depends(get_current_user),
+) -> DripScheduleRead:
+    return await get_drip_schedule(request, course_uuid, current_user, db_session)
+
+
+@router.put(
+    "/{course_uuid}/drip",
+    response_model=DripScheduleRead,
+    summary="Update the drip content schedule",
+    description=(
+        "Turn drip content on or off for a course and set when each chapter is "
+        "released: right away, a number of days after the learner enrolls (or "
+        "after the cohort start date), or on a fixed date, optionally once the "
+        "previous chapter is completed. Chapters left out keep their rule. "
+        "Turning drip content on requires the Standard plan or higher."
+    ),
+    responses={
+        200: {"description": "Drip schedule updated", "model": DripScheduleRead},
+        400: {"description": "A chapter does not belong to this course"},
+        403: {"description": "User lacks permission, or the plan does not include drip content"},
+        404: {"description": "Course not found"},
+    },
+)
+async def api_update_course_drip_schedule(
+    request: Request,
+    course_uuid: str,
+    schedule: DripScheduleUpdate,
+    db_session: AsyncSession = Depends(get_db_session),
+    current_user: PublicUser = Depends(get_current_user),
+) -> DripScheduleRead:
+    return await update_drip_schedule(request, course_uuid, schedule, current_user, db_session)
 
 
 @router.get(
@@ -833,7 +973,8 @@ async def api_update_course_update(
     """
 
     return await update_update(
-        request, courseupdate_uuid, update_object, current_user, db_session
+        request, courseupdate_uuid, update_object, current_user, db_session,
+        course_uuid=course_uuid,
     )
 
 
@@ -858,7 +999,9 @@ async def api_delete_course_update(
     Delete Course Update by courseupdate_uuid
     """
 
-    return await delete_update(request, courseupdate_uuid, current_user, db_session)
+    return await delete_update(
+        request, courseupdate_uuid, current_user, db_session, course_uuid=course_uuid
+    )
 
 
 @router.get(

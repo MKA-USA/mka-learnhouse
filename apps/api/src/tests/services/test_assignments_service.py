@@ -345,7 +345,9 @@ class TestUpdateAssignment:
     async def test_updates_assignment_title(
         self, mock_request, db, assignment, admin_user
     ):
-        with patch(_PATCH_RBAC, new_callable=AsyncMock):
+        with patch(_PATCH_RBAC, new_callable=AsyncMock), patch(
+            "src.services.courses.activities.assignments.notify_ee_course_content_changed"
+        ) as notify:
             result = await update_assignment(
                 mock_request,
                 assignment.assignment_uuid,
@@ -354,6 +356,8 @@ class TestUpdateAssignment:
                 db,
             )
         assert result.title == "Updated Title"
+        # Title and due date follow to LMS gradebook columns (LTI).
+        notify.assert_called_once_with(assignment.course_id)
 
     async def test_explicit_null_due_date_removes_the_deadline(
         self, mock_request, db, assignment, admin_user
@@ -667,11 +671,39 @@ class TestHandleAssignmentTaskSubmission:
             )
         assert isinstance(result, AssignmentTaskSubmissionRead)
 
+    async def test_learner_cannot_hand_in_a_file_someone_else_uploaded(
+        self, mock_request, db, assignment_task, regular_user
+    ):
+        obj = AssignmentTaskSubmissionUpdate(
+            task_submission={"fileUUID": f"x_submission_u{regular_user.id + 1}.pdf"},
+        )
+        # is_instructor → False, enrollment → True
+        with patch(_PATCH_RBAC, new_callable=AsyncMock), \
+             patch(_PATCH_AUTH_ROLES, new_callable=AsyncMock, side_effect=[False, True]):
+            with pytest.raises(HTTPException) as exc:
+                await handle_assignment_task_submission(
+                    mock_request, assignment_task.assignment_task_uuid, obj, regular_user, db
+                )
+        assert exc.value.status_code == 403
+
+    async def test_learner_can_hand_in_their_own_file(
+        self, mock_request, db, assignment_task, regular_user
+    ):
+        obj = AssignmentTaskSubmissionUpdate(
+            task_submission={"fileUUID": f"x_submission_u{regular_user.id}.pdf"},
+        )
+        with patch(_PATCH_RBAC, new_callable=AsyncMock), \
+             patch(_PATCH_AUTH_ROLES, new_callable=AsyncMock, side_effect=[False, True]):
+            result = await handle_assignment_task_submission(
+                mock_request, assignment_task.assignment_task_uuid, obj, regular_user, db
+            )
+        assert result.task_submission["fileUUID"].endswith(f"_u{regular_user.id}.pdf")
+
     async def test_regular_user_cannot_self_assign_grade(
         self, mock_request, db, assignment_task, regular_user
     ):
         # SECURITY: a non-instructor submitting with a non-zero grade is
-        # rejected — students cannot grade their own work.
+        # rejected; students cannot grade their own work.
         obj = AssignmentTaskSubmissionUpdate(
             task_submission={"answer": "x"},
             grade=50,
@@ -691,7 +723,7 @@ class TestHandleAssignmentTaskSubmission:
     ):
         # An instructor taking their own course autosaves quiz answers through
         # this path with no target uuid. The quiz autosave sends grade=0 and
-        # feedback="" — a placeholder, not a grade — and it must save, not raise
+        # feedback="" (a placeholder, not a grade) and it must save, not raise
         # "the learner has no submission for it".
         obj = AssignmentTaskSubmissionUpdate(
             task_submission={"answer": "hello"},
@@ -856,7 +888,8 @@ class TestUpdateAssignmentSubmission:
             attempt_number=1,
         )
         with patch(_PATCH_RBAC, new_callable=AsyncMock), \
-             patch(_PATCH_AUTH_ROLES, new_callable=AsyncMock, return_value=True):
+             patch(_PATCH_AUTH_ROLES, new_callable=AsyncMock, return_value=True), \
+             patch("src.services.courses.activities.assignments.notify_ee_learner_progress") as notify:
             result = await update_assignment_submission(
                 mock_request,
                 regular_user.id,
@@ -866,6 +899,8 @@ class TestUpdateAssignmentSubmission:
                 db,
             )
         assert isinstance(result, AssignmentUserSubmissionRead)
+        # An instructor-set grade/status must reach external gradebooks (LTI).
+        notify.assert_called_once_with(regular_user.id, assignment.course_id)
 
 
 # ---------------------------------------------------------------------------
@@ -902,7 +937,8 @@ class TestDeleteAssignmentSubmission:
         self, mock_request, db, assignment, user_submission, admin_user, regular_user
     ):
         with patch(_PATCH_RBAC, new_callable=AsyncMock), \
-             patch(_PATCH_AUTH_ROLES, new_callable=AsyncMock, return_value=True):
+             patch(_PATCH_AUTH_ROLES, new_callable=AsyncMock, return_value=True), \
+             patch("src.services.courses.activities.assignments.notify_ee_learner_progress") as notify:
             result = await delete_assignment_submission(
                 mock_request,
                 regular_user.id,
@@ -911,6 +947,7 @@ class TestDeleteAssignmentSubmission:
                 db,
             )
         assert result["message"] == "Assignment User Submission deleted"
+        notify.assert_called_once_with(regular_user.id, assignment.course_id)
 
 
 # ---------------------------------------------------------------------------
@@ -1020,7 +1057,7 @@ class TestManuallyGradedSkipsVerification:
     ):
         # SHORT_ANSWER task expects "4"; student submitted "5" (wrong). The
         # auto-verifier would compute 0, but the teacher set grade=100 with
-        # manually_graded=True — the override must hold.
+        # manually_graded=True; the override must hold.
         ts = await self._make_task_submission(
             db, assignment_task, regular_user,
             ts_id=41, uuid_suffix="manual",
@@ -1221,7 +1258,8 @@ class TestMarkActivityAsDoneForUser:
             db, org.id, course.id, activity.id, regular_user.id
         )
         with patch(_PATCH_RBAC, new_callable=AsyncMock), \
-             patch(_PATCH_CERT, new_callable=AsyncMock):
+             patch(_PATCH_CERT, new_callable=AsyncMock), \
+             patch("src.services.courses.activities.assignments.notify_ee_learner_progress") as notify:
             result = await mark_activity_as_done_for_user(
                 mock_request,
                 regular_user.id,
@@ -1232,6 +1270,7 @@ class TestMarkActivityAsDoneForUser:
         assert result["message"] == "Activity marked as done for user"
         await db.refresh(step)
         assert step.complete is True
+        notify.assert_called_once_with(regular_user.id, course.id)
 
 
 # ---------------------------------------------------------------------------
@@ -1317,9 +1356,29 @@ class TestPutAssignmentTaskSubmissionFile:
             )
         assert result is None
 
+    async def test_upload_is_tagged_with_the_uploader(
+        self, mock_request, db, regular_user, assignment_task
+    ):
+        upload = AsyncMock(return_value=f"x_submission_u{regular_user.id}.pdf")
+        with patch(
+            "src.services.courses.activities.assignments.verify_activity_reader_access",
+            new_callable=AsyncMock,
+        ), patch(_PATCH_AUTH_ROLES, new_callable=AsyncMock, side_effect=[True, False]), patch(
+            "src.services.courses.activities.assignments.upload_submission_file", upload
+        ):
+            result = await put_assignment_task_submission_file(
+                mock_request,
+                db,
+                assignment_task.assignment_task_uuid,
+                regular_user,
+                SimpleNamespace(filename="essay.pdf"),
+            )
+        assert result == {"file_uuid": f"x_submission_u{regular_user.id}.pdf"}
+        assert upload.await_args.args[-1] == regular_user.id
+
 
 # ---------------------------------------------------------------------------
-# handle_assignment_task_submission — UUID fallback branch (line 1342)
+# handle_assignment_task_submission: UUID fallback branch (line 1342)
 # ---------------------------------------------------------------------------
 
 
@@ -1694,7 +1753,7 @@ class TestDeleteAssignmentTaskSubmission:
 
 
 # ---------------------------------------------------------------------------
-# create_assignment_submission — new TrailRun / TrailStep branches + auto_grading
+# create_assignment_submission: new TrailRun / TrailStep branches + auto_grading
 # ---------------------------------------------------------------------------
 
 _PATCH_TRAIL_PRESENCE = "src.services.courses.activities.assignments.check_trail_presence"
@@ -1773,7 +1832,7 @@ class TestCreateAssignmentSubmission:
 
 
 # ---------------------------------------------------------------------------
-# delete_assignment_submission — certification revocation branch (lines 2292-2297)
+# delete_assignment_submission: certification revocation branch (lines 2292-2297)
 # ---------------------------------------------------------------------------
 
 
@@ -1982,7 +2041,7 @@ class TestDueDateEnforcement:
 
 
 # ---------------------------------------------------------------------------
-# update_assignment_submission — protected-field stripping (lines 2252-2254)
+# update_assignment_submission: protected-field stripping (lines 2252-2254)
 # ---------------------------------------------------------------------------
 
 
@@ -2046,7 +2105,7 @@ class TestUpdateAssignmentSubmissionProtectedFields:
         # SECURITY: the row's assignment_id is fixed by the URL/lookup keys.
         # Even an instructor must NOT be able to reparent a submission onto a
         # different assignment via the request body (assignment ids are global
-        # integers — this would be a cross-tenant write).
+        # integers, so this would be a cross-tenant write).
         other = Assignment(
             id=12,
             title="Other Assignment 2",
@@ -2113,7 +2172,7 @@ class TestAssignmentIntegrityGuards:
 
         Otherwise a learner who has been shown the answer key (show_correct_answers
         reveals it post-grade) could replay the correct answers, and the next
-        re-grade — which re-derives from the CURRENT stored answers — would score
+        re-grade (which re-derives from the CURRENT stored answers) would score
         the tampered version.
         """
         await self._user_submission(
@@ -2132,7 +2191,7 @@ class TestAssignmentIntegrityGuards:
     async def test_learner_can_still_edit_answers_while_pending(
         self, mock_request, db, assignment, assignment_task, regular_user
     ):
-        """A PENDING row is an attempt in progress — saving must keep working."""
+        """A PENDING row is an attempt in progress, so saving must keep working."""
         await self._user_submission(
             db, assignment, regular_user, AssignmentUserSubmissionStatus.PENDING
         )
@@ -2163,7 +2222,7 @@ class TestAssignmentIntegrityGuards:
         self, mock_request, db, assignment_task, admin_user
     ):
         """An instructor taking their own course saves ANSWERS through the same
-        path with no target uuid — the grade guard must not catch that."""
+        path with no target uuid; the grade guard must not catch that."""
         obj = AssignmentTaskSubmissionUpdate(task_submission={"answer": "x"})
         with patch(_PATCH_RBAC, new_callable=AsyncMock), \
              patch(_PATCH_AUTH_ROLES, new_callable=AsyncMock, return_value=True):

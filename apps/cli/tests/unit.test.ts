@@ -116,7 +116,7 @@ describe('generateDockerCompose', () => {
   })
 })
 
-// ─── Content volume migration — compose patcher ──────────────
+// ─── Content volume migration: compose patcher ──────────────
 
 describe('patchComposeAddContentVolume', () => {
   const legacyCompose = `name: learnhouse-abc123
@@ -249,6 +249,13 @@ describe('generateNginxConf', () => {
     expect(conf).toContain('client_max_body_size 6G;')
     expect(conf).not.toContain('client_max_body_size 500M;')
   })
+
+  // With manual HTTPS, TLS ends in front of this plain-HTTP proxy, so $scheme
+  // would be "http" and the app would drop the Secure flag on cookies.
+  it('pins X-Forwarded-Proto to https for manual HTTPS', () => {
+    expect(generateNginxConf({ useHttps: true })).toContain('proxy_set_header X-Forwarded-Proto https;')
+    expect(generateNginxConf({ useHttps: false })).toContain('proxy_set_header X-Forwarded-Proto $scheme;')
+  })
 })
 
 // ─── Caddyfile template ─────────────────────────────────────
@@ -299,7 +306,7 @@ describe('config-store', () => {
   })
 
   it('listInstallations returns empty when ~/.learnhouse does not exist', () => {
-    // This test assumes no real installations interfere —
+    // This test assumes no real installations interfere;
     // if ~/.learnhouse exists on the host, this will still pass
     // since it lists only complete installs
     const list = listInstallations()
@@ -310,14 +317,14 @@ describe('config-store', () => {
 // ─── Regression: --ci must generate a real DB password ──────
 //
 // In CI mode the setup command used to leave `config.dbPassword` undefined,
-// which the env template rendered as the literal string "undefined" — both
+// which the env template rendered as the literal string "undefined", both
 // in the connection string and in POSTGRES_PASSWORD. The DB still worked
 // because both sides used the same wrong value, but the install shipped an
 // obviously-wrong credential. These tests pin the contract: when a password
 // is provided, it must land in both places verbatim; the template must
 // never emit "=undefined".
 
-describe('generateEnvFile — dbPassword handling', () => {
+describe('generateEnvFile: dbPassword handling', () => {
   it('writes dbPassword into both connection string and POSTGRES_PASSWORD', () => {
     const env = generateEnvFile({ ...baseConfig, dbPassword: 'Sup3rS3cret-Abc_123' })
     expect(env).toContain('postgresql://learnhouse:Sup3rS3cret-Abc_123@db:5432/learnhouse')
@@ -350,7 +357,7 @@ describe('generateEnvFile — dbPassword handling', () => {
 // it would conflict with the internal nginx (port 80) or when TLS is in
 // play (autoSsl/useHttps go through Caddy on 443).
 
-describe('generateDockerCompose — ssr-fwd sidecar', () => {
+describe('generateDockerCompose: ssr-fwd sidecar', () => {
   it('adds the socat sidecar when httpPort is not 80', () => {
     const yml = generateDockerCompose({ ...baseConfig, httpPort: 8088 })
     expect(yml).toContain('learnhouse-ssr-fwd-test1234')
@@ -383,7 +390,7 @@ describe('generateDockerCompose — ssr-fwd sidecar', () => {
 // `origin` (localhost:8088) doesn't match `x-forwarded-host` (localhost).
 // We switched to $http_host and added an explicit X-Forwarded-Host header.
 
-describe('generateNginxConf — Server Action headers', () => {
+describe('generateNginxConf: Server Action headers', () => {
   it('uses $http_host (not $host) for the Host header', () => {
     const conf = generateNginxConf()
     expect(conf).toMatch(/proxy_set_header\s+Host\s+\$http_host/)
@@ -402,17 +409,17 @@ describe('generateNginxConf — Server Action headers', () => {
 // `localhost` to ::1 first. nginx's plain `listen 80;` binds IPv4 only,
 // so the healthcheck failed permanently and the proxy showed
 // "(unhealthy)" even though it was serving traffic fine. We pair an
-// explicit IPv6 listen in the conf with a 127.0.0.1 healthcheck —
+// explicit IPv6 listen in the conf with a 127.0.0.1 healthcheck;
 // either alone is enough, both together is durable.
 
-describe('generateNginxConf — IPv6 listen', () => {
+describe('generateNginxConf: IPv6 listen', () => {
   it('listens on IPv6 as well as IPv4', () => {
     const conf = generateNginxConf()
     expect(conf).toMatch(/listen\s+\[::\]:80/)
   })
 })
 
-describe('generateDockerCompose — IPv6-safe healthchecks', () => {
+describe('generateDockerCompose: IPv6-safe healthchecks', () => {
   it('nginx healthcheck targets 127.0.0.1, not the dual-stack localhost', () => {
     const yml = generateDockerCompose(baseConfig)
     expect(yml).toMatch(/wget[^\n]*127\.0\.0\.1/)
@@ -430,12 +437,12 @@ describe('generateDockerCompose — IPv6-safe healthchecks', () => {
 // ─── Regression: org name/slug propagate to the backend ─────
 //
 // The CLI used to collect `orgName` from the user but never sent it
-// downstream — the API's auto-install hard-coded "Default Organization"
+// downstream; the API's auto-install hard-coded "Default Organization"
 // / slug "default". The user's wizard input was discarded silently.
 // The fix threads LEARNHOUSE_INITIAL_ORG_NAME / _ORG_SLUG into .env,
 // where the API's `install(short=True)` reads them.
 
-describe('generateEnvFile — org propagation', () => {
+describe('generateEnvFile: org propagation', () => {
   it('writes the user-chosen org name and slug', () => {
     const env = generateEnvFile({ ...baseConfig, orgName: 'Acme Academy', orgSlug: 'acme' })
     expect(env).toContain('LEARNHOUSE_INITIAL_ORG_NAME=')
@@ -459,10 +466,11 @@ describe('generateEnvFile — org propagation', () => {
 // broke stop/status/health/etc. The fix: prefer whichever install has
 // an actually-running app container, falling back to most recent.
 //
-// We stub `isContainerRunning` from the docker module so the test
+// We stub `isDeploymentRunning` from the docker module so the test
 // doesn't depend on a real Docker daemon, and override the home dir
 // via a fresh `HOME` env so the lookup hits our temp tree.
 
+import { FAKE_DOCKER, expectMode, itPosix } from './platform.js'
 vi.mock('../src/services/docker.js', async () => {
   const actual = await vi.importActual<typeof import('../src/services/docker.js')>(
     '../src/services/docker.js',
@@ -470,6 +478,8 @@ vi.mock('../src/services/docker.js', async () => {
   return {
     ...actual,
     isContainerRunning: vi.fn(() => false),
+    // findInstallDir asks whether any container of the compose project runs.
+    isDeploymentRunning: vi.fn(() => false),
     // Stub out docker exec so unit tests never touch a real daemon.
     // Per-test overrides use vi.mocked(dockerComposeExec).mockReturnValue(...)
     dockerComposeExec: vi.fn(() => ''),
@@ -478,14 +488,15 @@ vi.mock('../src/services/docker.js', async () => {
 
 // Capture execSync so the docker helpers below can be asserted on the exact
 // command they build, without shelling out to a real daemon. importActual
-// keeps spawn/spawnSync intact — the binary-surface tests spawn a real CLI
+// keeps spawn/spawnSync intact; the binary-surface tests spawn a real CLI
 // subprocess and must not be stubbed.
 vi.mock('node:child_process', async () => {
   const actual = await vi.importActual<typeof import('node:child_process')>('node:child_process')
-  return { ...actual, execSync: vi.fn(() => Buffer.from('')) }
+  const { routeExecFile } = await import('./exec-file-mock.js')
+  return routeExecFile({ ...actual, execSync: vi.fn(() => Buffer.from('')) })
 })
 
-describe('findInstallDir — picks the running install over a stale one', () => {
+describe('findInstallDir: picks the running install over a stale one', () => {
   const fakeHome = path.join(os.tmpdir(), 'lh-findinstall-' + Date.now())
   const lhBase = path.join(fakeHome, '.learnhouse')
   let origHome: string | undefined
@@ -526,24 +537,25 @@ describe('findInstallDir — picks the running install over a stale one', () => 
   })
 
   it('returns the install whose app container is running when multiple exist', async () => {
-    const stale = writeInstall('default', 'aaaa1111', '2026-03-27T15:24:39Z')
-    const live = writeInstall('qa', 'bbbb2222', '2026-05-18T22:00:00Z')
+    const stale = writeInstall('default', 'aaaa1111', '2026-05-18T22:00:00Z')
+    const live = writeInstall('qa', 'bbbb2222', '2026-03-27T15:24:39Z')
 
-    const { isContainerRunning } = await import('../src/services/docker.js')
-    ;(isContainerRunning as ReturnType<typeof vi.fn>).mockImplementation((name: string) =>
-      name === 'learnhouse-app-bbbb2222',
-    )
+    const { isDeploymentRunning } = await import('../src/services/docker.js')
+    ;(isDeploymentRunning as ReturnType<typeof vi.fn>).mockImplementation((id: string) => id === 'bbbb2222')
 
+    // The running install is the older one, so "running wins" is what picks it
+    // (most-recent alone would pick the stale one).
     expect(findInstallDir()).toBe(live)
     expect(findInstallDir()).not.toBe(stale)
+    expect(isDeploymentRunning).toHaveBeenCalledWith('aaaa1111')
   })
 
   it('falls back to the most recent install when none are running', async () => {
     writeInstall('default', 'aaaa1111', '2026-03-27T15:24:39Z')
     const newer = writeInstall('qa', 'bbbb2222', '2026-05-18T22:00:00Z')
 
-    const { isContainerRunning } = await import('../src/services/docker.js')
-    ;(isContainerRunning as ReturnType<typeof vi.fn>).mockReturnValue(false)
+    const { isDeploymentRunning } = await import('../src/services/docker.js')
+    ;(isDeploymentRunning as ReturnType<typeof vi.fn>).mockReturnValue(false)
 
     expect(findInstallDir()).toBe(newer)
   })
@@ -551,8 +563,8 @@ describe('findInstallDir — picks the running install over a stale one', () => 
   it('uses the only install when exactly one exists', async () => {
     const only = writeInstall('default', 'aaaa1111', '2026-03-27T15:24:39Z')
 
-    const { isContainerRunning } = await import('../src/services/docker.js')
-    ;(isContainerRunning as ReturnType<typeof vi.fn>).mockReturnValue(false)
+    const { isDeploymentRunning } = await import('../src/services/docker.js')
+    ;(isDeploymentRunning as ReturnType<typeof vi.fn>).mockReturnValue(false)
 
     expect(findInstallDir()).toBe(only)
   })
@@ -563,10 +575,10 @@ describe('findInstallDir — picks the running install over a stale one', () => 
 // The API's Pydantic EmailStr rejects RFC 6761 reserved TLDs (.local,
 // .test, .localhost, .invalid). If the CLI accepts one of those, the
 // generated .env passes setup but the API container crashes during
-// auto_install — leaving an empty `organization` table and a restart
+// auto_install, leaving an empty `organization` table and a restart
 // loop. Reported on Discord against 1.2.1 with a *.local admin email.
 
-describe('validateEmail — reserved TLDs', () => {
+describe('validateEmail: reserved TLDs', () => {
   it('accepts a normal email', () => {
     expect(validateEmail('admin@school.dev')).toBeUndefined()
     expect(validateEmail('admin@yourdomain.com')).toBeUndefined()
@@ -629,7 +641,7 @@ describe('validateEmail — reserved TLDs', () => {
 // These tests import `replaceComposeImageTag` from the real service module,
 // so a regex change in compose-utils.ts is caught immediately.
 
-describe('update — image tag replacement in docker-compose.yml', () => {
+describe('update: image tag replacement in docker-compose.yml', () => {
   it('replaces a pinned version tag (1.2.2 → 1.2.6)', () => {
     const compose = 'image: ghcr.io/learnhouse/app:1.2.2'
     expect(replaceComposeImageTag(compose, 'ghcr.io/learnhouse/app:1.2.6')).toBe(
@@ -698,7 +710,7 @@ describe('update — image tag replacement in docker-compose.yml', () => {
 // `--pull always`. These tests pin the exact commands so the pull can't
 // silently regress out again.
 
-describe('update — docker pull/up commands', () => {
+describe('update: docker pull/up commands', () => {
   let execSync: ReturnType<typeof vi.fn>
   let dockerComposeUp: typeof import('../src/services/docker.js').dockerComposeUp
   let dockerComposePull: typeof import('../src/services/docker.js').dockerComposePull
@@ -738,7 +750,7 @@ describe('update — docker pull/up commands', () => {
   })
 })
 
-// ─── quoteEnvValue — .env value escaping ────────────────────
+// ─── quoteEnvValue: .env value escaping ────────────────────
 //
 // docker compose's dotenv parser has subtle rules: bare values can have
 // `#` truncate them, `$VAR` gets interpolated, and unquoted spaces are
@@ -945,7 +957,7 @@ describe('validateSlug', () => {
   })
 })
 
-// ─── readEnvVar / setEnvVar — .env mutation helpers ─────────
+// ─── readEnvVar / setEnvVar: .env mutation helpers ─────────
 //
 // `setEnvVar` is called by the `update` command to stamp EE_IMAGE_TAG after
 // a pull, and by `env` to persist user edits. `readEnvVar` reads connection
@@ -1031,7 +1043,7 @@ describe('setEnvVar', () => {
     fs.writeFileSync(path.join(tmpDir, '.env'), 'FOO=bar')
     setEnvVar(tmpDir, 'NEW_KEY', 'value')
     const content = fs.readFileSync(path.join(tmpDir, '.env'), 'utf-8')
-    // The two lines must be separated — not merged into "FOO=barNEW_KEY=value"
+    // The two lines must be separated, not merged into "FOO=barNEW_KEY=value"
     expect(content).toMatch(/FOO=bar\n/)
     expect(content).toContain('NEW_KEY=value')
   })
@@ -1058,7 +1070,10 @@ describe('isExternalDbInstall', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
 
-  it('returns true when LEARNHOUSE_SQL_CONNECTION_STRING is set', () => {
+  // Every Community .env carries LEARNHOUSE_SQL_CONNECTION_STRING (pointing at
+  // the bundled `db`), so the compose file decides: no `db` service = external.
+  it('returns true when the compose file has no db service', () => {
+    fs.writeFileSync(path.join(tmpDir, 'docker-compose.yml'), 'services:\n  learnhouse-app:\n    image: app\n  redis:\n    image: redis\n')
     fs.writeFileSync(
       path.join(tmpDir, '.env'),
       'LEARNHOUSE_SQL_CONNECTION_STRING=postgresql://user:pw@rds.example.com:5432/lh\n',
@@ -1066,17 +1081,19 @@ describe('isExternalDbInstall', () => {
     expect(isExternalDbInstall(tmpDir)).toBe(true)
   })
 
-  it('returns false when the connection string key is absent', () => {
-    fs.writeFileSync(path.join(tmpDir, '.env'), 'SOME_OTHER_VAR=foo\n')
+  it('returns false when the compose file declares a db service, even with a connection string', () => {
+    fs.writeFileSync(path.join(tmpDir, 'docker-compose.yml'), 'services:\n  learnhouse-app:\n    image: app\n  db:\n    image: pg\n')
+    fs.writeFileSync(path.join(tmpDir, '.env'), 'LEARNHOUSE_SQL_CONNECTION_STRING=postgresql://u:p@db:5432/lh\n')
     expect(isExternalDbInstall(tmpDir)).toBe(false)
   })
 
-  it('returns false when .env does not exist', () => {
+  it('returns false when there is no docker-compose.yml', () => {
+    fs.writeFileSync(path.join(tmpDir, '.env'), 'LEARNHOUSE_SQL_CONNECTION_STRING=postgresql://user:pw@rds.example.com:5432/lh\n')
     expect(isExternalDbInstall(tmpDir)).toBe(false)
   })
 })
 
-// ─── ensureAlembicBaseline — migration baseline stamping ─────
+// ─── ensureAlembicBaseline: migration baseline stamping ─────
 //
 // Installs created via the app's create_all startup path have no Alembic
 // revision in the database. Before running `upgrade head` we stamp the
@@ -1134,7 +1151,7 @@ describe('ensureAlembicBaseline', () => {
 
     const warns: string[] = []
     const ui = { log: vi.fn(), ok: vi.fn(), warn: (m: string) => warns.push(m) }
-    // Must not propagate the exception — the update continues with a warning.
+    // Must not propagate the exception; the update continues with a warning.
     expect(() => ensureAlembicBaseline(tmpDir, COMMUNITY_LAYOUT, ui)).not.toThrow()
     expect(warns.length).toBeGreaterThan(0)
     expect(warns[0]).toMatch(/baseline|alembic/i)
@@ -1155,7 +1172,7 @@ describe('ensureAlembicBaseline', () => {
   })
 })
 
-// ─── runAlembicUpgrade — migration execution ─────────────────
+// ─── runAlembicUpgrade: migration execution ─────────────────
 //
 // The upgrade step is the riskiest part of an update. Key invariants:
 //  - If the DB is already at head, `upgrade heads` must not be called
@@ -1238,7 +1255,7 @@ describe('runAlembicUpgrade', () => {
   })
 
   it('runs upgrade when only some of the multiple heads are present', async () => {
-    // One branch is at head, one is not — upgrade must run.
+    // One branch is at head, one is not, so upgrade must run.
     const { dockerComposeExec } = await import('../src/services/docker.js')
     const mockExec = vi.mocked(dockerComposeExec)
     mockExec
@@ -1269,7 +1286,7 @@ describe('runAlembicUpgrade', () => {
 //
 // These tests spawn the actual built CLI binary and verify the user-facing
 // experience: help text, version string, and error messages for invalid
-// input. No Docker daemon is needed — they cover the "what does the user
+// input. No Docker daemon is needed; they cover the "what does the user
 // see when they type X" layer that module-level unit tests cannot reach.
 
 const CLI_BIN = path.resolve(__dirname, '..', 'dist', 'bin', 'learnhouse.js')
@@ -1289,7 +1306,7 @@ function runCli(args: string, timeoutMs = 10_000): { stdout: string; stderr: str
   }
 }
 
-describe('CLI — version and help', () => {
+describe('CLI: version and help', () => {
   it('--version prints a semver string and exits 0', () => {
     const r = runCli('--version')
     expect(r.exitCode).toBe(0)
@@ -1318,7 +1335,7 @@ describe('CLI — version and help', () => {
   })
 })
 
-describe('CLI — setup --help (flag discoverability)', () => {
+describe('CLI: setup --help (flag discoverability)', () => {
   it('shows all flags a user needs to automate a deployment', () => {
     const r = runCli('setup --help')
     expect(r.exitCode).toBe(0)
@@ -1334,7 +1351,7 @@ describe('CLI — setup --help (flag discoverability)', () => {
   })
 })
 
-describe('CLI — update --help (flag discoverability)', () => {
+describe('CLI: update --help (flag discoverability)', () => {
   it('shows the flags users need to target a specific version', () => {
     const r = runCli('update --help')
     expect(r.exitCode).toBe(0)
@@ -1346,7 +1363,7 @@ describe('CLI — update --help (flag discoverability)', () => {
   })
 })
 
-describe('CLI — backup / restore --help', () => {
+describe('CLI: backup / restore --help', () => {
   it('backup --help mentions the archive concept', () => {
     const r = runCli('backup --help')
     expect(r.exitCode).toBe(0)
@@ -1360,14 +1377,14 @@ describe('CLI — backup / restore --help', () => {
   })
 })
 
-// ─── CLI — command registration guard ────────────────────────
+// ─── CLI: command registration guard ────────────────────────
 //
 // A single sweep confirms all 16 commands are wired up. This test
 // exists because scale was fully implemented in scale.ts but forgotten
-// in bin/learnhouse.ts — `npx learnhouse scale` silently showed the
+// in bin/learnhouse.ts, so `npx learnhouse scale` silently showed the
 // main help instead of the scale UI. Never again.
 
-describe('CLI — all 16 commands registered', () => {
+describe('CLI: all 16 commands registered', () => {
   const ALL_COMMANDS = [
     'setup', 'start', 'stop', 'update', 'status', 'health',
     'logs', 'config', 'env', 'backup', 'restore',
@@ -1396,7 +1413,7 @@ describe('CLI — all 16 commands registered', () => {
   it('setup --help lists all CI-mode flags a user needs to automate a deployment', () => {
     const r = runCli('setup --help')
     expect(r.exitCode).toBe(0)
-    // Every flag must be documented — missing flags mean users can't discover them
+    // Every flag must be documented; missing flags mean users can't discover them
     for (const flag of ['--ci', '--domain', '--port', '--admin-email', '--admin-password', '--org-name', '--org-slug', '--no-start']) {
       expect(r.stdout, `"${flag}" missing from setup --help`).toContain(flag)
     }
@@ -1419,7 +1436,7 @@ describe('CLI — all 16 commands registered', () => {
 })
 
 
-// ─── CLI — setup --ci --no-start: real install, no Docker ────
+// ─── CLI setup --ci --no-start: real install, no Docker ────
 //
 // setup --ci --no-start writes the full file set (docker-compose.yml,
 // .env, nginx.conf, learnhouse.config.json) without starting containers.
@@ -1428,13 +1445,13 @@ describe('CLI — all 16 commands registered', () => {
 //   1. Specific values we passed end up in the right files with the right keys
 //   2. The config command correctly reads and displays those values
 //   3. Commands that require running containers (backup, update, status)
-//      exit non-zero with clear, actionable error messages — not silent
+//      exit non-zero with clear, actionable error messages, not silent
 //      crashes or cryptic stack traces
 //   4. Doctor runs its diagnostic checks and exits 0 (never fails, just reports)
 //
 // This is the deepest test you can run without a full Docker environment.
 
-describe('CLI — setup --ci --no-start: real installation, real file assertions', () => {
+describe('CLI: setup --ci --no-start: real installation, real file assertions', () => {
   let tempHome: string
   let installDir: string
 
@@ -1450,7 +1467,12 @@ describe('CLI — setup --ci --no-start: real installation, real file assertions
     return spawnSync('node', [CLI_BIN, ...args], {
       encoding: 'utf-8',
       timeout: 30_000,
-      env: { ...process.env, HOME: tempHome, NO_COLOR: '1' },
+      env: {
+        ...process.env, HOME: tempHome, USERPROFILE: tempHome, NO_COLOR: '1',
+        // A fake docker answers the prerequisite probes, so this runs the same
+        // on every OS and with or without a Docker daemon.
+        LEARNHOUSE_DOCKER_BIN: FAKE_DOCKER,
+      },
       stdio: ['pipe', 'pipe', 'pipe'],
     })
   }
@@ -1558,7 +1580,7 @@ describe('CLI — setup --ci --no-start: real installation, real file assertions
     expect(cfg.deploymentId).toMatch(/^[a-z0-9]{8,}$/)
   })
 
-  // ── config command — reads and displays our install ─────────
+  // ── config command: reads and displays our install ─────────
   it('"config" exits 0 and shows our domain in the URL line', () => {
     const r = cliHome(['config'])
     expect(r.status).toBe(0)
@@ -1580,9 +1602,9 @@ describe('CLI — setup --ci --no-start: real installation, real file assertions
     expect(r.stdout).toContain('.env')
   })
 
-  // ── status — prints URL from config before touching Docker ────
+  // ── status: prints URL from config before touching Docker ────
   it('"status" shows our install URL (read from config.json before any Docker call)', () => {
-    // status always prints the URL first — this is guaranteed regardless of whether
+    // status always prints the URL first; this is guaranteed regardless of whether
     // containers are running, because it reads learnhouse.config.json before docker compose ps
     const r = cliHome(['status'])
     expect(r.stdout + r.stderr).toContain(DOMAIN)
@@ -1593,15 +1615,15 @@ describe('CLI — setup --ci --no-start: real installation, real file assertions
     expect(r.stdout + r.stderr).toContain(String(PORT))
   })
 
-  // ── backup — specific error message when DB container is down ─
+  // ── backup: specific error message when DB container is down ─
   it('"backup" exits 1 and says the database container is not running', () => {
     const r = cliHome(['backup'])
     expect(r.status).toBe(1)
-    // Exact message from backup command — "not running" tells the user what to do
+    // Exact message from backup command; "not running" tells the user what to do
     expect(r.stdout + r.stderr).toContain('not running')
   })
 
-  // ── update — version check against GHCR before touching containers ─
+  // ── update: version check against GHCR before touching containers ─
   it('"update --to 0.0.0-nonexistent" exits 1 with version-not-found message', () => {
     const r = cliHome(['update', '--to', '0.0.0-nonexistent', '--no-backup', '--no-migrate'])
     expect(r.status).toBe(1)
@@ -1609,7 +1631,7 @@ describe('CLI — setup --ci --no-start: real installation, real file assertions
     expect(r.stdout + r.stderr).toContain('not found')
   })
 
-  // ── doctor — diagnostic, exits 0, confirms Docker present ────
+  // ── doctor: diagnostic, exits 0, confirms Docker present ────
   it('"doctor" exits 0 (it reports problems but never fails hard)', () => {
     const r = cliHome(['doctor'])
     expect(r.status).toBe(0)
@@ -1620,22 +1642,22 @@ describe('CLI — setup --ci --no-start: real installation, real file assertions
     expect(r.stdout + r.stderr).toContain('Docker installed')
   })
 
-  it('"doctor" reports that no containers are running (expected — we used --no-start)', () => {
+  it('"doctor" reports that no containers are running (expected: we used --no-start)', () => {
     const r = cliHome(['doctor'])
     expect(r.stdout + r.stderr).toContain('No containers found')
   })
 })
 
-// ─── CLI — setup --ci input validation (no Docker needed) ────
+// ─── CLI setup --ci input validation (no Docker needed) ────
 //
 // Bad input must: (1) exit 1, (2) print a clear message, (3) leave no
 // files behind. Each test uses an isolated temp HOME so a validation
 // failure can never pollute ~/.learnhouse on the developer's machine.
 // Testing at the binary level catches regressions that module-level tests
-// miss — e.g. a Commander flag definition that silently swallows the value
+// miss, e.g. a Commander flag definition that silently swallows the value
 // before validation runs.
 
-describe('CLI — setup --ci input validation', () => {
+describe('CLI: setup --ci input validation', () => {
   let validationHome: string
 
   beforeAll(() => { validationHome = fs.mkdtempSync(path.join(os.tmpdir(), 'lh-val-')) })
@@ -1709,17 +1731,17 @@ describe('CLI — setup --ci input validation', () => {
   })
 })
 
-// ─── Template completeness — all services present ────────────
+// ─── Template completeness: all services present ────────────
 //
 // The generated docker-compose.yml must include all four services that a
 // standard community install needs. Missing a service (e.g. redis dropped
 // by a template bug) causes the app to crash at startup, which users
-// report as "it just won't start" — hard to diagnose from logs alone.
+// report as "it just won't start", which is hard to diagnose from logs alone.
 
-describe('generateDockerCompose — service completeness', () => {
+describe('generateDockerCompose: service completeness', () => {
   it('default install includes all four core services', () => {
     const yml = generateDockerCompose(baseConfig)
-    // Each service has a container_name with the deployment id — this
+    // Each service has a container_name with the deployment id; this
     // confirms both the service declaration AND the naming convention.
     expect(yml).toContain(`learnhouse-app-${baseConfig.deploymentId}`)
     expect(yml).toContain(`learnhouse-db-${baseConfig.deploymentId}`)
@@ -1743,14 +1765,14 @@ describe('generateDockerCompose — service completeness', () => {
   })
 })
 
-// ─── Env file completeness — no silent empty/undefined values ─
+// ─── Env file completeness: no silent empty/undefined values ─
 //
 // A value rendered as "=undefined" or left blank causes the container to
-// start with a wrong environment — Postgres rejects the connection, JWT
+// start with a wrong environment: Postgres rejects the connection, JWT
 // verification fails, etc. These tests are the first line of defence
 // against template regressions that produce broken installs.
 
-describe('generateEnvFile — no empty or undefined values', () => {
+describe('generateEnvFile: no empty or undefined values', () => {
   // Must include dbPassword: without it the template emits POSTGRES_PASSWORD=undefined,
   // which causes the DB container to reject connections at runtime.
   const envConfig = { ...baseConfig, dbPassword: 'db-pass-test-123' }
@@ -1771,7 +1793,7 @@ describe('generateEnvFile — no empty or undefined values', () => {
 
   it('required secrets are populated (JWT and auth keys)', () => {
     const env = generateEnvFile(envConfig)
-    // These must never be empty — an empty secret lets anyone forge tokens.
+    // These must never be empty; an empty secret lets anyone forge tokens.
     const lines = Object.fromEntries(
       env.split('\n')
         .filter((l) => l.includes('=') && !l.startsWith('#'))
@@ -1782,7 +1804,7 @@ describe('generateEnvFile — no empty or undefined values', () => {
   })
 })
 
-// ─── network — Postgres/Redis connection-string parsers ─────
+// ─── network: Postgres/Redis connection-string parsers ─────
 //
 // setup/doctor parse external DB/Redis URLs to probe TCP reachability.
 // A wrong port or a crash on a malformed string would break the probe,
@@ -1839,7 +1861,7 @@ describe('validateRequired', () => {
   })
 })
 
-// ─── resolveAppImage — channel / version resolution ─────────
+// ─── resolveAppImage: channel / version resolution ─────────
 //
 // `dev` is a pure mapping; `stable` queries GitHub + GHCR and must fall
 // back to :latest on any network failure (never throw, never block setup).
@@ -1890,7 +1912,7 @@ describe('resolveAppImage', () => {
   })
 })
 
-// ─── docker — output parsers (deployment discovery, restarts) ─
+// ─── docker: output parsers (deployment discovery, restarts) ─
 //
 // doctor / deployments parse `docker ps` and `docker inspect` text. These
 // run the real parser against canned execSync output (execSync is mocked
@@ -1905,11 +1927,16 @@ describe('docker output parsers', () => {
 
   describe('autoDetectDeploymentId', () => {
     it('pulls the hex id from the first learnhouse-app container', () => {
-      execSync.mockReturnValue(Buffer.from('learnhouse-app-ab12cd34\n'))
+      // db/redis containers come back from the same name=learnhouse- query and
+      // must be skipped, not latched onto.
+      execSync.mockReturnValue(Buffer.from('learnhouse-db-ab12cd34\nlearnhouse-redis-ab12cd34\nlearnhouse-app-ab12cd34\n'))
       expect(autoDetectDeploymentId()).toBe('ab12cd34')
-      // The detection MUST filter on the learnhouse-app- name prefix, otherwise it
-      // would latch onto db/redis/unrelated containers. Pin the actual filter string.
-      expect(execSync.mock.calls.at(-1)?.[0]).toContain('name=learnhouse-app-')
+      expect(execSync.mock.calls.at(-1)?.[0]).toBe('docker ps -a --filter name=learnhouse- --format {{.Names}}')
+    })
+
+    it('detects an Enterprise deployment from its compose-named api container', () => {
+      execSync.mockReturnValue(Buffer.from('learnhouse-ab12cd34-db-1\nlearnhouse-ab12cd34-api-1\n'))
+      expect(autoDetectDeploymentId()).toBe('ab12cd34')
     })
 
     it('uses the first line when several containers exist', () => {
@@ -1931,16 +1958,33 @@ describe('docker output parsers', () => {
   })
 
   describe('listDeploymentContainers', () => {
-    it('parses tab-separated name/status/image rows for the deployment', () => {
+    it('parses tab-separated name/status/image/service rows for the deployment', () => {
       execSync.mockReturnValue(Buffer.from(
-        'learnhouse-app-dep1\tUp 2 hours\tghcr.io/learnhouse/app:1.4.2\n' +
-        'learnhouse-db-dep1\tUp 2 hours (healthy)\tpgvector/pgvector:pg16\n' +
-        'unrelated-dep2\tUp\tnginx:alpine\n',
+        'learnhouse-app-dep1\tUp 2 hours\tghcr.io/learnhouse/app:1.4.2\tlearnhouse-app\n' +
+        'learnhouse-db-dep1\tUp 2 hours (healthy)\tpgvector/pgvector:pg16\tdb\n' +
+        'unrelated-dep2\tUp\tnginx:alpine\t\n',
       ))
       const rows = listDeploymentContainers('dep1')
       expect(rows).toHaveLength(2)
-      expect(rows[0]).toEqual({ name: 'learnhouse-app-dep1', status: 'Up 2 hours', image: 'ghcr.io/learnhouse/app:1.4.2' })
+      expect(rows[0]).toEqual({ name: 'learnhouse-app-dep1', status: 'Up 2 hours', image: 'ghcr.io/learnhouse/app:1.4.2', service: 'learnhouse-app' })
+      expect(rows[1].service).toBe('db')
       expect(rows.every((r) => r.name.includes('dep1'))).toBe(true)
+      expect(execSync.mock.calls.at(-1)?.[0]).toBe(
+        'docker ps -a --filter name=learnhouse- --format {{.Names}}\t{{.Status}}\t{{.Image}}\t{{.Label "com.docker.compose.service"}}',
+      )
+    })
+
+    it('matches Enterprise compose names and derives the service when unlabeled', () => {
+      execSync.mockReturnValue(Buffer.from(
+        'learnhouse-dep1-api-1\tUp 1 hour\timages.learnhouse.app/enterprise-backend:prod\t\n' +
+        'learnhouse-dep1-collab-1\tUp 1 hour\timages.learnhouse.app/enterprise-collab:prod\tcollab\n' +
+        'learnhouse-dep10-api-1\tUp\tother\tapi\n',
+      ))
+      const rows = listDeploymentContainers('dep1')
+      expect(rows.map((r) => [r.name, r.service])).toEqual([
+        ['learnhouse-dep1-api-1', 'api'],
+        ['learnhouse-dep1-collab-1', 'collab'],
+      ])
     })
 
     it('returns [] when there is no matching output', () => {
@@ -1969,9 +2013,9 @@ describe('docker output parsers', () => {
   })
 })
 
-// ─── config-store — listInstallations filtering & ordering ──
+// ─── config-store: listInstallations filtering & ordering ──
 
-describe('listInstallations — completeness filter and ordering', () => {
+describe('listInstallations: completeness filter and ordering', () => {
   const fakeHome = path.join(os.tmpdir(), 'lh-listinstall-' + process.pid)
   const lhBase = path.join(fakeHome, '.learnhouse')
   let origHome: string | undefined
@@ -2018,7 +2062,7 @@ describe('listInstallations — completeness filter and ordering', () => {
   })
 })
 
-// ─── dockerComposeExec — non-interactive contract (-T) ──────
+// ─── dockerComposeExec: non-interactive contract (-T) ──────
 //
 // Callers capture stdout (alembic output, EE readiness curl) under
 // stdio:'pipe'. Without -T, `docker compose exec` can abort with "the
@@ -2032,16 +2076,47 @@ describe('dockerComposeExec builds a non-interactive command', () => {
     execSync.mockReturnValue(Buffer.from('revision-abc (head)'))
     const real = await vi.importActual<typeof import('../src/services/docker.js')>('../src/services/docker.js')
 
-    const out = real.dockerComposeExec('/srv/lh', 'learnhouse-app', 'sh -c "uv run alembic current"')
-    expect(execSync.mock.calls.at(-1)?.[0]).toBe(
-      'docker compose exec -T learnhouse-app sh -c "uv run alembic current"',
-    )
-    expect((execSync.mock.calls.at(-1)?.[1] as { cwd?: string }).cwd).toBe('/srv/lh')
-    expect(out).toBe('revision-abc (head)')
+    // The command goes to the container's `sh -c` as ONE argv entry; the host
+    // shell never sees it.
+    const childProcess = await import('node:child_process')
+    const execFile = vi.spyOn(childProcess, 'execFileSync')
+    try {
+      const out = real.dockerComposeExec('/srv/lh', 'learnhouse-app', 'cd /app/api && uv run alembic current')
+      expect(execFile).toHaveBeenLastCalledWith(
+        'docker',
+        ['compose', 'exec', '-T', 'learnhouse-app', 'sh', '-c', 'cd /app/api && uv run alembic current'],
+        expect.objectContaining({ cwd: '/srv/lh' }),
+      )
+      expect(execSync.mock.calls.at(-1)?.[0]).toBe(
+        'docker compose exec -T learnhouse-app sh -c cd /app/api && uv run alembic current',
+      )
+      expect(out).toBe('revision-abc (head)')
+    } finally {
+      execFile.mockRestore()
+    }
+  })
+
+  it('dockerComposeRun starts a one-off --rm --no-deps -T container of the service', async () => {
+    const execSync = (await import('node:child_process')).execSync as unknown as ReturnType<typeof vi.fn>
+    execSync.mockReset()
+    execSync.mockReturnValue(Buffer.from(''))
+    const real = await vi.importActual<typeof import('../src/services/docker.js')>('../src/services/docker.js')
+    const childProcess = await import('node:child_process')
+    const execFile = vi.spyOn(childProcess, 'execFileSync')
+    try {
+      real.dockerComposeRun('/srv/lh', 'api', 'cd /app && uv run alembic upgrade heads')
+      expect(execFile).toHaveBeenLastCalledWith(
+        'docker',
+        ['compose', 'run', '--rm', '--no-deps', '-T', 'api', 'sh', '-c', 'cd /app && uv run alembic upgrade heads'],
+        expect.objectContaining({ cwd: '/srv/lh' }),
+      )
+    } finally {
+      execFile.mockRestore()
+    }
   })
 })
 
-// ─── migrateContentVolume — fs-driven status branches ───────
+// ─── migrateContentVolume: fs-driven status branches ───────
 //
 // The update flow preserves uploaded media before recreating the app.
 // These cases are decided purely from docker-compose.yml / .env content
@@ -2101,22 +2176,32 @@ describe('migrateContentVolume', () => {
   })
 })
 
-// ─── network — port probing & public IP (real sockets) ─────
+// ─── network: port probing & public IP (real sockets) ─────
 //
 // setup uses these to pick a free HTTP port and to reach external DB/Redis.
 // Tested against real loopback sockets (deterministic, no external network)
 // and a mocked fetch for the public-IP lookup.
 
-describe('network — port and connectivity probes', () => {
+describe('network: port and connectivity probes', () => {
   const close = (s: net.Server) => new Promise<void>((r) => s.close(() => r()))
 
-  // Bind on the SAME interface checkPort uses (host omitted) so occupancy
+  // After its bind attempt, checkPort asks lsof/ss whether anything listens
+  // (execFileSync, routed to the execSync mock). Default: they report nothing,
+  // so the real bind decides. Earlier tests leave other canned output behind.
+  let execSync: ReturnType<typeof vi.fn>
+  beforeEach(async () => {
+    execSync = (await import('node:child_process')).execSync as unknown as ReturnType<typeof vi.fn>
+    execSync.mockReset()
+    execSync.mockReturnValue(Buffer.from(''))
+  })
+
+  // Bind on the SAME interface checkPort uses (0.0.0.0) so occupancy
   // genuinely conflicts. Returns the live server + its port.
   function occupyAny(port?: number): Promise<{ server: net.Server; port: number }> {
     return new Promise((resolve, reject) => {
       const server = net.createServer()
       server.once('error', reject)
-      server.listen(port ?? 0, () => {
+      server.listen(port ?? 0, '0.0.0.0', () => {
         resolve({ server, port: (server.address() as net.AddressInfo).port })
       })
     })
@@ -2134,6 +2219,21 @@ describe('network — port and connectivity probes', () => {
       expect(await checkPort(port)).toBe(false) // held by our server
       await close(server)
       expect(await checkPort(port)).toBe(true)  // now free
+    })
+
+    itPosix('consults lsof, then ss, after a successful bind', async () => {
+      const port = await freePort()
+      expect(await checkPort(port)).toBe(true)
+      const probes = execSync.mock.calls.map((c) => String(c[0]))
+      expect(probes).toEqual([`lsof -nP -iTCP:${port} -sTCP:LISTEN`, `ss -ltnH sport = :${port}`])
+    })
+
+    itPosix('treats the port as taken when lsof reports a listener the bind did not see', async () => {
+      // e.g. macOS: a wildcard bind succeeds next to a listener on 127.0.0.1.
+      const port = await freePort()
+      execSync.mockImplementation((cmd: string) =>
+        Buffer.from(cmd.startsWith('lsof') ? `node 123 me 20u IPv4 TCP 127.0.0.1:${port} (LISTEN)\n` : ''))
+      expect(await checkPort(port)).toBe(false)
     })
   })
 
@@ -2215,7 +2315,7 @@ describe('network — port and connectivity probes', () => {
   })
 })
 
-// ─── services/health — readiness pollers (mocked fetch) ─────
+// ─── services/health: readiness pollers (mocked fetch) ─────
 
 describe('health pollers', () => {
   afterEach(() => { vi.restoreAllMocks() })
@@ -2275,11 +2375,13 @@ describe('health pollers', () => {
   })
 })
 
-// ─── docker.ts — command construction for the remaining helpers ──
+// ─── docker.ts: command construction for the remaining helpers ──
 //
-// Each helper is a thin wrapper that builds a specific docker command.
-// Asserting the exact command (and the success/failure handling for the
-// boolean probes) pins the contract without a real daemon.
+// Each helper is a thin wrapper that builds a specific docker command, run
+// via execFileSync (argv array, no shell). The file routes execFileSync into
+// the execSync mock as one space-joined string (tests/exec-file-mock.ts), so
+// `cmd()` is that joined argv. Asserting it (and the success/failure handling
+// for the boolean probes) pins the contract without a real daemon.
 
 describe('docker.ts command builders', () => {
   let execSync: ReturnType<typeof vi.fn>
@@ -2340,15 +2442,23 @@ describe('docker.ts command builders', () => {
     })
     expect(() => installDockerLinux()).not.toThrow()
     const cmds = execSync.mock.calls.map((c) => c[0] as string)
-    expect(cmds.some((c) => c.includes('get.docker.com'))).toBe(true)
-    expect(cmds.some((c) => c.includes('sh /tmp/get-docker.sh'))).toBe(true)
+    // Downloaded into a private mkdtemp dir (a fixed /tmp path could be swapped
+    // by another local user before the root `sh` runs it), then run from there.
+    const curl = cmds.find((c) => c.startsWith('curl -fsSL https://get.docker.com -o '))
+    expect(curl).toBeDefined()
+    const script = curl!.slice('curl -fsSL https://get.docker.com -o '.length)
+    expect(path.basename(script)).toBe('get-docker.sh')
+    expect(path.basename(path.dirname(script))).toMatch(/^lh-get-docker-/)
+    expect(script).not.toBe('/tmp/get-docker.sh')
+    expect(cmds).toContain(`sh ${script}`)
+    expect(fs.existsSync(path.dirname(script))).toBe(false) // temp dir cleaned up
   })
 
   it('installDockerLinux retries the script once after a transient failure', () => {
     let shAttempts = 0
     execSync.mockImplementation((c: string) => {
       if (c.includes('pgrep')) throw new Error('lock free')
-      if (c.includes('sh /tmp/get-docker.sh')) {
+      if (c.startsWith('sh ') && /[\\/]get-docker\.sh$/.test(c)) {
         shAttempts++
         if (shAttempts === 1) throw new Error('dpkg was locked') // first run fails → retry
       }
@@ -2371,7 +2481,7 @@ describe('docker.ts command builders', () => {
 
   it('dockerComposeUpRetry retries after a transient failure', () => {
     // The first `up` fails; the helper calls onRetry, waits the 15s backoff
-    // (a real blocking sleep — hence the long timeout), then succeeds.
+    // (a real blocking sleep, hence the long timeout), then succeeds.
     let n = 0
     execSync.mockImplementation(() => { n++; if (n === 1) throw new Error('dependency is unhealthy'); return Buffer.from('') })
     const onRetry = vi.fn()
@@ -2404,20 +2514,99 @@ describe('docker.ts command builders', () => {
     expect(() => installDockerLinux()).not.toThrow()
   })
 
-  it('dockerExec / getContainerLogs / getDockerDiskUsage build their commands', () => {
-    dockerExec('learnhouse-app-x', 'env')
+  it('dockerExec / getContainerLogs / getDockerDiskUsage build their commands', async () => {
+    dockerExec('learnhouse-app-x', ['env'])
     expect(cmd()).toBe('docker exec learnhouse-app-x env')
+    // Each command word is its own argv entry: nothing is re-split by a shell.
+    const childProcess = await import('node:child_process')
+    const execFile = vi.spyOn(childProcess, 'execFileSync')
+    try {
+      dockerExec('db-x', ['sh', '-c', 'pg_isready -q && echo "ok; done"'])
+      expect(execFile).toHaveBeenLastCalledWith(
+        'docker', ['exec', 'db-x', 'sh', '-c', 'pg_isready -q && echo "ok; done"'], expect.any(Object))
+    } finally {
+      execFile.mockRestore()
+    }
     getContainerLogs('learnhouse-app-x', 25)
     expect(cmd()).toBe('docker logs --tail 25 learnhouse-app-x')
     getDockerDiskUsage()
     expect(cmd()).toBe('docker system df')
   })
 
-  it('dockerExecToFile / dockerExecFromFile redirect through a shell', () => {
-    dockerExecToFile('db-x', 'pg_dump learnhouse', '/tmp/out.sql')
-    expect(cmd()).toBe('docker exec db-x pg_dump learnhouse > "/tmp/out.sql"')
-    dockerExecFromFile('db-x', 'psql learnhouse', '/tmp/in.sql')
-    expect(cmd()).toBe('docker exec -i db-x psql learnhouse < "/tmp/in.sql"')
+  describe('dockerExecToFile / dockerExecFromFile stream through file descriptors (no shell)', () => {
+    let tmp: string
+    let spawn: ReturnType<typeof vi.spyOn>
+    beforeEach(async () => {
+      tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'lh-execfile-'))
+      const childProcess = await import('node:child_process')
+      spawn = vi.spyOn(childProcess, 'spawnSync')
+    })
+    afterEach(() => {
+      spawn.mockRestore()
+      fs.rmSync(tmp, { recursive: true, force: true })
+    })
+
+    it('dockerExecToFile spawns docker exec with stdout on the output file', () => {
+      // A path a shell would mangle: spaces, quotes, $.
+      // `"` is not allowed in Windows file names; `$` and spaces still are
+      const out = path.join(tmp, process.platform === 'win32' ? 'dump $HOME x.sql' : 'dump "$HOME" x.sql')
+      spawn.mockImplementation(((_f: string, _a: string[], o: { stdio: [unknown, number, unknown] }) => {
+        fs.writeSync(o.stdio[1], 'DUMP')
+        return { status: 0, stderr: Buffer.from('') }
+      }) as never)
+      dockerExecToFile('db-x', ['pg_dump', '-U', 'learnhouse', 'learnhouse'], out)
+      expect(spawn).toHaveBeenCalledTimes(1)
+      const [file, args, o] = spawn.mock.calls[0] as [string, string[], { stdio: unknown[]; shell?: unknown }]
+      expect(file).toBe('docker')
+      expect(args).toEqual(['exec', 'db-x', 'pg_dump', '-U', 'learnhouse', 'learnhouse'])
+      expect(o.shell).toBeUndefined()
+      expect(o.stdio[0]).toBe('ignore')
+      expect(typeof o.stdio[1]).toBe('number')
+      expect(execSync).not.toHaveBeenCalled()
+      expect(fs.readFileSync(out, 'utf-8')).toBe('DUMP')
+      expectMode(out, 0o600) // dumps are owner-only
+    })
+
+    it('dockerExecToFile throws with stderr on a non-zero exit', () => {
+      spawn.mockReturnValue({ status: 1, stderr: Buffer.from('pg_dump: connection refused') } as never)
+      let err: (Error & { stderr?: Buffer }) | undefined
+      try { dockerExecToFile('db-x', ['pg_dump', 'learnhouse'], path.join(tmp, 'out.sql')) } catch (e) { err = e as Error & { stderr?: Buffer } }
+      expect(err?.message).toMatch(/pg_dump exited with 1/)
+      expect(err?.stderr?.toString()).toContain('connection refused')
+    })
+
+    it('dockerExecToFile surfaces a spawn error (docker missing)', () => {
+      spawn.mockReturnValue({ status: null, error: new Error('spawnSync docker ENOENT') } as never)
+      expect(() => dockerExecToFile('db-x', ['pg_dump'], path.join(tmp, 'out.sql'))).toThrow(/ENOENT/)
+    })
+
+    it('dockerExecFromFile spawns docker exec -i with stdin from the input file', () => {
+      const input = path.join(tmp, 'in put.sql')
+      fs.writeFileSync(input, 'SELECT 1;')
+      let fed = ''
+      spawn.mockImplementation(((_f: string, _a: string[], o: { stdio: [number, unknown, unknown] }) => {
+        const buf = Buffer.alloc(64)
+        fed = buf.subarray(0, fs.readSync(o.stdio[0], buf, 0, 64, 0)).toString()
+        return { status: 0, stderr: Buffer.from('') }
+      }) as never)
+      dockerExecFromFile('db-x', ['psql', '-v', 'ON_ERROR_STOP=1', 'learnhouse'], input)
+      const [file, args, o] = spawn.mock.calls[0] as [string, string[], { stdio: unknown[]; shell?: unknown }]
+      expect(file).toBe('docker')
+      expect(args).toEqual(['exec', '-i', 'db-x', 'psql', '-v', 'ON_ERROR_STOP=1', 'learnhouse'])
+      expect(o.shell).toBeUndefined()
+      expect(fed).toBe('SELECT 1;')
+      expect(execSync).not.toHaveBeenCalled()
+    })
+
+    it('dockerExecFromFile throws with stderr on a non-zero exit', () => {
+      const input = path.join(tmp, 'in.sql')
+      fs.writeFileSync(input, 'SELECT 1;')
+      spawn.mockReturnValue({ status: 3, stderr: Buffer.from('ERROR: syntax error') } as never)
+      let err: (Error & { stderr?: Buffer }) | undefined
+      try { dockerExecFromFile('db-x', ['psql', 'learnhouse'], input) } catch (e) { err = e as Error & { stderr?: Buffer } }
+      expect(err?.message).toMatch(/psql exited with 3/)
+      expect(err?.stderr?.toString()).toContain('syntax error')
+    })
   })
 
   it('dockerStats / dockerStatsForContainers build the table format', () => {
@@ -2429,7 +2618,7 @@ describe('docker.ts command builders', () => {
     expect(dockerStatsForContainers([])).toBe('') // short-circuits, no command
   })
 
-  it('isTcpPortListening tries lsof then ss (true if either reports a listener)', () => {
+  itPosix('isTcpPortListening tries lsof then ss (true if either reports a listener)', () => {
     execSync.mockReturnValue(Buffer.from('node 123 LISTEN'))
     expect(isTcpPortListening(8080)).toBe(true)
     expect(cmd()).toContain('lsof -nP -iTCP:8080 -sTCP:LISTEN')
@@ -2445,7 +2634,7 @@ describe('docker.ts isContainerRunning (real impl)', () => {
     const real = await vi.importActual<typeof import('../src/services/docker.js')>('../src/services/docker.js')
     execSync.mockReturnValue(Buffer.from('true\n'))
     expect(real.isContainerRunning('learnhouse-app-x')).toBe(true)
-    expect(execSync.mock.calls.at(-1)?.[0]).toBe("docker inspect -f '{{.State.Running}}' learnhouse-app-x")
+    expect(execSync.mock.calls.at(-1)?.[0]).toBe('docker inspect -f {{.State.Running}} learnhouse-app-x')
     execSync.mockReturnValue(Buffer.from('false\n'))
     expect(real.isContainerRunning('x')).toBe(false)
     execSync.mockImplementation(() => { throw new Error('no container') })
@@ -2453,7 +2642,7 @@ describe('docker.ts isContainerRunning (real impl)', () => {
   })
 })
 
-// ─── version-check — checkForUpdates (mocked npm registry) ──
+// ─── version-check: checkForUpdates (mocked npm registry) ──
 
 describe('checkForUpdates', () => {
   afterEach(() => { vi.restoreAllMocks() })
@@ -2479,7 +2668,7 @@ describe('checkForUpdates', () => {
 
   it('notices a newer PATCH/MINOR release, not just a newer major', async () => {
     // Bump only the patch segment. compareVersions must walk past the equal
-    // major/minor segments to see the newer patch — a major-only comparison misses it.
+    // major/minor segments to see the newer patch; a major-only comparison misses it.
     const [maj, min, pat] = VERSION.split('.').map(Number)
     const newerPatch = `${maj}.${min}.${(pat || 0) + 1}`
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
@@ -2503,13 +2692,21 @@ describe('checkForUpdates', () => {
 
   it('never throws on a network error', async () => {
     vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('offline'))
-    await expect(checkForUpdates()).resolves.toBeUndefined()
+    await expect(checkForUpdates()).resolves.toBeNull()
+  })
+
+  it('returns the latest version, and prints nothing with print: false', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ 'dist-tags': { latest: '99.0.0' } }), { status: 200 }))
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    await expect(checkForUpdates({ print: false })).resolves.toBe('99.0.0')
+    expect(spy).not.toHaveBeenCalled()
   })
 })
 
-// ─── generateEnvFile — optional-feature branches ────────────
+// ─── generateEnvFile: optional-feature branches ────────────
 
-describe('generateEnvFile — feature flags', () => {
+describe('generateEnvFile: feature flags', () => {
   it('emits AI, SMTP email, S3 and Google vars when enabled', () => {
     const env = generateEnvFile({
       ...baseConfig,
@@ -2549,7 +2746,7 @@ describe('generateEnvFile — feature flags', () => {
   })
 })
 
-// ─── update — formatBytes (human-readable sizes) ────────────
+// ─── update: formatBytes (human-readable sizes) ────────────
 
 describe('formatBytes', () => {
   it('formats bytes, KB, MB and GB', () => {
@@ -2560,7 +2757,7 @@ describe('formatBytes', () => {
   })
 })
 
-// ─── config-store / network — edge branches ─────────────────
+// ─── config-store / network: edge branches ─────────────────
 
 describe('config-store edge cases', () => {
   it('readConfig returns null on malformed JSON', () => {
@@ -2588,7 +2785,7 @@ describe('config-store edge cases', () => {
   })
 })
 
-describe('checkTcpConnection — timeout', () => {
+describe('checkTcpConnection: timeout', () => {
   afterEach(() => { vi.restoreAllMocks() })
 
   it('resolves false and tears down the socket when neither connect nor error fires in time', async () => {

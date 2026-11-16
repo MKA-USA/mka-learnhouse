@@ -32,9 +32,9 @@ const POMODORO_DURATIONS: Record<PomodoroPhase, number> = {
 }
 
 const POMODORO_COLORS: Record<PomodoroPhase, { bg: string; on: string; off: string; btnBg: string; text: string; label: string }> = {
-  work: { bg: '#2a0808', on: '#ef4444', off: '#3d1818', btnBg: 'rgba(239,68,68,0.15)', text: 'text-red-400', label: 'Focus' },
-  shortBreak: { bg: '#082a0e', on: '#22c55e', off: '#183d1e', btnBg: 'rgba(34,197,94,0.15)', text: 'text-green-400', label: 'Short Break' },
-  longBreak: { bg: '#08102a', on: '#3b82f6', off: '#18253d', btnBg: 'rgba(59,130,246,0.15)', text: 'text-blue-400', label: 'Long Break' },
+  work: { bg: '#2a0808', on: '#ef4444', off: '#3d1818', btnBg: 'rgba(239,68,68,0.15)', text: 'text-red-400', label: 'boards.timer.phase_focus' },
+  shortBreak: { bg: '#082a0e', on: '#22c55e', off: '#183d1e', btnBg: 'rgba(34,197,94,0.15)', text: 'text-green-400', label: 'boards.timer.phase_short_break' },
+  longBreak: { bg: '#08102a', on: '#3b82f6', off: '#18253d', btnBg: 'rgba(59,130,246,0.15)', text: 'text-blue-400', label: 'boards.timer.phase_long_break' },
 }
 
 const TIMER_PRESETS = [
@@ -306,7 +306,7 @@ export default function BoardTopRight({ provider, ydoc }: BoardTopRightProps) {
   // Pomodoro color scheme
   const pomColors = timerState.isPomodoro ? POMODORO_COLORS[timerState.pomodoroPhase] : null
 
-  // Track "Time's up" banner — phases: 'hidden' → 'dramatic' (50% screen) → 'bar' (small top bar, stays)
+  // Track "Time's up" banner; phases: 'hidden' → 'dramatic' (50% screen) → 'bar' (small top bar, stays)
   // For pomodoro: auto-advance to the next phase after the dramatic display
   useEffect(() => {
     if (isTimerExpired && !prevExpiredRef.current) {
@@ -434,7 +434,7 @@ export default function BoardTopRight({ provider, ydoc }: BoardTopRightProps) {
         </div>
       </div>
 
-      {/* Timer banner — slides down from top center when active */}
+      {/* Timer banner: slides down from top center when active */}
       <style jsx>{`
         @keyframes timer-slide-down {
           from { transform: translateX(-50%) translateY(-100%); }
@@ -473,7 +473,7 @@ export default function BoardTopRight({ provider, ydoc }: BoardTopRightProps) {
             {/* Pomodoro phase label */}
             {pomColors && (
               <span className="text-[9px] font-bold uppercase tracking-wider" style={{ color: pomColors.on }}>
-                {pomColors.label}
+                {t(pomColors.label)}
               </span>
             )}
 
@@ -535,7 +535,7 @@ export default function BoardTopRight({ provider, ydoc }: BoardTopRightProps) {
                 onClick={advancePomodoro}
                 className="flex items-center justify-center w-7 h-7 rounded-lg transition-colors"
                 style={{ background: pomColors?.btnBg ?? 'rgba(239,68,68,0.15)' }}
-                title="Skip to next phase"
+                title={t('boards.timer.skip_to_next_phase')}
               >
                 <SkipForward size={13} className={pomColors?.text ?? 'text-red-400'} />
               </button>
@@ -553,15 +553,15 @@ export default function BoardTopRight({ provider, ydoc }: BoardTopRightProps) {
         </div>
       )}
 
-      {/* Time's up — dramatic phase: takes 50% of screen */}
+      {/* Time's up, dramatic phase: takes 50% of screen */}
       {timesUpPhase === 'dramatic' && (() => {
         const pc = pomColors
         const dramaticBg = pc ? pc.bg : '#1a0505'
         const dramaticOn = pc ? pc.on : '#ff4444'
         const dramaticOff = pc ? pc.off : '#3d1515'
         const dramaticLabel = pc ? (timerState.pomodoroPhase === 'work'
-          ? (timerState.pomodoroSessions % 4 === 3 ? 'Long break next' : 'Short break next')
-          : 'Back to focus') : null
+          ? (timerState.pomodoroSessions % 4 === 3 ? t('boards.timer.long_break_next') : t('boards.timer.short_break_next'))
+          : t('boards.timer.back_to_focus')) : null
         return (
           <div
             className="absolute inset-x-0 top-0 z-40 pointer-events-auto flex items-center justify-center"
@@ -595,7 +595,7 @@ export default function BoardTopRight({ provider, ydoc }: BoardTopRightProps) {
         )
       })()}
 
-      {/* Time's up — bar phase: small banner at top, stays permanently (non-pomodoro only) */}
+      {/* Time's up, bar phase: small banner at top, stays permanently (non-pomodoro only) */}
       {timesUpPhase === 'bar' && !timerState.isPomodoro && (
         <div
           className="absolute top-0 left-1/2 z-30 pointer-events-auto"

@@ -1,4 +1,4 @@
-import { ReactNodeViewRenderer } from "@tiptap/react";
+import { lhNodeView } from '@components/Objects/Editor/core/nodeView'
 import { mergeAttributes, Node } from "@tiptap/core";
 import dynamic from "next/dynamic";
 
@@ -10,7 +10,7 @@ const FlipcardGridExtension = dynamic(() => import("./FlipcardGridExtension"), {
  * Container that lays its flipcards out side by side.
  *
  * A flipcard is `group: 'block'`, so two of them can never share a row on their
- * own — the grid has to come from a parent node. Existing standalone flipcards
+ * own; the grid has to come from a parent node. Existing standalone flipcards
  * are untouched; they keep rendering as full-width rows.
  */
 export default Node.create({
@@ -47,6 +47,6 @@ export default Node.create({
   },
 
   addNodeView() {
-    return ReactNodeViewRenderer(FlipcardGridExtension as any);
+    return lhNodeView(FlipcardGridExtension as any);
   },
 });

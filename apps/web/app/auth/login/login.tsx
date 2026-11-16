@@ -10,10 +10,12 @@ import { checkSSOEnabled, redirectToSSOLogin } from '@services/auth/sso'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useAuth } from '@components/Contexts/AuthContext'
+import { removeQueryParamsFromAddressBar } from '@services/utils/ts/scrubUrl'
 import { getLEARNHOUSE_TOP_DOMAIN_VAL, getDeploymentMode, isOnCustomDomain } from '@services/config/config'
 import { useLHSession } from '@components/Contexts/LHSessionContext'
 import { useTranslation } from 'react-i18next'
 import { resendVerificationEmail } from '@services/auth/auth'
+import { defaultPostAuthPath } from '@services/auth/redirects'
 import AuthLayout from '@components/Auth/AuthLayout'
 import TurnstileWidget, { useTurnstileRequired, verifyTurnstileToken, type TurnstileWidgetHandle } from '@components/Auth/TurnstileWidget'
 import { useLHAnalytics, AnalyticsEvent } from '@services/analytics'
@@ -50,13 +52,6 @@ const LoginClient = (props: LoginClientProps) => {
   // SSO counts only once it is actually configured for the org (ssoEnabled).
   const hasAlternativeMethods = googleAllowed || magicLoginAllowed || (ssoAllowed && ssoEnabled)
 
-  // A signed-in user has nothing to do on /login → bounce to the hub. The proxy
-  // does this best-effort, but pages must self-handle it too (mirrors signup.tsx).
-  // Guarded by !isSubmitting so a FRESH login (which flips the session to
-  // authenticated) doesn't race the onSubmit's own post-login navigation.
-  useEffect(() => {
-    if (isAuthenticated && !isSubmitting) router.replace('/home')
-  }, [isAuthenticated, isSubmitting, router])
 
   // Error state with type information
   const [error, setError] = useState('')
@@ -68,9 +63,10 @@ const LoginClient = (props: LoginClientProps) => {
   const [retryAfter, setRetryAfter] = useState<number | null>(null)
 
   // Second-factor challenge. When mfaToken is set the credentials form is
-  // replaced in place by the code step — same route, so the ?next redirect and
+  // replaced in place by the code step. Same route, so the ?next redirect and
   // the org context survive without being threaded through a navigation.
   const [mfaToken, setMfaToken] = useState<string | null>(null)
+  const arrivedWithMfaRef = React.useRef(false)
   const [mfaCode, setMfaCode] = useState('')
   const [useBackupCode, setUseBackupCode] = useState(false)
   const [mfaError, setMfaError] = useState('')
@@ -117,23 +113,41 @@ const LoginClient = (props: LoginClientProps) => {
     setMagicSent(true)
   }
 
-  // An admin magic link for a 2FA-enabled user lands here with a pending token
-  // in the query string instead of a session (see /admin/{org}/auth/magic-consume).
+  // A sign-in link for a 2FA-enabled user lands here with a pending token in
+  // the query string instead of a session (see /auth/magic).
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const token = params.get('mfa_token')
-    if (token) setMfaToken(token)
+    if (token) {
+      arrivedWithMfaRef.current = true
+      setMfaToken(token)
+      removeQueryParamsFromAddressBar(['mfa_token'])
+    }
   }, [])
 
+  // A signed-in user has nothing to do on /login → bounce to the hub. The proxy
+  // does this best-effort, but pages must self-handle it too (mirrors signup.tsx).
+  // Guarded by !isSubmitting so a FRESH login (which flips the session to
+  // authenticated) doesn't race the onSubmit's own post-login navigation.
+  // Not while a second factor is pending: a sign-in link for another account
+  // hands its 2FA step over here (see /auth/magic). The ref covers the render
+  // before the mfaToken state lands.
+  useEffect(() => {
+    if (isAuthenticated && !isSubmitting && !mfaToken && !arrivedWithMfaRef.current) {
+      router.replace(defaultPostAuthPath(props.org))
+    }
+  }, [isAuthenticated, isSubmitting, mfaToken, router, props.org])
+
   // Honor a post-login redirect via ?next / ?redirect, sanitized to an
-  // internal same-origin path (no open-redirect), defaulting to /home.
+  // internal same-origin path (no open-redirect), defaulting to the org's home
+  // (or the hub on the org-less apex).
   // Forward it through the cross-domain /redirect_from_auth handoff.
   const buildCallbackUrl = () => {
     const params = new URLSearchParams(window.location.search)
     // `redirect_to` is what the magic-link consume endpoint forwards when it
     // bounces a 2FA-enabled user here instead of signing them straight in.
     const raw = params.get('next') ?? params.get('redirect') ?? params.get('redirect_to')
-    const dest = raw && /^\/(?!\/)/.test(raw) ? raw : '/home'
+    const dest = raw && /^\/(?!\/)/.test(raw) ? raw : defaultPostAuthPath(props.org)
     return `${window.location.origin}/redirect_from_auth?next=${encodeURIComponent(dest)}`
   }
 
@@ -176,7 +190,7 @@ const LoginClient = (props: LoginClientProps) => {
 
     if (code_ === 'MFA_SESSION_EXPIRED') {
       // The pending token died. Returning to the password step is the only way
-      // forward — keeping the code field up would let them retry forever
+      // forward; keeping the code field up would let them retry forever
       // against a token that can never be accepted.
       setMfaToken(null)
       setMfaCode('')
@@ -193,7 +207,7 @@ const LoginClient = (props: LoginClientProps) => {
     setMfaSubmitting(false)
   }
 
-  // Auto-submit once six digits are in — every authenticator app produces
+  // Auto-submit once six digits are in: every authenticator app produces
   // exactly six, so making the user reach for a button is pure friction.
   // Backup codes are excluded: they are variable-shaped and pasted.
   useEffect(() => {
@@ -281,7 +295,7 @@ const LoginClient = (props: LoginClientProps) => {
   }
 
   const handleResendVerification = async () => {
-    // org?.id is undefined on the org-less apex — the backend resends by email
+    // org?.id is undefined on the org-less apex; the backend resends by email
     // without an org, so we only require the email here.
     if (!unverifiedEmail) return
 
@@ -425,11 +439,11 @@ const LoginClient = (props: LoginClientProps) => {
         track(AnalyticsEvent.LoginFailed, { method: 'credentials', error_type: loginErrorType })
         setShowErrorModal(true);
         setIsSubmitting(false);
-        // Single-use token was consumed by this attempt — refresh for the retry.
+        // Single-use token was consumed by this attempt, so refresh for the retry.
         turnstileRef.current?.reset();
       } else {
         track(AnalyticsEvent.LoginSucceeded, { method: 'credentials' })
-        // First signIn already authenticated and set cookies — just redirect
+        // First signIn already authenticated and set cookies, so just redirect
         window.location.href = callbackUrl;
       }
     },
@@ -441,7 +455,7 @@ const LoginClient = (props: LoginClientProps) => {
       welcomeText={t('auth.login_to')}
       title={t('auth.image_title_login', { defaultValue: 'Welcome back to LearnHouse.' })}
       subtitle={t('auth.image_subtitle_login', {
-        defaultValue: 'Pick up where you left off — your courses, students, and tools are waiting.',
+        defaultValue: 'Pick up where you left off. Your courses, students, and tools are waiting.',
       })}
     >
         {/* Error Top Bar */}
@@ -649,7 +663,7 @@ const LoginClient = (props: LoginClientProps) => {
                     <p className="mt-2 text-black/45 text-[15px] font-medium">
                       {t('auth.magic_subtitle', {
                         defaultValue:
-                          'Enter your email and we’ll send you a link that signs you in — no password needed.',
+                          'Enter your email and we’ll send you a link that signs you in, no password needed.',
                       })}
                     </p>
                     <form onSubmit={handleMagicLinkRequest} className="mt-8">
@@ -806,7 +820,7 @@ const LoginClient = (props: LoginClientProps) => {
               </FormLayout>
               )}
 
-              {/* Divider — only earns its place between two sets of options. */}
+              {/* Divider: only earns its place between two sets of options. */}
               {passwordAllowed && hasAlternativeMethods && (
                 <div className="relative my-6">
                   <div className="absolute inset-0 flex items-center">

@@ -1,41 +1,46 @@
 'use client'
 import Link from 'next/link'
 import { getUriWithOrg } from '@services/config/config'
-import { BookOpenCheck, CheckCircle, ChevronLeft, ChevronRight, MessageSquare, UserRoundPen, Edit2, Loader2, Maximize2, Minimize2, Trophy, Sparkles, XCircle, Lock, RotateCcw, Infinity as InfinityIcon } from 'lucide-react'
-import dynamic from 'next/dynamic'
+import { CheckCircle, Circle, ChevronLeft, ChevronRight, Edit2, Loader2, Maximize2, Minimize2, Lock } from 'lucide-react'
+import DripGate from '@components/Objects/Courses/DripGate'
 import { markActivityAsComplete, unmarkActivityAsComplete } from '@services/courses/activity'
 import { usePathname, useRouter } from 'next/navigation'
 import AuthenticatedClientElement from '@components/Security/AuthenticatedClientElement'
 import { getCourseThumbnailMediaDirectory, getUserAvatarMediaDirectory } from '@services/media/media'
+import './theater.css'
 import { useOrg, useOrgMembership } from '@components/Contexts/OrgContext'
 import { CourseProvider } from '@components/Contexts/CourseContext'
 import { useLHSession } from '@components/Contexts/LHSessionContext'
+import { useShortcut } from '@/lib/shortcuts/ShortcutsContext'
+import { Keys } from '@components/Objects/Shortcuts/Kbd'
+import { ShortcutHint } from '@components/Objects/Shortcuts/ShortcutHint'
 import React, { useEffect, useRef, useMemo, lazy, Suspense } from 'react'
-import { getAssignmentFromActivityUUID, getFinalGrade, retryAssignmentSubmission, submitAssignmentForGrading } from '@services/courses/assignments'
+import { getAssignmentFromActivityUUID } from '@services/courses/assignments'
 import { AssignmentProvider } from '@components/Contexts/Assignments/AssignmentContext'
 import { AssignmentsTaskProvider } from '@components/Contexts/Assignments/AssignmentsTaskContext'
-import AssignmentSubmissionProvider, { useAssignmentSubmission } from '@components/Contexts/Assignments/AssignmentSubmissionContext'
-import { AssignmentDirtyTasksProvider, useAssignmentDirtyTasks } from '@components/Contexts/Assignments/AssignmentDirtyTasksContext'
+import AssignmentSubmissionProvider from '@components/Contexts/Assignments/AssignmentSubmissionContext'
+import { AssignmentDirtyTasksProvider } from '@components/Contexts/Assignments/AssignmentDirtyTasksContext'
+import AssignmentTools from '@components/Objects/Activities/Assignment/AssignmentTools'
 import toast from 'react-hot-toast'
 import { useQueryClient } from '@tanstack/react-query'
 import { queryKeys } from '@/lib/query/keys'
 import { useTrail } from '@/hooks/queries/useTrail'
 import { useCourseMeta } from '@/hooks/queries/useCourses'
-import { useActivity } from '@/hooks/queries/useActivity'
+import { activityQueryOptions, useActivity } from '@/hooks/queries/useActivity'
 import CourseAccessError from '@components/Objects/Courses/CourseAccessError/CourseAccessError'
 import ConfirmationModal from '@components/Objects/StyledElements/ConfirmationModal/ConfirmationModal'
-import Modal from '@components/Objects/StyledElements/Modal/Modal'
-import { useMediaQuery, useWindowSize } from 'usehooks-ts'
-import PaidCourseActivityDisclaimer from '@components/Objects/Courses/CourseActions/PaidCourseActivityDisclaimer'
+import { useMediaQuery } from 'usehooks-ts'
+import PaidCourseActivityDisclaimer from '@ee/components/Payments/PaidCourseActivityDisclaimer'
 import { useContributorStatus } from '../../../../../../../../hooks/useContributorStatus'
 import ToolTip from '@components/Objects/StyledElements/Tooltip/Tooltip'
 import ActivityChapterDropdown from '@components/Pages/Activity/ActivityChapterDropdown'
 import ActivityShareDropdown from '@components/Pages/Activity/ActivityShareDropdown'
 import FixedActivitySecondaryBar from '@components/Pages/Activity/FixedActivitySecondaryBar'
+import MobileActivityBar from '@components/Pages/Activity/MobileActivityBar'
 import CourseEndView from '@components/Pages/Activity/CourseEndView'
 import { motion, AnimatePresence } from 'motion/react'
 import { Breadcrumbs } from '@components/Objects/Breadcrumbs/Breadcrumbs'
-import { BookCopy } from 'lucide-react'
+import { BookCopy, ChevronLeft as BackIcon } from 'lucide-react'
 import MiniInfoTooltip from '@components/Objects/MiniInfoTooltip'
 import GeneralWrapperStyled from '@components/Objects/StyledElements/Wrappers/GeneralWrapper'
 import ActivityIndicators from '@components/Pages/Courses/ActivityIndicators'
@@ -45,26 +50,20 @@ import { useDirection } from '@hooks/useDirection'
 import { formatDate } from '@/lib/format'
 import { useLHAnalytics, AnalyticsEvent } from '@services/analytics'
 
-const ReactConfetti = dynamic(() => import('react-confetti'), { ssr: false })
-
 // Lazy load heavy components
 const Canva = lazy(() => import('@components/Objects/Activities/DynamicCanva/DynamicCanva'))
 const VideoActivity = lazy(() => import('@components/Objects/Activities/Video/Video'))
 const DocumentPdfActivity = lazy(() => import('@components/Objects/Activities/DocumentPdf/DocumentPdf'))
 const AssignmentStudentActivity = lazy(() => import('@components/Objects/Activities/Assignment/AssignmentStudentActivity'))
-// Deadline rule shared with the learner activity view (and mirroring the
-// server's _is_assignment_past_due) so the submit/retry affordances agree with
-// what the API will actually accept. Static import: it's a pure function, and
-// gating render on the lazy chunk would flash the wrong control.
-import { isAssignmentPastDue } from '@components/Objects/Activities/Assignment/AssignmentStudentActivity'
 const AIActivityAsk = lazy(() => import('@components/Objects/Activities/AI/AIActivityAsk'))
 const AISidePanelContentWrapper = lazy(() => import('@components/Objects/Activities/AI/AIActivityAsk').then(mod => ({ default: mod.AISidePanelContentWrapper })))
 const AISidePanelInline = lazy(() => import('@components/Objects/Activities/AI/AIActivityAsk').then(mod => ({ default: mod.AISidePanelInline })))
 const AIChatBotProvider = lazy(() => import('@components/Contexts/AI/AIChatBotContext'))
-const ScormActivity = lazy(() => import('../../../../../../../../ee/components/Activities/ScormActivity'))
+const ScormActivity = lazy(() => import('@ee/components/Activities/ScormActivity'))
 const MarkdownActivity = lazy(() => import('@components/Objects/Activities/Markdown/MarkdownActivity'))
 const EmbedActivity = lazy(() => import('@components/Objects/Activities/Embed/EmbedActivity'))
 const ResourceActivity = lazy(() => import('@components/Objects/Activities/Resource/ResourceActivity'))
+const LiveSessionActivity = lazy(() => import('@ee/components/LiveSessions/LiveSessionActivity'))
 
 // Loading fallback component
 const LoadingFallback = () => (
@@ -141,6 +140,10 @@ interface ActivityActionsProps {
   assignment: any
   showNavigation?: boolean
   trailData?: any
+  /** Dark styling, for the video theater band. */
+  dark?: boolean
+  /** Phone activity bar presentation. */
+  compact?: boolean
 }
 
 // Custom hook for activity position
@@ -170,7 +173,7 @@ function useActivityPosition(course: any, activityId: string) {
   }, [course, activityId]);
 }
 
-function ActivityActions({ activity, activityid, course, orgslug, assignment, showNavigation = true, trailData }: ActivityActionsProps) {
+function ActivityActions({ activity, activityid, course, orgslug, assignment, showNavigation = true, trailData, dark = false, compact = false }: ActivityActionsProps) {
 
   const { t: _t } = useTranslation();
   const _org = useOrg() as any;
@@ -190,24 +193,28 @@ function ActivityActions({ activity, activityid, course, orgslug, assignment, sh
                 course={course}
                 orgslug={orgslug}
                 trailData={trailData}
+                dark={dark}
+                compact={compact}
               />
             </>
           )}
           {activity.activity_type == 'TYPE_ASSIGNMENT' && (
             <>
               <AssignmentSubmissionProvider assignment_uuid={assignment?.assignment_uuid}>
-                <AssignmentTools
-                  assignment={assignment}
-                  activity={activity}
-                  activityid={activityid}
-                  course={course}
-                  orgslug={orgslug}
-                />
+                <div className={compact ? 'lh-assign-compact' : 'contents'}>
+                  <AssignmentTools
+                    assignment={assignment}
+                    activity={activity}
+                    activityid={activityid}
+                    course={course}
+                    orgslug={orgslug}
+                  />
+                </div>
               </AssignmentSubmissionProvider>
             </>
           )}
           {showNavigation && (
-            <NextActivityButton course={course} currentActivityId={activity.id} orgslug={orgslug} />
+            <NextActivityButton course={course} currentActivityId={activity.id} orgslug={orgslug} dark={dark} />
           )}
         </AuthenticatedClientElement>
       )}
@@ -218,7 +225,7 @@ function ActivityActions({ activity, activityid, course, orgslug, assignment, sh
 function ActivityClient(props: ActivityClientProps) {
   const { t, i18n } = useTranslation()
   // Slide offsets are physical pixels; flip their sign in RTL.
-  const { x: dx } = useDirection()
+  const { x: dx, isRTL } = useDirection()
   const activityid = props.activityid
 
   function getRelativeTime(date: Date): string {
@@ -253,7 +260,11 @@ function ActivityClient(props: ActivityClientProps) {
   const [bgColor, setBgColor] = React.useState('bg-white nice-shadow')
   const [assignment, setAssignment] = React.useState(null) as any;
   const [_markStatusButtonActive, setMarkStatusButtonActive] = React.useState(false);
-  const [isFocusMode, setIsFocusMode] = React.useState(false);
+  const [focusModePref, setIsFocusMode] = React.useState(false);
+  // Focus mode is a desktop layout; a phone already reads one column with
+  // its own bars, so a preference saved on desktop doesn't carry over.
+  const isPhone = useMediaQuery('(max-width: 767px)');
+  const isFocusMode = focusModePref && !isPhone;
   const isInitialRender = useRef(true);
   const { contributorStatus } = useContributorStatus(courseuuid);
   const router = useRouter();
@@ -281,6 +292,7 @@ function ActivityClient(props: ActivityClientProps) {
           track(AnalyticsEvent.TimeOnActivity, {
             activity_uuid: activityUuidForTracking,
             course_uuid: courseUuidForTracking,
+            activity_type: activityTypeForTracking,
             seconds_spent: seconds,
           })
         }
@@ -290,7 +302,7 @@ function ActivityClient(props: ActivityClientProps) {
 
   const _queryClient = useQueryClient()
 
-  // Fetch trail data — shares cache key with course page trail query
+  // Fetch trail data; shares cache key with course page trail query
   const { data: trailData } = useTrail(org?.id)
 
   // Memoize activity position calculation
@@ -370,6 +382,12 @@ function ActivityClient(props: ActivityClientProps) {
             <ScormActivity course={course} activity={activity} />
           </Suspense>
         );
+      case 'TYPE_LIVE_SESSION':
+        return (
+          <Suspense fallback={<LoadingFallback />}>
+            <LiveSessionActivity activity={activity} orgslug={orgslug} />
+          </Suspense>
+        );
       default:
         return null;
     }
@@ -379,7 +397,7 @@ function ActivityClient(props: ActivityClientProps) {
   const isLastActivity = currentIndex >= 0 && !nextActivity;
 
   // Navigate to an activity. A null target means "there is nothing after this
-  // one" — on the final activity that means the course-end/certificate screen
+  // one"; on the final activity that means the course-end/certificate screen
   // rather than a dead end.
   const navigateToActivity = (activity: any) => {
     const cleanCourseUuid = course.course_uuid?.replace('course_', '');
@@ -393,6 +411,83 @@ function ActivityClient(props: ActivityClientProps) {
     router.push(getUriWithOrg(orgslug, '') + `/course/${cleanCourseUuid}/activity/${activity.cleanUuid}`);
   };
 
+  // Keyboard: j / k (or the arrow pointing forward / back in the reading
+  // direction) step through lessons, ] / [ jump a whole chapter, f toggles
+  // focus mode and Esc leaves it, Space drives a video, c goes back to the
+  // course. Registered only once the course is known, and never on the
+  // course-end screen, where there is no lesson to step from.
+  const shortcutsReady = !!course && activityid !== 'end'
+  const forwardArrow = isRTL ? 'arrowleft' : 'arrowright'
+  const backArrow = isRTL ? 'arrowright' : 'arrowleft'
+  useShortcut(
+    { id: 'activity.next', keys: 'j', aliases: [forwardArrow], label: t('shortcuts.next_lesson'), group: 'page',
+      run: () => navigateToActivity(nextActivity) },
+    shortcutsReady && (!!nextActivity || isLastActivity),
+  )
+  useShortcut(
+    { id: 'activity.prev', keys: 'k', aliases: [backArrow], label: t('shortcuts.previous_lesson'), group: 'page',
+      run: () => navigateToActivity(prevActivity) },
+    shortcutsReady && !!prevActivity,
+  )
+
+  // First lesson of the neighbouring chapters, skipping empty chapters.
+  const chapterNeighbours = useMemo(() => {
+    const chapters: any[] = course?.chapters ?? []
+    const cleanId = activityid.replace('activity_', '')
+    const here = chapters.findIndex((ch) =>
+      (ch.activities ?? []).some((a: any) => a.activity_uuid?.replace('activity_', '') === cleanId))
+    const firstOf = (ch: any) => {
+      const a = (ch?.activities ?? [])[0]
+      return a ? { ...a, cleanUuid: a.activity_uuid?.replace('activity_', '') } : null
+    }
+    const pick = (from: number, step: 1 | -1) => {
+      for (let i = from; i >= 0 && i < chapters.length; i += step) {
+        const a = firstOf(chapters[i])
+        if (a) return a
+      }
+      return null
+    }
+    return here < 0
+      ? { next: null, prev: null }
+      : { next: pick(here + 1, 1), prev: pick(here - 1, -1) }
+  }, [course, activityid])
+  useShortcut(
+    { id: 'activity.nextChapter', keys: ']', label: t('shortcuts.next_chapter'), group: 'page',
+      run: () => navigateToActivity(chapterNeighbours.next) },
+    shortcutsReady && !!chapterNeighbours.next,
+  )
+  useShortcut(
+    { id: 'activity.prevChapter', keys: '[', label: t('shortcuts.previous_chapter'), group: 'page',
+      run: () => navigateToActivity(chapterNeighbours.prev) },
+    shortcutsReady && !!chapterNeighbours.prev,
+  )
+
+  useShortcut(
+    { id: 'activity.focus', keys: 'f', label: t('shortcuts.toggle_focus'), group: 'page',
+      run: () => setIsFocusMode((v) => !v) },
+    shortcutsReady,
+  )
+  useShortcut(
+    { id: 'activity.exitFocus', keys: 'escape', label: t('shortcuts.exit_focus'), group: 'page',
+      hideFromPalette: true, run: () => setIsFocusMode(false) },
+    shortcutsReady && isFocusMode,
+  )
+  useShortcut(
+    { id: 'activity.playPause', keys: 'space', label: t('shortcuts.play_pause'), group: 'page',
+      run: () => {
+        const video = document.querySelector<HTMLVideoElement>('.video-js video, video')
+        if (!video) return
+        if (video.paused) void video.play()
+        else video.pause()
+      } },
+    shortcutsReady && activity?.activity_type === 'TYPE_VIDEO',
+  )
+  useShortcut(
+    { id: 'activity.course', keys: 'c', label: t('shortcuts.back_to_course'), group: 'page',
+      run: () => router.push(getUriWithOrg(orgslug, `/course/${course?.course_uuid?.replace('course_', '')}`)) },
+    !!course,
+  )
+
   // Initialize focus mode from localStorage
   React.useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -404,14 +499,14 @@ function ActivityClient(props: ActivityClientProps) {
   // Save focus mode to localStorage
   React.useEffect(() => {
     if (typeof window !== 'undefined') {
-      localStorage.setItem('globalFocusMode', isFocusMode.toString());
+      localStorage.setItem('globalFocusMode', focusModePref.toString());
       // Dispatch custom event for focus mode change
       window.dispatchEvent(new CustomEvent('focusModeChange', { 
-        detail: { isFocusMode } 
+        detail: { isFocusMode: focusModePref } 
       }));
       isInitialRender.current = false;
     }
-  }, [isFocusMode]);
+  }, [focusModePref]);
 
   function getChapterNameByActivityId(course: any, activity_id: any) {
     for (let i = 0; i < course.chapters.length; i++) {
@@ -438,8 +533,13 @@ function ActivityClient(props: ActivityClientProps) {
     }
     else if (activity.activity_type == 'TYPE_ASSIGNMENT') {
       setMarkStatusButtonActive(false);
-      setBgColor(isFocusMode ? 'bg-white' : 'bg-white nice-shadow');
+      // The assignment lays out its own cards (overview, one per task, hand-in).
+      setBgColor('');
       getAssignmentUI();
+    }
+    else if (activity.activity_type == 'TYPE_VIDEO' || activity.activity_type == 'TYPE_LIVE_SESSION') {
+      // The player (or the session card) is the whole surface; no dark card around it.
+      setBgColor('');
     }
     else {
       setBgColor(isFocusMode ? 'bg-zinc-950' : 'bg-zinc-950 nice-shadow');
@@ -504,6 +604,17 @@ function ActivityClient(props: ActivityClientProps) {
   const chapterNameFromCourse = allActivities[currentIndex]?.chapterName ?? ''
   const displayName = activity?.name ?? activityNameFromCourse
   const displayActivityType = allActivities[currentIndex]?.activity_type
+
+  if (activity?.is_locked && activity?.drip_reason) {
+    return (
+      <DripGate
+        activityName={displayName}
+        dripReason={activity.drip_reason}
+        dripUnlockAt={activity.drip_unlock_at}
+        courseHref={getUriWithOrg(orgslug, '') + `/course/${courseuuid}`}
+      />
+    )
+  }
 
   if (activity?.is_locked) {
     const isAuthenticated = session?.status === 'authenticated'
@@ -626,7 +737,7 @@ function ActivityClient(props: ActivityClientProps) {
                               href={getUriWithOrg(orgslug, '') + `/course/${courseuuid}`}
                             >
                               <img
-                                className="w-[60px] h-[34px] rounded-md drop-shadow-md"
+                                className="w-[60px] h-[34px] shrink-0 rounded-md drop-shadow-md object-cover"
                                 src={course.thumbnail_image
                                   ? getCourseThumbnailMediaDirectory(
                                       org?.org_uuid,
@@ -635,13 +746,16 @@ function ActivityClient(props: ActivityClientProps) {
                                     )
                                   : '/empty_thumbnail.png'
                                 }
+                                onError={(e) => {
+                                  if (!e.currentTarget.src.endsWith('/empty_thumbnail.png')) e.currentTarget.src = '/empty_thumbnail.png'
+                                }}
                                 alt=""
                               />
                             </Link>
                           </div>
                           <div className="flex flex-col -space-y-1">
                             <p className="font-bold text-gray-700 text-sm">{t('search.course')} </p>
-                            <h1 className="font-bold text-gray-950 text-lg first-letter:uppercase">
+                            <h1 className="font-bold text-gray-950 text-lg">
                               {course.name}
                             </h1>
                           </div>
@@ -672,15 +786,17 @@ function ActivityClient(props: ActivityClientProps) {
                             orgslug={orgslug}
                             trailData={trailData}
                           />
-                          <motion.button
-                            whileHover={{ scale: 1.05 }}
-                            whileTap={{ scale: 0.95 }}
-                            onClick={() => setIsFocusMode(false)}
-                            className="bg-white nice-shadow p-2 rounded-full cursor-pointer hover:bg-gray-50"
-                            title={t('activities.exit_focus_mode')}
-                          >
-                            <Minimize2 size={16} className="text-gray-700" />
-                          </motion.button>
+                          <ShortcutHint label={t('activities.exit_focus_mode')} keys="escape">
+                            <motion.button
+                              whileHover={{ scale: 1.05 }}
+                              whileTap={{ scale: 0.95 }}
+                              onClick={() => setIsFocusMode(false)}
+                              className="bg-white nice-shadow p-2 rounded-full cursor-pointer hover:bg-gray-50"
+                              aria-label={t('activities.exit_focus_mode')}
+                            >
+                              <Minimize2 size={16} className="text-gray-700" />
+                            </motion.button>
+                          </ShortcutHint>
                         </motion.div>
                       </div>
                     </div>
@@ -692,13 +808,13 @@ function ActivityClient(props: ActivityClientProps) {
                       {activity && activity.published == true && (
                         <>
                           {activity.content.paid_access == false ? (
-                            <PaidCourseActivityDisclaimer course={course} />
+                            <PaidCourseActivityDisclaimer course={course} activity={activity} />
                           ) : (
                             <motion.div
                               initial={isInitialRender.current ? false : { scale: 0.95, opacity: 0 }}
                               animate={{ scale: 1, opacity: 1 }}
                               transition={{ delay: 0.3 }}
-                              className={`${activity.activity_type === 'TYPE_SCORM' ? 'rounded-xl overflow-hidden' : 'p-7 rounded-lg'} ${bgColor} mt-4`}
+                              className={`${activity.activity_type === 'TYPE_SCORM' ? 'rounded-xl overflow-hidden' : (activity.activity_type === 'TYPE_VIDEO' || activity.activity_type === 'TYPE_LIVE_SESSION') ? '' : 'p-7 rounded-lg'} ${bgColor} mt-4`}
                             >
                               {/* Activity Types */}
                               <div className={activity.activity_type === 'TYPE_SCORM' ? 'overflow-hidden' : ''}>
@@ -735,6 +851,7 @@ function ActivityClient(props: ActivityClientProps) {
                               title={prevActivity ? `${t('common.previous')}: ${prevActivity.name}` : t('activities.no_previous_activity')}
                             >
                               <ChevronLeft size={20} className="text-gray-800 shrink-0" />
+                              <Keys keys="k" tone="muted" className="hidden sm:inline-flex" />
                               <div className="flex flex-col items-start">
                                 <span className="text-xs text-gray-500">{t('common.previous')}</span>
                                 <span className="text-sm capitalize font-semibold text-start">
@@ -779,6 +896,7 @@ function ActivityClient(props: ActivityClientProps) {
                                       : t('activities.no_next_activity')}
                                 </span>
                               </div>
+                              <Keys keys="j" tone="muted" className="hidden sm:inline-flex" />
                               <ChevronRight size={20} className="text-gray-800 shrink-0" />
                             </button>
                           </div>
@@ -802,7 +920,26 @@ function ActivityClient(props: ActivityClientProps) {
                   />
                 ) : (
                   <div className="space-y-4 pt-0 relative">
-                    <div className="pt-2 pb-3 sm:pb-6">
+                    {/* Phones: one back row to the course instead of the
+                        breadcrumb trail and the course header below. */}
+                    <Link
+                      href={getUriWithOrg(orgslug, `/course/${courseuuid}`)}
+                      className="sm:hidden lh-press -ms-1 flex items-center gap-2 min-h-[44px] pe-2 min-w-0"
+                    >
+                      <BackIcon size={20} className="shrink-0 text-gray-500 rtl:rotate-180" />
+                      <img
+                        className="w-[44px] h-[25px] shrink-0 rounded object-cover ring-1 ring-black/5"
+                        src={course.thumbnail_image
+                          ? getCourseThumbnailMediaDirectory(org?.org_uuid, course.course_uuid, course.thumbnail_image)
+                          : '/empty_thumbnail.png'}
+                        onError={(e) => {
+                          if (!e.currentTarget.src.endsWith('/empty_thumbnail.png')) e.currentTarget.src = '/empty_thumbnail.png'
+                        }}
+                        alt=""
+                      />
+                      <span className="truncate text-sm font-semibold text-gray-700">{course.name}</span>
+                    </Link>
+                    <div className="hidden sm:block pt-2 pb-6">
                       <Breadcrumbs items={[
                         { label: t('courses.courses'), href: getUriWithOrg(orgslug, '/courses'), icon: <BookCopy size={14} /> },
                         { label: course.name, href: getUriWithOrg(orgslug, `/course/${courseuuid}`) },
@@ -810,14 +947,14 @@ function ActivityClient(props: ActivityClientProps) {
                       ]} />
                     </div>
                     <div className="space-y-3 sm:space-y-4 activity-info-section relative" style={{ zIndex: 'var(--z-content)' }}>
-                        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
+                        <div className="hidden sm:flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
                           <div className="flex space-x-4 sm:space-x-6 items-center">
                             <div className="flex shrink-0">
                               <Link
                                 href={getUriWithOrg(orgslug, '') + `/course/${courseuuid}`}
                               >
                                 <img
-                                  className="w-[60px] h-[34px] sm:w-[100px] sm:h-[57px] rounded-md drop-shadow-md"
+                                  className="w-[60px] h-[34px] sm:w-[100px] sm:h-[57px] shrink-0 rounded-md drop-shadow-md object-cover"
                                   src={course.thumbnail_image
                                     ? getCourseThumbnailMediaDirectory(
                                         org?.org_uuid,
@@ -826,13 +963,16 @@ function ActivityClient(props: ActivityClientProps) {
                                       )
                                     : '/empty_thumbnail.png'
                                   }
+                                  onError={(e) => {
+                                    if (!e.currentTarget.src.endsWith('/empty_thumbnail.png')) e.currentTarget.src = '/empty_thumbnail.png'
+                                  }}
                                   alt=""
                                 />
                               </Link>
                             </div>
                             <div className="flex flex-col -space-y-1">
                               <p className="font-bold text-gray-700 text-xs sm:text-md">{t('search.course')} </p>
-                              <h1 className="font-bold text-gray-950 text-lg sm:text-3xl first-letter:uppercase">
+                              <h1 className="font-bold text-gray-950 text-lg sm:text-3xl">
                                 {course.name}
                               </h1>
                             </div>
@@ -863,10 +1003,10 @@ function ActivityClient(props: ActivityClientProps) {
                         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center w-full gap-3">
                           <div className="flex flex-1 items-center space-x-3 min-w-0">
                             <div className="flex flex-col -space-y-1 min-w-0">
-                              <p className="font-bold text-gray-700 text-xs sm:text-md">
+                              <p className="font-bold text-gray-700 text-xs sm:text-md max-sm:font-semibold max-sm:text-gray-500 max-sm:text-[11px] max-sm:uppercase max-sm:tracking-wide">
                                 {getChapterNameByActivityId(course, activity?.id) ?? chapterNameFromCourse}
                               </p>
-                              <h1 className="font-bold text-gray-950 text-base sm:text-2xl first-letter:uppercase">
+                              <h1 className="font-bold text-gray-950 text-base sm:text-2xl max-sm:text-[22px] max-sm:leading-tight max-sm:pt-1">
                                 {displayName}
                               </h1>
                               {/* Authors and Dates Section */}
@@ -933,13 +1073,13 @@ function ActivityClient(props: ActivityClientProps) {
                                   </div>
                                 )}
                                 {/* Dates */}
-                                <div className="flex flex-wrap items-center text-xs text-gray-500 gap-1 sm:gap-2">
+                                <div className="hidden sm:flex flex-wrap items-center text-xs text-gray-500 gap-1 sm:gap-2">
                                   <span>
                                     {t('courses.created_on')} {formatDate(course.creation_date, i18n.language, { dateStyle: undefined, year: 'numeric', month: 'long', day: 'numeric' })}
                                   </span>
                                   <span className="mx-1">•</span>
                                   <span>
-                                    {t('courses.last_updated')} {getRelativeTime(new Date(course.updated_at || course.last_updated || course.creation_date))}
+                                    {t('courses.last_updated')} {getRelativeTime(new Date(course.update_date || course.creation_date))}
                                   </span>
                                 </div>
                               </div>
@@ -987,13 +1127,31 @@ function ActivityClient(props: ActivityClientProps) {
                       ) : activity.published == true ? (
                         <>
                           {activity.content.paid_access == false ? (
-                            <PaidCourseActivityDisclaimer course={course} />
+                            <PaidCourseActivityDisclaimer course={course} activity={activity} />
                           ) : (
+                            // Video activities sit on a dark theater band (theater.css).
+                            <div className={activity.activity_type === 'TYPE_VIDEO' ? 'lh-theater-band py-8 sm:py-12' : ''}>
+                            {activity.activity_type === 'TYPE_VIDEO' && (
+                              <button
+                                onClick={() => setIsFocusMode(true)}
+                                className="absolute top-0 end-0 -translate-y-1/2 hidden sm:flex bg-white nice-shadow p-2 rounded-full cursor-pointer transition-all duration-200 group overflow-hidden"
+                                style={{ zIndex: 'var(--z-interactive)' }}
+                                title={t('activities.focus_mode')}
+                              >
+                                <div className="flex items-center">
+                                  <Maximize2 size={16} className="text-gray-700" />
+                                  <span className="text-xs font-bold text-gray-700 opacity-0 group-hover:opacity-100 transition-all duration-200 w-0 group-hover:w-auto group-hover:ms-2 whitespace-nowrap">
+                                    {t('activities.focus_mode')}
+                                  </span>
+                                </div>
+                              </button>
+                            )}
                             <div className="flex gap-6">
-                              <div className={`flex-1 min-w-0 ${activity.activity_type === 'TYPE_SCORM' ? 'rounded-xl overflow-hidden' : 'p-3 sm:p-7 rounded-lg'} ${bgColor} relative isolate`} style={{ zIndex: 'var(--z-base)' }}>
+                              <div className={`flex-1 min-w-0 ${activity.activity_type === 'TYPE_SCORM' ? 'rounded-xl overflow-hidden' : activity.activity_type === 'TYPE_VIDEO' ? 'max-sm:-mx-4' : activity.activity_type === 'TYPE_LIVE_SESSION' ? '' : activity.activity_type === 'TYPE_ASSIGNMENT' ? 'pt-2 sm:pt-0' : activity.activity_type === 'TYPE_DYNAMIC' ? '-mx-4 sm:mx-0 px-4 py-5 sm:p-7 rounded-none sm:rounded-lg max-sm:shadow-none max-sm:outline-none max-sm:border-y max-sm:border-black/[0.05]' : activity.activity_type === 'TYPE_DOCUMENT' ? '-mx-4 sm:mx-0 px-3 py-4 sm:p-7 rounded-none sm:rounded-lg max-sm:bg-neutral-100! max-sm:shadow-none max-sm:outline-none' : 'p-3 sm:p-7 rounded-lg'} ${bgColor} relative isolate`} style={{ zIndex: 'var(--z-base)' }}>
+                                {activity.activity_type !== 'TYPE_VIDEO' && (
                                 <button
                                   onClick={() => setIsFocusMode(true)}
-                                  className={`absolute ${activity.activity_type === 'TYPE_SCORM' ? 'top-2 end-2' : 'top-4 end-4'} hidden sm:flex bg-white/80 hover:bg-white nice-shadow p-2 rounded-full cursor-pointer transition-all duration-200 group overflow-hidden pointer-events-auto`}
+                                  className={`absolute ${activity.activity_type === 'TYPE_SCORM' ? 'top-2 end-2' : activity.activity_type === 'TYPE_ASSIGNMENT' ? '-top-5 -end-3' : 'top-4 end-4'} hidden sm:flex bg-white/80 hover:bg-white nice-shadow p-2 rounded-full cursor-pointer transition-all duration-200 group overflow-hidden pointer-events-auto`}
                                   style={{ zIndex: 'var(--z-interactive)' }}
                                   title={t('activities.focus_mode')}
                                 >
@@ -1004,24 +1162,29 @@ function ActivityClient(props: ActivityClientProps) {
                                     </span>
                                   </div>
                                 </button>
+                                )}
                                 {activityContent}
                               </div>
                               <Suspense fallback={null}>
                                 <AISidePanelInline activity={activity} />
                               </Suspense>
                             </div>
+                            </div>
                           )}
                         </>
                       ) : null}
 
-                      {/* Activity Actions below the content box */}
-                      {activity && activity.published == true && activity.content.paid_access != false && (
-                        <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center mt-4 w-full gap-2 sm:gap-0">
+                      {/* Activity Actions below the content box. Phones get the
+                          bottom bar instead; only one is mounted so the actions
+                          (and an assignment's submit / grade dialogs) exist once. */}
+                      {!isPhone && activity && activity.published == true && activity.content.paid_access != false && (
+                        <div className="flex flex-row justify-between items-center mt-4 w-full">
                           <div className="order-1 sm:order-none">
                             <PreviousActivityButton
                               course={course}
                               currentActivityId={activity.id}
                               orgslug={orgslug}
+                              dark={activity.activity_type === 'TYPE_VIDEO'}
                             />
                           </div>
                           <div className="flex items-center justify-between sm:justify-end space-x-2 order-2 sm:order-none">
@@ -1033,11 +1196,13 @@ function ActivityClient(props: ActivityClientProps) {
                               assignment={assignment}
                               showNavigation={false}
                               trailData={trailData}
+                              dark={activity.activity_type === 'TYPE_VIDEO'}
                             />
                             <NextActivityButton
                               course={course}
                               currentActivityId={activity.id}
                               orgslug={orgslug}
+                              dark={activity.activity_type === 'TYPE_VIDEO'}
                             />
                           </div>
                         </div>
@@ -1050,10 +1215,34 @@ function ActivityClient(props: ActivityClientProps) {
                           currentActivityId={activityid}
                           orgslug={orgslug}
                           activity={activity}
+                          dark={activity.activity_type === 'TYPE_VIDEO'}
                         />
                       )}
-                      
-                      <div style={{ height: '100px' }}></div>
+
+                      {/* Phones: prev / outline / action / next within thumb reach. */}
+                      {isPhone && activity && activity.published == true && activity.content.paid_access != false && (
+                        <MobileActivityBar
+                          course={course}
+                          currentActivityId={activityid}
+                          orgslug={orgslug}
+                          trailData={trailData}
+                          dark={activity.activity_type === 'TYPE_VIDEO'}
+                        >
+                          <ActivityActions
+                            activity={activity}
+                            activityid={activityid}
+                            course={course}
+                            orgslug={orgslug}
+                            assignment={assignment}
+                            showNavigation={false}
+                            trailData={trailData}
+                            dark={activity.activity_type === 'TYPE_VIDEO'}
+                            compact
+                          />
+                        </MobileActivityBar>
+                      )}
+
+                      <div className="h-6 sm:h-[100px]"></div>
                     </div>
                 )}
               </GeneralWrapperStyled>
@@ -1074,6 +1263,9 @@ export function MarkStatus(props: {
   course: any
   orgslug: string,
   trailData: any
+  dark?: boolean
+  /** Single-line pill for the phone activity bar; no first-run tooltips. */
+  compact?: boolean
 }) {
   const { t } = useTranslation()
   const router = useRouter()
@@ -1158,10 +1350,10 @@ export function MarkStatus(props: {
   const findNextActivity = () => {
     const flat: any[] = [];
     let currentIndex = -1;
-    props.course.chapters.forEach((chapter: any) => {
-      chapter.activities.forEach((activity: any) => {
+    props.course?.chapters?.forEach((chapter: any) => {
+      chapter.activities?.forEach((activity: any) => {
         flat.push(activity);
-        if (activity.id === props.activity.id) {
+        if (activity.id === props.activity?.id) {
           currentIndex = flat.length - 1;
         }
       });
@@ -1169,20 +1361,60 @@ export function MarkStatus(props: {
     return currentIndex >= 0 && currentIndex < flat.length - 1 ? flat[currentIndex + 1] : null;
   };
 
+  // Completing an activity moves the learner to the next one, so warm its data
+  // and route now; the navigation then renders from cache.
+  const nextActivityUuid = findNextActivity()?.activity_uuid?.replace('activity_', '');
+  const accessToken = session.data?.tokens?.access_token;
+  useEffect(() => {
+    if (!isUserPartOfTheOrg || !nextActivityUuid) return;
+    const cleanCourseUuid = props.course.course_uuid.replace('course_', '');
+    router.prefetch(getUriWithOrg(props.orgslug, '') + `/course/${cleanCourseUuid}/activity/${nextActivityUuid}`);
+    queryClient.prefetchQuery(activityQueryOptions(nextActivityUuid, accessToken));
+  }, [isUserPartOfTheOrg, nextActivityUuid, accessToken, props.course.course_uuid, props.orgslug, queryClient, router]);
+
   async function markActivityAsCompleteFront() {
+    const trailKey = queryKeys.trail.org(org?.id);
+    // A refetch already in flight would land after the optimistic write below
+    // and briefly undo it.
+    await queryClient.cancelQueries({ queryKey: trailKey });
+    const previousTrail = queryClient.getQueryData(trailKey);
     try {
       const willCompleteAll = areAllActivitiesCompleted();
       const nextActivity = findNextActivity();
+      const cleanCourseUuid = props.course.course_uuid.replace('course_', '');
       setIsLoading(true);
 
-      await markActivityAsComplete(
+      // Show the activity as done right away; the server's trail replaces this
+      // once the request settles.
+      queryClient.setQueryData(trailKey, (trail: any) => trail && {
+        ...trail,
+        runs: trail.runs?.map((run: any) =>
+          run.course?.course_uuid?.replace('course_', '') === cleanCourseUuid
+            ? { ...run, steps: [...(run.steps || []), { activity_id: props.activity.id, course_id: run.course_id, complete: true }] }
+            : run
+        ),
+      });
+
+      const request = markActivityAsComplete(
         props.orgslug,
         props.course.course_uuid,
         props.activity.activity_uuid,
         session.data?.tokens?.access_token
-      );
+      ).then((trail: any) => {
+        // The response is the updated trail, so no refetch is needed.
+        if (trail?.runs) queryClient.setQueryData(trailKey, trail);
+      });
 
-      await queryClient.invalidateQueries({ queryKey: queryKeys.trail.org(org?.id) });
+      // The end page shows the certificate, which the request creates, so only
+      // that navigation waits for it. Moving on to the next activity does not.
+      if (willCompleteAll || !nextActivity) {
+        await request;
+      } else {
+        request.catch(() => {
+          queryClient.setQueryData(trailKey, previousTrail);
+          toast.error(t('activities.failed_mark_complete'));
+        });
+      }
 
       track(AnalyticsEvent.ActivityMarkedComplete, {
         activity_uuid: props.activity.activity_uuid,
@@ -1198,8 +1430,6 @@ export function MarkStatus(props: {
         });
       }
 
-      const cleanCourseUuid = props.course.course_uuid.replace('course_', '');
-      await queryClient.invalidateQueries({ queryKey: queryKeys.courses.meta(cleanCourseUuid) });
       if (willCompleteAll || !nextActivity) {
         router.push(getUriWithOrg(props.orgslug, '') + `/course/${cleanCourseUuid}/activity/end`);
       } else {
@@ -1208,6 +1438,7 @@ export function MarkStatus(props: {
       }
     } catch (error) {
       console.error('Error marking activity as complete:', error);
+      queryClient.setQueryData(trailKey, previousTrail);
       toast.error(t('activities.failed_mark_complete'));
     } finally {
       setIsLoading(false);
@@ -1218,15 +1449,20 @@ export function MarkStatus(props: {
     try {
       setIsLoading(true);
       
-      await unmarkActivityAsComplete(
+      const trail = await unmarkActivityAsComplete(
         props.orgslug,
         props.course.course_uuid,
         props.activity.activity_uuid,
         session.data?.tokens?.access_token
       );
 
-      await queryClient.invalidateQueries({ queryKey: queryKeys.trail.org(org?.id) });
-      await queryClient.invalidateQueries({ queryKey: queryKeys.courses.meta(props.course.course_uuid.replace('course_', '')) });
+      // The response is the updated trail, and course metadata carries no
+      // progress, so neither needs a refetch.
+      if (trail?.runs) {
+        queryClient.setQueryData(queryKeys.trail.org(org?.id), trail);
+      } else {
+        await queryClient.invalidateQueries({ queryKey: queryKeys.trail.org(org?.id) });
+      }
     } catch (_error) {
       toast.error(t('activities.failed_unmark_complete'));
     } finally {
@@ -1254,6 +1490,14 @@ export function MarkStatus(props: {
     return false;
   }
 
+  const completed = !!props.trailData && !!isActivityCompleted()
+  // Unmarking stays behind its confirmation dialog, so `m` only ever marks.
+  useShortcut(
+    { id: 'activity.complete', keys: 'm', label: t('shortcuts.mark_complete'), group: 'page',
+      run: () => { if (!isLoading) markActivityAsCompleteFront() } },
+    !!props.trailData && isUserPartOfTheOrg && !completed,
+  )
+
   // Don't render until we have trail data
   if (!props.trailData) {
     return null;
@@ -1262,6 +1506,39 @@ export function MarkStatus(props: {
   // Don't show progress tracking for non-members
   if (!isUserPartOfTheOrg) {
     return null;
+  }
+
+  if (props.compact) {
+    const done = !!isActivityCompleted()
+    const pill = 'lh-press flex h-11 items-center gap-2 rounded-full px-4 text-sm font-semibold whitespace-nowrap transition-colors'
+    return done ? (
+      <ConfirmationModal
+        confirmationButtonText={t('activities.unmark_activity')}
+        confirmationMessage={t('activities.unmark_activity_confirm')}
+        dialogTitle={t('activities.unmark_activity_title')}
+        dialogTrigger={
+          <button
+            type="button"
+            className={`${pill} ${props.dark ? 'bg-teal-400/15 text-teal-300' : 'bg-teal-50 text-teal-700 ring-1 ring-inset ring-teal-200'}`}
+          >
+            <CheckCircle size={18} />
+            {t('common.completed')}
+          </button>
+        }
+        functionToExecute={unmarkActivityAsCompleteFront}
+        status="warning"
+      />
+    ) : (
+      <button
+        type="button"
+        onClick={!isLoading ? markActivityAsCompleteFront : undefined}
+        disabled={isLoading}
+        className={`${pill} bg-teal-600 text-white shadow-sm shadow-teal-900/20 ${isLoading ? 'opacity-80' : ''}`}
+      >
+        {isLoading ? <Loader2 size={18} className="animate-spin" /> : <Circle size={18} />}
+        {isLoading ? t('activities.marking') : t('common.complete')}
+      </button>
+    )
   }
 
   return (
@@ -1313,7 +1590,7 @@ export function MarkStatus(props: {
         <div className="flex items-center space-x-2">
           <div className="relative">
             <div
-              className={`${isLoading ? 'opacity-90' : ''} bg-gray-800 rounded-md px-4 nice-shadow flex flex-col p-2.5 text-white hover:cursor-pointer transition-all duration-200 ${isLoading ? 'cursor-not-allowed' : 'hover:bg-gray-700'}`}
+              className={`${isLoading ? 'opacity-90' : ''} rounded-md px-4 flex flex-col p-2.5 text-white hover:cursor-pointer transition-all duration-200 ${props.dark ? 'bg-white/10 ring-1 ring-white/10' : 'bg-gray-800 nice-shadow'} ${isLoading ? 'cursor-not-allowed' : props.dark ? 'hover:bg-white/15' : 'hover:bg-gray-700'}`}
               onClick={!isLoading ? markActivityAsCompleteFront : undefined}
             >
               <span className="text-[10px] font-bold mb-1 uppercase">{t('common.status')}</span>
@@ -1348,6 +1625,7 @@ export function MarkStatus(props: {
                   </svg>
                 )}
                 <span className="text-xs font-bold min-w-[90px]">{isLoading ? t('activities.marking') : t('activities.mark_as_complete')}</span>
+                <Keys keys="m" tone="onDark" className="hidden sm:inline-flex" />
               </div>
             </div>
             {showUnmarkedTooltip && (
@@ -1367,7 +1645,7 @@ export function MarkStatus(props: {
   )
 }
 
-function NextActivityButton({ course, currentActivityId, orgslug }: { course: any, currentActivityId: string, orgslug: string }) {
+function NextActivityButton({ course, currentActivityId, orgslug, dark = false }: { course: any, currentActivityId: string, orgslug: string, dark?: boolean }) {
   const { t } = useTranslation();
   const router = useRouter();
   const _isMobile = useMediaQuery('(max-width: 768px)');
@@ -1401,7 +1679,7 @@ function NextActivityButton({ course, currentActivityId, orgslug }: { course: an
 
   // On the LAST activity, Next advances to the course-end screen (which holds
   // the certificate) instead of disappearing. Previously the only route there
-  // was the trophy icon on the progress bar, which learners did not find — and
+  // was the trophy icon on the progress bar, which learners did not find, and
   // it was unreachable altogether for anyone who had already marked the final
   // activity complete on an earlier visit.
   const isLastActivity = !nextActivity;
@@ -1418,9 +1696,13 @@ function NextActivityButton({ course, currentActivityId, orgslug }: { course: an
   return (
     <div
       onClick={navigateToActivity}
-      className="bg-gray-200 rounded-md px-3 sm:px-4 shadow-[inset_0_2px_4px_rgba(0,0,0,0.05)] flex flex-col p-2 sm:p-2.5 text-gray-600 hover:cursor-pointer transition delay-150 duration-300 ease-in-out hover:bg-gray-200"
+      className={`rounded-md px-3 sm:px-4 flex flex-col p-2 sm:p-2.5 hover:cursor-pointer transition delay-150 duration-300 ease-in-out ${
+        dark
+          ? 'bg-white/10 text-white ring-1 ring-white/10 hover:bg-white/15'
+          : 'bg-gray-800 nice-shadow text-white hover:bg-gray-700' // MKA fork: Next must not look disabled
+      }`}
     >
-      <span className="text-[10px] font-bold text-gray-500 mb-1 uppercase">{t('common.next')}</span>
+      <span className={`text-[10px] font-bold mb-1 uppercase ${dark ? 'text-white/50' : 'text-gray-300'}`}>{t('common.next')}</span>
       <div className="flex items-center space-x-1">
         <span className="text-xs sm:text-sm font-semibold truncate max-w-[120px] sm:max-w-[200px]">
           {isLastActivity ? t('course.finish_course', 'Finish course') : nextActivity.name}
@@ -1431,7 +1713,7 @@ function NextActivityButton({ course, currentActivityId, orgslug }: { course: an
   );
 }
 
-function PreviousActivityButton({ course, currentActivityId, orgslug }: { course: any, currentActivityId: string, orgslug: string }) {
+function PreviousActivityButton({ course, currentActivityId, orgslug, dark = false }: { course: any, currentActivityId: string, orgslug: string, dark?: boolean }) {
   const { t } = useTranslation();
   const router = useRouter();
   const _isMobile = useMediaQuery('(max-width: 768px)');
@@ -1473,601 +1755,17 @@ function PreviousActivityButton({ course, currentActivityId, orgslug }: { course
   return (
     <div
       onClick={navigateToActivity}
-      className="bg-white rounded-md px-3 sm:px-4 nice-shadow flex flex-col p-2 sm:p-2.5 text-gray-600 hover:cursor-pointer transition delay-150 duration-300 ease-in-out"
+      className={`rounded-md px-3 sm:px-4 flex flex-col p-2 sm:p-2.5 hover:cursor-pointer transition delay-150 duration-300 ease-in-out ${
+        dark ? 'bg-white/5 text-white/85 ring-1 ring-white/10 hover:bg-white/10' : 'bg-white nice-shadow text-gray-600'
+      }`}
     >
-      <span className="text-[10px] font-bold text-gray-500 mb-1 uppercase">{t('common.previous')}</span>
+      <span className={`text-[10px] font-bold mb-1 uppercase ${dark ? 'text-white/50' : 'text-gray-500'}`}>{t('common.previous')}</span>
       <div className="flex items-center space-x-1">
         <ChevronLeft size={17} className="shrink-0" />
         <span className="text-xs sm:text-sm font-semibold truncate max-w-[120px] sm:max-w-[200px]">{previousActivity.name}</span>
       </div>
     </div>
   );
-}
-
-function AssignmentTools(props: {
-  activity: any
-  activityid: string
-  course: any
-  orgslug: string
-  assignment: any
-}) {
-  const { t } = useTranslation();
-  const submission = useAssignmentSubmission() as any
-  const session = useLHSession() as any;
-  const queryClient = useQueryClient();
-  const dirtyTasks = useAssignmentDirtyTasks();
-  const [gradeData, setGradeData] = React.useState<any>(null);
-  const [isGradeModalOpen, setIsGradeModalOpen] = React.useState(false);
-  const { width: windowWidth, height: windowHeight } = useWindowSize();
-  // Ensures the auto-open-on-mount logic only fires once per page view,
-  // so the modal doesn't pop back open every time gradeData refreshes.
-  const hasAutoOpenedRef = React.useRef(false);
-
-  const [isSubmitting, setIsSubmitting] = React.useState(false);
-
-  const submitForGradingUI = async () => {
-    if (props.assignment) {
-      if (isSubmitting) return
-      setIsSubmitting(true)
-      try {
-        // Persist any answers the learner selected but didn't manually save, so
-        // grading never runs against an empty/stale answer sheet. Abort if a save
-        // fails rather than silently finalizing a 0%.
-        const flushed = await dirtyTasks.flushAll()
-        if (!flushed) {
-          toast.error(t('assignments.failed_submit_assignment'))
-          return
-        }
-        const res = await submitAssignmentForGrading(
-          props.assignment?.assignment_uuid,
-          session.data?.tokens?.access_token
-        )
-        if (res.success) {
-          toast.success(t('assignments.assignment_submitted_success'))
-          queryClient.invalidateQueries({ queryKey: queryKeys.assignments.submission(props.assignment?.assignment_uuid) })
-          queryClient.invalidateQueries({ queryKey: queryKeys.assignments.taskSubmission(props.assignment?.assignment_uuid) })
-          // Submitting may auto-grade the assignment (GRADED), which makes the
-          // answer key eligible to be revealed (show_correct_answers). The task
-          // definitions were fetched pre-grade with the key stripped, so refetch
-          // them — otherwise the reveal renders every option as "incorrect".
-          queryClient.invalidateQueries({ queryKey: queryKeys.assignments.tasks(props.assignment?.assignment_uuid) })
-          // Handing in can also unlock the model answer (solution_reveal =
-          // ON_SUBMISSION). The corrigé rides on the assignment payload and was
-          // fetched with it stripped, so refetch that too — otherwise the
-          // learner has to reload the page to see what they just earned.
-          queryClient.invalidateQueries({ queryKey: queryKeys.assignments.detail(props.assignment?.assignment_uuid) })
-        }
-        else {
-          toast.error(t('assignments.failed_submit_assignment'))
-        }
-      } finally {
-        setIsSubmitting(false)
-      }
-    }
-  }
-
-  const [isRetrying, setIsRetrying] = React.useState(false);
-  const retrySubmissionUI = async () => {
-    if (!props.assignment || isRetrying) return;
-    setIsRetrying(true);
-    try {
-      const res = await retryAssignmentSubmission(
-        props.assignment?.assignment_uuid,
-        session.data?.tokens?.access_token
-      );
-      if (res.success) {
-        toast.success(t('assignments.retry_assignment_success'));
-        // The retry wiped every per-task submission server-side. Clear the
-        // cached batch IMMEDIATELY (before the refetch lands) so the task
-        // editors — which remount on the incremented attempt number — hydrate
-        // from an empty state and don't briefly re-adopt the previous attempt's
-        // answers as their saved baseline (which would submit empty -> 0%).
-        queryClient.setQueryData(queryKeys.assignments.taskSubmission(props.assignment?.assignment_uuid), {});
-        // Pull the fresh per-task batch + the user submission so the task
-        // editors snap back to an empty state without a hard reload.
-        queryClient.invalidateQueries({ queryKey: queryKeys.assignments.submission(props.assignment?.assignment_uuid) });
-        queryClient.invalidateQueries({ queryKey: queryKeys.assignments.taskSubmission(props.assignment?.assignment_uuid) });
-        // The submission is back to PENDING, so the answer key must be stripped
-        // again — refetch the task definitions so a revealed key from the graded
-        // attempt isn't left visible during the retry.
-        queryClient.invalidateQueries({ queryKey: queryKeys.assignments.tasks(props.assignment?.assignment_uuid) });
-        // A retry puts the submission back to PENDING, which re-locks the model
-        // answer server-side. Refetch so the learner isn't left reading the
-        // corrigé they are no longer entitled to for this attempt.
-        queryClient.invalidateQueries({ queryKey: queryKeys.assignments.detail(props.assignment?.assignment_uuid) });
-        setGradeData(null);
-        setIsGradeModalOpen(false);
-        // Re-arm the auto-open on this fresh attempt so the next graded
-        // result still pops the celebration / detail modal.
-        hasAutoOpenedRef.current = false;
-      } else {
-        toast.error(t('assignments.retry_assignment_failed'));
-      }
-    } finally {
-      setIsRetrying(false);
-    }
-  };
-
-  const getGradingBasedOnMethod = async () => {
-    const res = await getFinalGrade(
-      session.data?.user?.id,
-      props.assignment?.assignment_uuid,
-      session.data?.tokens?.access_token
-    );
-    if (res.success) {
-      // The backend returns a rich grade object: display_grade, points_summary,
-      // percentage_display, passed, overall_feedback, etc. We just render it —
-      // no client-side math.
-      setGradeData(res.data);
-    }
-  };
-
-  useEffect(() => {
-    if ( submission && submission.length > 0 && submission[0].submission_status === 'GRADED') {
-      getGradingBasedOnMethod();
-    }
-  }
-    , [submission, props.assignment])
-
-  // Auto-open the grade details modal when the student lands on a GRADED
-  // assignment that was auto-graded. We only do this once per mount so it
-  // doesn't reopen every time SWR re-hydrates the grade data in the
-  // background.
-  useEffect(() => {
-    if (hasAutoOpenedRef.current) return;
-    if (!gradeData) return;
-    if (!submission || submission.length === 0) return;
-    if (submission[0].submission_status !== 'GRADED') return;
-    if (!props.assignment?.auto_grading) return;
-    hasAutoOpenedRef.current = true;
-    setIsGradeModalOpen(true);
-  }, [gradeData, submission, props.assignment]);
-
-  // No submission yet, OR the row exists in PENDING / NOT_SUBMITTED because
-  // the student previously hit "Try again" and the retry endpoint reset the
-  // row in place. In both cases the next action is the same: submit for
-  // grading. The submit endpoint upserts on PENDING so a fresh submission
-  // here reuses the existing row and preserves the attempt counter.
-  const isAwaitingSubmission =
-    !submission ||
-    submission.length === 0 ||
-    submission[0].submission_status === 'PENDING' ||
-    submission[0].submission_status === 'NOT_SUBMITTED';
-  // A formative assignment is handed in, not "submitted for grading" — nothing
-  // downstream will ever mark it, so every label here says so.
-  const isUngradedAssignment = !!props.assignment?.ungraded;
-  const attemptNumber = submission?.[0]?.attempt_number ?? 1;
-  const isRetryAttempt = isAwaitingSubmission && submission?.length > 0 && attemptNumber > 1;
-
-  if (isAwaitingSubmission) {
-    // Past the deadline the server 403s every write, including the flush that
-    // "Submit for grading" performs. Offering the button anyway produced a
-    // generic failure toast with no explanation of why.
-    if (isAssignmentPastDue(props.assignment?.due_date)) {
-      return (
-        <div className="bg-rose-800 rounded-md px-4 nice-shadow flex flex-col p-2.5 text-white transition delay-150 duration-300 ease-in-out">
-          <span className="text-[10px] font-bold mb-1 uppercase">{t('common.status')}</span>
-          <div className="flex items-center space-x-2">
-            <BookOpenCheck size={17} />
-            <span className="text-xs font-bold">
-              {t('assignments.past_due', { defaultValue: 'Deadline passed' })}
-            </span>
-          </div>
-        </div>
-      )
-    }
-
-    // While the submit runs the trigger itself reports it: saving every pending
-    // answer and grading server-side takes seconds on a long assignment, and
-    // the bar is what the learner is looking at.
-    if (isSubmitting) {
-      return (
-        <div className="bg-cyan-800 rounded-md px-4 nice-shadow flex flex-col p-2.5 text-white transition delay-150 duration-300 ease-in-out">
-          <span className="text-[10px] font-bold mb-1 uppercase">{t('common.status')}</span>
-          <div className="flex items-center space-x-2">
-            <Loader2 size={17} className="animate-spin" />
-            <span className="text-xs font-bold">
-              {t('assignments.submitting', { defaultValue: 'Submitting…' })}
-            </span>
-          </div>
-        </div>
-      )
-    }
-
-    return (
-      <ConfirmationModal
-        confirmationButtonText={t('assignments.submit_assignment')}
-        pendingButtonText={t('assignments.submitting', { defaultValue: 'Submitting…' })}
-        confirmationMessage={
-          isUngradedAssignment
-            ? t('assignments.hand_in_confirm', {
-                defaultValue:
-                  'Your work will be handed in to your teacher. It is not graded.',
-              })
-            : t('assignments.submit_assignment_confirm')
-        }
-        dialogTitle={
-          isUngradedAssignment
-            ? t('assignments.hand_in_title', { defaultValue: 'Hand in your work' })
-            : t('assignments.submit_assignment_title')
-        }
-        dialogTrigger={
-          <div className="bg-cyan-800 rounded-md px-4 nice-shadow flex flex-col p-2.5 text-white hover:cursor-pointer transition delay-150 duration-300 ease-in-out">
-            <span className="text-[10px] font-bold mb-1 uppercase">
-              {isRetryAttempt
-                ? t('assignments.attempt_count', { current: attemptNumber })
-                : t('common.status')}
-            </span>
-            <div className="flex items-center space-x-2">
-              <BookOpenCheck size={17} />
-              <span className="text-xs font-bold">
-                {isUngradedAssignment
-                  ? t('assignments.hand_in', { defaultValue: 'Hand in my work' })
-                  : t('assignments.submit_for_grading')}
-              </span>
-            </div>
-          </div>
-        }
-        functionToExecute={submitForGradingUI}
-        status="info"
-      />
-    )
-  }
-
-  if (submission[0].submission_status === 'SUBMITTED') {
-    // Formative assignments never leave SUBMITTED — there is no grading queue
-    // behind them — so "Grading in progress" would be a lie that never resolves.
-    if (isUngradedAssignment) {
-      const allowRetries = !!props.assignment?.allow_retries;
-      const maxRetries = Number(props.assignment?.max_retries || 0);
-      const currentAttempt = Number(submission?.[0]?.attempt_number || 1);
-      const canRetry =
-        allowRetries &&
-        !isAssignmentPastDue(props.assignment?.due_date) &&
-        (maxRetries === 0 || currentAttempt < maxRetries);
-
-      return (
-        <div className="flex items-center gap-2">
-          <div className="bg-teal-700 rounded-md px-4 nice-shadow flex flex-col p-2.5 text-white transition delay-150 duration-300 ease-in-out">
-            <span className="text-[10px] font-bold mb-1 uppercase">{t('common.status')}</span>
-            <div className="flex items-center space-x-2">
-              <CheckCircle size={17} />
-              <span className="text-xs font-bold">
-                {t('assignments.handed_in', { defaultValue: 'Handed in' })}
-              </span>
-            </div>
-          </div>
-          {canRetry && (
-            <ConfirmationModal
-              confirmationButtonText={t('assignments.retry_assignment')}
-              // The generic warning talks about replacing a grade; here the
-              // consequence is that the corrigé re-locks until the next hand-in.
-              confirmationMessage={t('assignments.retry_assignment_confirm_ungraded', {
-                defaultValue:
-                  'Your current hand-in will be reset so you can start over, and the model answer locks again until you hand in the next attempt.',
-              })}
-              dialogTitle={t('assignments.retry_assignment_title')}
-              dialogTrigger={
-                <button
-                  type="button"
-                  disabled={isRetrying}
-                  className="h-full inline-flex items-center gap-1.5 px-3 py-2.5 rounded-md bg-white/90 hover:bg-white disabled:opacity-50 text-teal-800 text-xs font-bold nice-shadow transition-colors"
-                >
-                  <RotateCcw size={14} />
-                  {t('assignments.retry_assignment')}
-                </button>
-              }
-              functionToExecute={retrySubmissionUI}
-              status="warning"
-            />
-          )}
-        </div>
-      )
-    }
-
-    return (
-      <div className="bg-amber-800 rounded-md px-4 nice-shadow flex flex-col p-2.5 text-white transition delay-150 duration-300 ease-in-out">
-        <span className="text-[10px] font-bold mb-1 uppercase">{t('common.status')}</span>
-        <div className="flex items-center space-x-2">
-          <UserRoundPen size={17} />
-          <span className="text-xs font-bold">{t('assignments.grading_in_progress')}</span>
-        </div>
-      </div>
-    )
-  }
-
-  if (submission[0].submission_status === 'GRADED') {
-    // Fallback string if the server response hasn't hydrated yet or is old.
-    const displayGrade = gradeData?.display_grade
-      ?? (gradeData ? `${gradeData.grade}/${gradeData.max_grade}` : '...');
-    const pointsSummary = gradeData?.points_summary;
-    const percentageDisplay = gradeData?.percentage_display;
-    const passed = gradeData?.passed;
-    const feedback = gradeData?.overall_feedback;
-    const tasks = gradeData?.tasks as any[] | undefined;
-    const isPassing = passed !== false;
-    const pillBg = isPassing ? 'bg-teal-600' : 'bg-rose-600';
-    const pillChip = isPassing ? 'bg-white text-teal-800' : 'bg-white text-rose-700';
-
-    // Retry availability mirrors the backend's eligibility check: teacher
-    // opted in (allow_retries) and attempt counter hasn't reached the cap
-    // (max_retries=0 means unlimited). We compute it client-side too so the
-    // "Try again" button is only rendered when it would actually succeed.
-    const allowRetries = !!props.assignment?.allow_retries;
-    const maxRetries = Number(props.assignment?.max_retries || 0);
-    const currentAttempt = Number(submission?.[0]?.attempt_number || 1);
-    const attemptsRemaining = maxRetries
-      ? Math.max(0, maxRetries - currentAttempt)
-      : null;
-    // Past the deadline the server refuses a retry — and rightly so: retry wipes
-    // the answers, grade and certificate, and every resubmit path is deadline
-    // gated, so a retry here would destroy graded work with no way back. Mirror
-    // that client-side rather than offering a button that 403s.
-    const retryPastDue = isAssignmentPastDue(props.assignment?.due_date);
-    const canRetry =
-      allowRetries && !retryPastDue && (maxRetries === 0 || currentAttempt < maxRetries);
-
-    return (
-      <>
-        {/* Compact pill — same footprint and alignment as the Next button */}
-        <button
-          type="button"
-          onClick={() => setIsGradeModalOpen(true)}
-          className={`${pillBg} rounded-md px-3 sm:px-4 nice-shadow flex flex-col items-start text-start p-2 sm:p-2.5 text-white hover:cursor-pointer transition delay-150 duration-300 ease-in-out`}
-        >
-          <span className="text-[10px] font-bold mb-1 uppercase text-white/90 flex items-center gap-1.5">
-            <span>{t('common.status')}</span>
-            {allowRetries && currentAttempt > 1 && (
-              <span className="bg-white/20 text-white px-1.5 py-px rounded-full text-[9px] font-bold tracking-normal normal-case">
-                {maxRetries
-                  ? t('assignments.attempt_count_bounded', {
-                      current: currentAttempt,
-                      max: maxRetries,
-                    })
-                  : t('assignments.attempt_count', { current: currentAttempt })}
-              </span>
-            )}
-          </span>
-          <div className="flex items-center space-x-1.5">
-            <CheckCircle size={15} className="shrink-0" />
-            <span className="text-xs sm:text-sm font-semibold">{t('assignments.graded')}</span>
-            <span className={`${pillChip} px-1.5 py-0.5 rounded-md text-[11px] font-bold`}>
-              {displayGrade}
-            </span>
-            <ChevronRight size={15} className="shrink-0" />
-          </div>
-        </button>
-
-        {/* Confetti for passing students — fires once each time the modal
-            opens because react-confetti with recycle={false} plays through
-            and the conditional remount restarts it. */}
-        {isGradeModalOpen && isPassing && gradeData && (
-          <div className="fixed inset-0 pointer-events-none z-[300]">
-            <ReactConfetti
-              width={windowWidth}
-              height={windowHeight}
-              numberOfPieces={220}
-              recycle={false}
-              gravity={0.18}
-              tweenDuration={6000}
-              colors={['#10b981', '#14b8a6', '#06b6d4', '#fbbf24', '#f59e0b', '#ec4899']}
-            />
-          </div>
-        )}
-
-        {/* Detail modal — opens on click and auto-opens once when the
-            assignment is auto-graded so students see their result right
-            away. */}
-        <Modal
-          isDialogOpen={isGradeModalOpen}
-          onOpenChange={(open: boolean) => setIsGradeModalOpen(open)}
-          minWidth="sm"
-          noPadding
-          dialogContent={
-            <div className="flex flex-col">
-              {/* Hero */}
-              <div className={`relative px-6 pt-8 pb-7 overflow-hidden ${
-                isPassing
-                  ? 'bg-gradient-to-br from-emerald-50 via-teal-50 to-cyan-50'
-                  : 'bg-gradient-to-br from-rose-50 via-orange-50 to-amber-50'
-              }`}>
-                {/* Decorative blobs */}
-                <div className={`absolute -top-12 -end-12 w-44 h-44 rounded-full blur-3xl opacity-40 ${
-                  isPassing ? 'bg-emerald-300' : 'bg-rose-300'
-                }`} />
-                <div className={`absolute -bottom-16 -start-12 w-44 h-44 rounded-full blur-3xl opacity-40 ${
-                  isPassing ? 'bg-cyan-300' : 'bg-amber-300'
-                }`} />
-
-                <div className="relative flex flex-col items-center text-center space-y-3">
-                  <div className={`relative w-[72px] h-[72px] rounded-full flex items-center justify-center nice-shadow bg-white`}>
-                    {isPassing ? (
-                      <Trophy size={34} className="text-emerald-600" strokeWidth={2.2} />
-                    ) : (
-                      <XCircle size={36} className="text-rose-600" strokeWidth={2.2} />
-                    )}
-                    {isPassing && (
-                      <>
-                        <Sparkles size={16} className="absolute -top-1 -end-1 text-amber-500 drop-shadow" />
-                        <Sparkles size={12} className="absolute -bottom-1 -start-1 text-amber-400 drop-shadow" />
-                      </>
-                    )}
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <p className={`text-[10px] font-bold uppercase tracking-[0.18em] ${
-                      isPassing ? 'text-emerald-700' : 'text-rose-700'
-                    }`}>
-                      {isPassing
-                        ? t('dashboard.assignments.submissions.preview.passing')
-                        : t('dashboard.assignments.submissions.preview.not_passing')}
-                    </p>
-                    <h2 className="text-5xl font-black text-gray-900 tracking-tight leading-none">
-                      {displayGrade}
-                    </h2>
-                    {(pointsSummary || percentageDisplay) && (
-                      <p className="text-sm text-gray-500 font-medium pt-1">
-                        {[percentageDisplay, pointsSummary].filter(Boolean).join(' · ')}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* Body */}
-              <div className="px-6 pt-5 pb-6 space-y-5">
-                {tasks && tasks.length > 0 && (
-                  <div className="space-y-2.5">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
-                      {t('assignments.task_breakdown')}
-                    </p>
-                    <div className="space-y-1.5">
-                      {tasks.map((tb: any) => {
-                        const pct = Math.max(0, Math.min(100, tb.percentage || 0));
-                        // Use the server's per-task verdict. Hardcoding 60 here
-                        // contradicted the real threshold (50 for most grading
-                        // types, or the teacher's own pass_threshold_percentage),
-                        // so a task at 50% rendered as failing in this modal while
-                        // the hero above it said "Passing" and the page behind it
-                        // showed a green "Task passed" card.
-                        const passedTask = tb.submitted && (
-                          typeof tb.passed === 'boolean' ? tb.passed : pct >= 60
-                        );
-                        return (
-                          <div
-                            key={tb.assignment_task_uuid}
-                            className="relative overflow-hidden rounded-lg bg-gray-50 px-3 py-2.5"
-                          >
-                            {tb.submitted && (
-                              <div
-                                className={`absolute inset-y-0 start-0 transition-all ${
-                                  passedTask ? 'bg-emerald-100/70' : 'bg-rose-100/70'
-                                }`}
-                                style={{ width: `${pct}%` }}
-                              />
-                            )}
-                            <div className="relative flex items-center justify-between gap-3">
-                              <span className="text-sm text-gray-700 truncate" title={tb.description || `Task ${tb.index}`}>
-                                <span className="font-bold text-gray-400 me-1.5">{tb.index}.</span>
-                                {tb.description || `Task ${tb.index}`}
-                              </span>
-                              <span className={`text-xs font-bold flex-none ${
-                                !tb.submitted
-                                  ? 'text-gray-400'
-                                  : passedTask
-                                    ? 'text-emerald-700'
-                                    : 'text-rose-700'
-                              }`}>
-                                {tb.submitted ? tb.percentage_display : '—'}
-                              </span>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                {feedback && (
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-gray-400">
-                      <MessageSquare size={11} />
-                      <span>{t('dashboard.assignments.submissions.feedback.label')}</span>
-                    </div>
-                    <div className="p-3 rounded-lg bg-gray-50 border border-gray-100">
-                      <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">
-                        {feedback}
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                {!tasks?.length && !feedback && (
-                  <p className="text-sm text-gray-400 text-center py-4">
-                    {t('assignments.no_grade_details')}
-                  </p>
-                )}
-
-                {allowRetries && (
-                  <div className="pt-2">
-                    {canRetry ? (
-                      <div className="rounded-xl border border-fuchsia-100 bg-gradient-to-br from-fuchsia-50 via-pink-50 to-rose-50 p-4">
-                        <div className="flex items-start gap-3">
-                          <div className="w-9 h-9 rounded-full bg-white nice-shadow flex items-center justify-center text-fuchsia-600 shrink-0">
-                            <RotateCcw size={16} />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-bold text-gray-900">
-                              {t('assignments.retry_assignment_title')}
-                            </p>
-                            <p className="text-xs text-gray-600 mt-1 leading-snug">
-                              {t('assignments.retry_assignment_confirm')}
-                            </p>
-                            <p className="text-[11px] text-fuchsia-700 mt-2 font-semibold flex items-center gap-1.5">
-                              {maxRetries === 0 ? (
-                                <>
-                                  <InfinityIcon size={11} />
-                                  <span>
-                                    {t('assignments.attempt_count', { current: currentAttempt })}
-                                  </span>
-                                </>
-                              ) : attemptsRemaining === 1 ? (
-                                <span>{t('assignments.retry_assignment_last')}</span>
-                              ) : (
-                                <span>
-                                  {t('assignments.retry_assignment_remaining', {
-                                    remaining: attemptsRemaining,
-                                    plural: attemptsRemaining === 1 ? '' : 's',
-                                  })}
-                                </span>
-                              )}
-                            </p>
-                          </div>
-                        </div>
-                        <ConfirmationModal
-                          confirmationButtonText={t('assignments.retry_assignment')}
-                          confirmationMessage={t('assignments.retry_assignment_confirm')}
-                          dialogTitle={t('assignments.retry_assignment_title')}
-                          dialogTrigger={
-                            <button
-                              type="button"
-                              disabled={isRetrying}
-                              className="mt-3 w-full inline-flex items-center justify-center gap-1.5 h-9 px-4 rounded-lg bg-gray-900 hover:bg-gray-800 disabled:opacity-50 text-white text-sm font-semibold transition-colors"
-                            >
-                              <RotateCcw size={14} />
-                              {t('assignments.retry_assignment')}
-                            </button>
-                          }
-                          functionToExecute={retrySubmissionUI}
-                          status="warning"
-                        />
-                      </div>
-                    ) : (
-                      <div className="rounded-xl border border-gray-100 bg-gray-50 p-3">
-                        <div className="flex items-center gap-2">
-                          <RotateCcw size={14} className="text-gray-400 shrink-0" />
-                          <p className="text-xs text-gray-500 font-medium">
-                            {t('assignments.retry_no_attempts_left')} ·{' '}
-                            {t('assignments.attempt_count_bounded', {
-                              current: currentAttempt,
-                              max: maxRetries,
-                            })}
-                          </p>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          }
-        />
-      </>
-    )
-  }
-
-  // Default return in case none of the conditions are met
-  return null
 }
 
 export default ActivityClient

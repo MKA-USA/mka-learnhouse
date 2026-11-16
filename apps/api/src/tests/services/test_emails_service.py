@@ -78,7 +78,7 @@ class TestEmailsService:
         assert result is True
         body = send_email.call_args.kwargs["body"]
         assert "user&lt;script&gt;" in body
-        assert "Get Started" in body
+        assert "Get started" in body
 
     def test_orgless_welcome_uses_cta_url_and_learnhouse_branding(self):
         with patch("src.services.users.emails.send_email", return_value=True) as send_email:
@@ -261,7 +261,7 @@ class TestEmailsService:
                 "https://app.test/signup",
             )
         invite_body = send_email.call_args.kwargs["body"]
-        assert "Click the button below" in invite_body
+        assert "Create your account to accept" in invite_body
 
     def test_send_emails_in_french_when_lang_is_fr(self):
         with patch("src.services.users.emails.send_email", return_value=True) as send_email:
@@ -309,7 +309,7 @@ class TestEmailsService:
                 lang="xx",
             )
         body = send_email.call_args.kwargs["body"]
-        assert "You've been invited" in body
+        assert "You're invited" in body
 
 
 class TestNotificationEmailResilience:
@@ -322,7 +322,7 @@ class TestNotificationEmailResilience:
             "src.services.users.emails.send_email",
             side_effect=HTTPException(status_code=503, detail="Email service temporarily unavailable"),
         ):
-            # A signup whose welcome email fails still returns — the account is
+            # A signup whose welcome email fails still returns; the account is
             # already created, so a dead mail provider must not 5xx the caller.
             assert send_account_creation_email(_user(), "user@test.com") is False
 
@@ -397,7 +397,7 @@ class TestSenderNameRouting:
 
     Org-scoped mail is *about* one organization, so it may go out under that
     organization's name. Platform mail (org-less signup, platform password
-    reset, account deletion) must not borrow one — the recipient has no
+    reset, account deletion) must not borrow one; the recipient has no
     relationship with any org in that moment.
     """
 
@@ -484,7 +484,7 @@ class TestWhiteLabel:
     """Every org-scoped email is the organization's own, not LearnHouse's.
 
     With the org's watermark off there must be no trace of the platform in
-    the rendered mail — no wordmark, no name in the copy, no attribution
+    the rendered mail: no wordmark, no name in the copy, no attribution
     line. With it on, exactly one "Powered by LearnHouse" line remains.
     """
 
@@ -637,7 +637,7 @@ class TestWhiteLabel:
                 powered_by=False,
             )
         body = sent.call_args.kwargs["body"]
-        assert "welcome to Acme &amp; Co!" in body
+        assert "activate your Acme &amp; Co account" in body
         assert "create a Acme &amp; Co account" in body or "Acme &amp; Co account" in body
         assert "LearnHouse" not in body
 
@@ -666,7 +666,7 @@ class TestWhiteLabel:
             assert "Powered by LearnHouse" not in body
             assert "#ff5500" not in body
         verification_body = sent.call_args_list[1].kwargs["body"]
-        assert "welcome to LearnHouse!" in verification_body
+        assert "activate your LearnHouse account" in verification_body
 
     def test_translated_whitelabel_copy_has_no_unfilled_placeholders(self):
         from src.services.auth.magic_login import send_magic_login_email

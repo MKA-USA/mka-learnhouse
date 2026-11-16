@@ -307,7 +307,7 @@ const OrgAuditLogs = () => {
                       setOffset(0)
                     }}
                   />
-                  <span className="text-gray-400 text-xs">to</span>
+                  <span className="text-gray-400 text-xs">{t('dashboard.organization.audit_logs.date_to')}</span>
                   <Input
                     type="date"
                     className="h-9 text-xs w-[130px]"
@@ -382,7 +382,7 @@ const OrgAuditLogs = () => {
                         />
                         <div className="flex flex-col">
                             <span className="text-sm font-medium text-gray-800">
-                                @{log.username || 'System'}
+                                @{log.username || t('dashboard.organization.audit_logs.system_user')}
                             </span>
                             {log.user_id && (
                                 <span className="text-[10px] text-gray-400 font-mono tracking-tighter">ID: {log.user_id}</span>
@@ -420,7 +420,7 @@ const OrgAuditLogs = () => {
                   <td className="py-3 px-4">
                     <div className="flex items-center gap-1 text-xs text-gray-400 font-mono">
                       <Globe className="w-3 h-3" />
-                      {log.ip_address || '—'}
+                      {log.ip_address || 'n/a'}
                     </div>
                   </td>
                   <td className="py-3 px-4 text-end">
@@ -450,7 +450,7 @@ const OrgAuditLogs = () => {
                         }
                       />
                     ) : (
-                      <span className="text-gray-300 text-xs">—</span>
+                      <span className="text-gray-300 text-xs">n/a</span>
                     )}
                   </td>
                 </tr>

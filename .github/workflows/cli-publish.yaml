@@ -8,14 +8,22 @@ name: Publish CLI to npm
 on:
   push:
     tags:
-      # e.g. `cli-1.4.9` — NOT `cli-v1.4.9`. The version (everything after `cli-`)
+      # e.g. `cli-1.4.9`, NOT `cli-v1.4.9`. The version (everything after `cli-`)
       # must equal apps/cli/package.json "version".
       - 'cli-[0-9]*'
+  # Publish an existing CLI tag again (e.g. when its tag push didn't start a
+  # run). The CLI is still built from that tag's source.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'CLI tag to publish, e.g. cli-1.6.0'
+        required: true
+        type: string
 
 # Never run two publishes for the same tag concurrently, and never cancel one
 # mid-flight (interrupting the publish step is the one thing we must not do).
 concurrency:
-  group: cli-publish-${{ github.ref }}
+  group: cli-publish-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
 # Least privilege: this job pushes nothing back to the repo. `id-token: write`
@@ -33,14 +41,16 @@ jobs:
     name: Build, Test & Publish
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@v7.0.1
         with:
-          node-version: '24'
+          ref: refs/tags/${{ inputs.tag || github.ref_name }}
+
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: '26.13.1'
           registry-url: 'https://registry.npmjs.org'
 
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@v2.2.0
         with:
           bun-version-file: .bun-version
 
@@ -55,7 +65,14 @@ jobs:
 
       - name: Extract version from tag
         id: version
-        run: echo "version=${GITHUB_REF_NAME#cli-}" >> "$GITHUB_OUTPUT"
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          if ! [[ "$TAG" =~ ^cli-[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::Not a CLI tag: $TAG"
+            exit 1
+          fi
+          echo "version=${TAG#cli-}" >> "$GITHUB_OUTPUT"
 
       # ── Safety gate 2: the tag, package.json and the version compiled into the
       # freshly-built binary must all agree. Executing dist/ catches both a broken
@@ -74,7 +91,7 @@ jobs:
           fi
           BIN_VERSION="$(node dist/bin/learnhouse.js --version)"
           if [ "$BIN_VERSION" != "$TAG_VERSION" ]; then
-            echo "::error::Built binary reports '$BIN_VERSION' but the tag is '$TAG_VERSION' — is src/constants.ts out of sync with package.json?"
+            echo "::error::Built binary reports '$BIN_VERSION' but the tag is '$TAG_VERSION'. Is src/constants.ts out of sync with package.json?"
             exit 1
           fi
           echo "Versions agree: $TAG_VERSION"

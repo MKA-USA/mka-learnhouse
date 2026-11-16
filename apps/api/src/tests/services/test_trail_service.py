@@ -245,6 +245,26 @@ class TestTrailService:
         assert (await db.execute(TrailStep.__table__.select())).all()
 
     @pytest.mark.asyncio
+    async def test_progress_changes_notify_ee_once(
+        self, db, org, admin_user, mock_request, activity, course
+    ):
+        with patch("src.services.trail.trail.track", new_callable=AsyncMock), patch(
+            "src.services.trail.trail.dispatch_webhooks", new_callable=AsyncMock
+        ), patch(
+            "src.services.trail.trail.check_course_completion_and_create_certificate",
+            new_callable=AsyncMock,
+        ), patch("src.services.trail.trail.notify_ee_learner_progress") as notify:
+            await add_activity_to_trail(mock_request, admin_user, activity.activity_uuid, db)
+            # A re-visit is not a progress change.
+            await add_activity_to_trail(mock_request, admin_user, activity.activity_uuid, db)
+            assert notify.call_args_list == [((admin_user.id, course.id),)]
+            await remove_activity_from_trail(mock_request, admin_user, activity.activity_uuid, db)
+            assert notify.call_count == 2
+            # Leaving the course drops its progress too.
+            await remove_course_from_trail(mock_request, admin_user, course.course_uuid, db)
+            assert notify.call_count == 3
+
+    @pytest.mark.asyncio
     async def test_add_activity_to_trail_rejects_missing_activity_and_course(
         self, db, org, admin_user, mock_request
     ):
@@ -268,6 +288,23 @@ class TestTrailService:
 
         assert missing_activity_exc.value.status_code == 404
         assert missing_course_exc.value.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_add_activity_to_trail_rejects_assignments(
+        self, db, org, course, regular_user, mock_request
+    ):
+        db.add(Activity(
+            id=77, name="Essay", activity_type=ActivityTypeEnum.TYPE_ASSIGNMENT,
+            activity_sub_type=ActivitySubTypeEnum.SUBTYPE_ASSIGNMENT_ANY, content={},
+            published=True, org_id=org.id, course_id=course.id,
+            activity_uuid="activity_essay", creation_date="now", update_date="now",
+        ))
+        await db.commit()
+
+        with pytest.raises(HTTPException) as exc:
+            await add_activity_to_trail(mock_request, regular_user, "activity_essay", db)
+        assert exc.value.status_code == 400
+        assert (await db.execute(TrailStep.__table__.select())).all() == []
 
     @pytest.mark.asyncio
     async def test_remove_activity_from_trail_deletes_step_and_checks_guards(
@@ -413,17 +450,26 @@ class TestTrailService:
 
         trail = await _make_trail(db, org, admin_user)
         trail_run = await _make_trail_run(db, trail, course, admin_user)
-        # One completion step per (run, activity, user) — enforced by a UNIQUE
+        # One completion step per (run, activity, user), enforced by a UNIQUE
         # constraint. A single step is enough to verify removal deletes it.
         await _make_trail_step(db, trail, trail_run, activity, course, admin_user)
 
-        removed = await remove_course_from_trail(
-            mock_request,
-            admin_user,
-            course.course_uuid,
-            db,
-        )
+        with patch(
+            "src.services.trail.trail.track", new_callable=AsyncMock
+        ) as mock_track:
+            removed = await remove_course_from_trail(
+                mock_request,
+                admin_user,
+                course.course_uuid,
+                db,
+            )
 
+        mock_track.assert_awaited_once_with(
+            event_name="course_left",
+            org_id=course.org_id,
+            user_id=admin_user.id,
+            properties={"course_uuid": course.course_uuid},
+        )
         assert missing_course_exc.value.status_code == 404
         assert missing_trail_exc.value.status_code == 404
         assert removed.runs == []

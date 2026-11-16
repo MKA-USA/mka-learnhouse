@@ -465,6 +465,21 @@ async def test_import_cycle_session_admin_idempotent(db, org, world):
 
 
 @pytest.mark.asyncio
+async def test_import_cycle_accepts_the_majlis_plan_kind_without_a_department(db, org, world):
+    payload = cycle_payload()
+    payload["courses"].append({"kind": "majlis-plan", "department": "tabligh", "course_uuid": "course_maal", "signoff": {"assignment_uuid": "assignment_5004"}})
+    async with client_for(db, 1) as c:
+        res = (await c.post(f"{BASE}/cycles", params=q(org), json=payload)).json()
+    assert res["failed"] == 0 and [r["action"] for r in res["courses"]] == ["created", "created", "created"]
+    cyc = (await db.execute(select(MkaComplianceCycle).where(MkaComplianceCycle.label == "2027-28"))).scalars().one()
+    mp = (await db.execute(select(MkaComplianceCycleCourse).where(MkaComplianceCycleCourse.cycle_id == cyc.id, MkaComplianceCycleCourse.kind == "majlis-plan"))).scalars().one()
+    assert mp.department is None and mp.signoff_assignment_id == 5004
+    async with client_for(db, 1) as c:  # a second majlis-plan course in the same cycle clashes
+        bad = (await c.post(f"{BASE}/cycles", params=q(org), json={**payload, "courses": [{"kind": "majlis-plan", "course_uuid": "course_tabligh"}]})).json()
+    assert bad["failed"] == 1 and "already has a majlis-plan course" in str(bad["courses"][0])
+
+
+@pytest.mark.asyncio
 async def test_import_cycle_bad_courses_are_per_row_errors(db, org, other_org, world):
     payload = cycle_payload()
     payload["courses"] += [

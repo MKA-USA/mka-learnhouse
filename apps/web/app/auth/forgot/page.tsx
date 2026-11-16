@@ -8,7 +8,7 @@ export async function generateMetadata(): Promise<Metadata> {
   const orgslug = await getAuthOrgSlug()
 
   if (!orgslug) {
-    return { title: 'Forgot Password — MKA Ilm' }
+    return { title: 'Forgot Password | MKA Ilm' }
   }
 
   let org: any = null
@@ -18,11 +18,11 @@ export async function generateMetadata(): Promise<Metadata> {
       tags: ['organizations'],
     })
   } catch {
-    // Stale cookie or unknown org — fall back to generic title
+    // Stale cookie or unknown org: fall back to generic title
   }
 
   return {
-    title: 'Forgot Password' + ` — ${org?.name || 'MKA Ilm'}`,
+    title: 'Forgot Password' + ` | ${org?.name || 'MKA Ilm'}`,
     robots: { index: false, follow: false },
   }
 }

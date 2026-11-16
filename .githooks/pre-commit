@@ -1,0 +1,30 @@
+#!/bin/sh
+# MKA fork pre-commit: block secrets and local agent state. Install: scripts/install-git-hooks.sh
+# Bypass (emergency only; GitHub push protection and CI still scan): SKIP_SECRET_SCAN=1 git commit ...
+if [ "${SKIP_SECRET_SCAN:-}" = "1" ]; then
+  echo "!!! WARNING: SKIP_SECRET_SCAN=1 set - secret scan and forbidden-path check SKIPPED !!!" >&2
+  echo "!!! GitHub push protection and CI will still scan this commit. !!!" >&2
+  exit 0
+fi
+
+root=$(git rev-parse --show-toplevel) || exit 1
+cd "$root" || exit 1
+
+# (b) forbidden paths (added/copied/modified/renamed only, so deletions of old files stay possible)
+if ! git diff --cached --name-only --diff-filter=ACMR | sh scripts/check-forbidden-paths.sh; then
+  exit 1
+fi
+
+# (a) gitleaks on staged changes; fail closed if missing
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "ERROR: gitleaks is not installed; refusing to commit without a secret scan." >&2
+  echo "Install: brew install gitleaks   (then retry)" >&2
+  exit 1
+fi
+if ! gitleaks git --pre-commit --staged --config .gitleaks.toml --redact --no-banner; then
+  echo "" >&2
+  echo "Possible secret in staged changes. Move it to Coolify env vars and rotate it if it was ever real." >&2
+  echo "False positive? Add an inline 'gitleaks:allow' comment or a narrow allowlist in .gitleaks.toml (reviewed PR)." >&2
+  exit 1
+fi
+exit 0

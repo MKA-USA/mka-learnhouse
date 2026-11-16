@@ -5,11 +5,8 @@
 //   fails with `timeout-or-duplicate`), so outside SaaS the gateway does NOT
 //   verify it; the API verifies it once (apps/api/src/services/security/
 //   mka_turnstile.py). That also closes the direct-POST bypass of the API.
-// - X-Forwarded-For / X-Real-IP: the gateway calls the API server-side, so
-//   without these the API sees the gateway hop (not the member) as the client
-//   and the per-IP signup limit becomes one shared bucket. They are copied
-//   VERBATIM from the incoming request (as set by the container nginx), so the
-//   API's get_client_ip sees exactly what it sees on a direct request.
+// - X-Forwarded-For / X-Real-IP are NOT added here any more: since upstream 1.4.5 the
+//   signup route relays both verbatim itself, and adding them again sent "ip, ip".
 //
 // SaaS mode returns {} so the request is byte-identical to upstream.
 
@@ -18,7 +15,7 @@ const SAFE_TOKEN = /^[\x21-\x7e]+$/
 
 export function mkaSignupForwardHeaders(
   saas: boolean,
-  incoming: Headers,
+  _incoming: Headers, // kept for call-site compatibility; client IP headers are relayed by upstream's route
   turnstileToken: unknown,
 ): Record<string, string> {
   if (saas) return {}
@@ -32,10 +29,6 @@ export function mkaSignupForwardHeaders(
     // user sees "Verification failed" rather than a proxy error.
     out['X-Turnstile-Token'] = valid ? (turnstileToken as string) : 'invalid'
   }
-  const xff = incoming.get('x-forwarded-for')
-  if (xff) out['X-Forwarded-For'] = xff
-  const realIp = incoming.get('x-real-ip')
-  if (realIp) out['X-Real-IP'] = realIp
   return out
 }
 
@@ -47,7 +40,7 @@ export function mkaSignupForwardHeaders(
 // member, as the client: every signup shared one rate-limit bucket. Outside
 // SaaS the gateway calls the API on loopback instead (the API binds
 // 0.0.0.0:LEARNHOUSE_PORT in the same container) and forwards the member's
-// X-Forwarded-For itself (mkaSignupForwardHeaders).
+// X-Forwarded-For (relayed by upstream's signup route).
 
 /** Loopback API base: LEARNHOUSE_INTERNAL_API_URL, else http://127.0.0.1:<LEARNHOUSE_PORT|9000>/api/v1/. */
 export function mkaInternalApiUrl(env: Record<string, string | undefined> = process.env): string {

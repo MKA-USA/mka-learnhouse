@@ -42,13 +42,14 @@ import {
 } from '@phosphor-icons/react'
 
 import { useLHSession } from '@components/Contexts/LHSessionContext'
+import { hasManagingRoleFromSession } from '@components/Hooks/useAdminStatus'
 import { signOut } from '@components/Contexts/AuthContext'
 import UserAvatar from '@components/Objects/UserAvatar'
-import DemoEntryCard from '@components/Objects/Demo/DemoEntryCard'
+import DemoEntryCard from '@ee/components/Demo/DemoEntryCard'
 import { createNewOrganization } from '@services/organizations/orgs'
 import { useLHAnalytics } from '@services/analytics/useLHAnalytics'
 import { AnalyticsEvent } from '@services/analytics/events'
-import { getAPIUrl, getUriWithOrg } from '@services/config/config'
+import { getAPIUrl, getCustomDomainFromContext, getLEARNHOUSE_DOMAIN_VAL, getUriWithOrg } from '@services/config/config'
 import { apiFetch } from '@services/utils/ts/requests'
 import {
   DropdownMenu,
@@ -117,7 +118,7 @@ function friendlyCreateError(e: any, fallback: string): string {
     return fallback
   }
   const msg = typeof e?.message === 'string' ? e.message.trim() : ''
-  // A JSON-stringified payload leaked through as the message — don't show it raw.
+  // A JSON-stringified payload leaked through as the message; don't show it raw.
   if (!msg || msg.startsWith('[') || msg.startsWith('{')) return fallback
   return msg
 }
@@ -664,15 +665,19 @@ function CreateOrgSuccess({ slug, t }: { slug: string; t: any }) {
     setGoing(true)
     // Single-domain (.io) consolidation: the apex and the org subdomain share
     // the .{top_domain}-scoped session cookie, so the session already covers the
-    // subdomain — no cross-domain code-mint/token-exchange handoff is needed.
+    // subdomain; no cross-domain code-mint/token-exchange handoff is needed.
     // Refresh once to mint a fresh access token, then land on the new org's
     // onboarding (the first page for a brand-new org).
     try {
       await fetch('/api/auth/refresh', { credentials: 'include' })
     } catch {
-      /* non-fatal — the existing session cookie still carries over */
+      /* non-fatal: the existing session cookie still carries over */
     }
-    window.location.href = getUriWithOrg(slug, '/dash/onboarding')
+    // getUriWithOrg stays relative on a custom domain (that host is another
+    // org's), so build the new org's own subdomain URL there.
+    window.location.href = getCustomDomainFromContext()
+      ? `${window.location.protocol}//${slug}.${getLEARNHOUSE_DOMAIN_VAL()}/dash/onboarding`
+      : getUriWithOrg(slug, '/dash/onboarding')
   }
 
   return (
@@ -760,6 +765,8 @@ export default function CreateNewOrgPage() {
 
   // Load the user's existing orgs to detect whether they already have a free org
   // (which makes the free plan unavailable, mirroring the platform's 1-free-org cap).
+  // Only orgs they run count: being a member of a school on the free plan must
+  // not stop someone from starting their own, and the demo makes everyone admin.
   const { data: orgs } = useQuery({
     queryKey: ['orgs', 'user'],
     queryFn: () => apiFetch(`${getAPIUrl()}orgs/user/page/1/limit/50`, access_token),
@@ -768,6 +775,7 @@ export default function CreateNewOrgPage() {
   })
   const hasFreeOrg = Array.isArray(orgs)
     ? orgs.some((o: any) => {
+        if (o.is_demo || !hasManagingRoleFromSession(session, o.id)) return false
         const plan = o.config?.config?.plan ?? o.config?.config?.cloud?.plan ?? 'free'
         return plan === 'free'
       })
@@ -814,7 +822,7 @@ export default function CreateNewOrgPage() {
       const newSlug = newOrg?.slug ?? values.slug
       track(AnalyticsEvent.OrgCreated, { plan: selectedPlan, billing, use_type: useType, slug: newSlug })
 
-      // The creator is now an admin of this org — record them in the marketing
+      // The creator is now an admin of this org, so record them in the marketing
       // audience (Loops), along with the onboarding choices as contact
       // properties (use_types, chosen_plans, …). Fire-and-forget & SaaS-gated
       // server-side; the email is taken from the verified session there.
@@ -869,13 +877,13 @@ export default function CreateNewOrgPage() {
           }
           toast.error(
             t('hub_new.toast.checkoutFailed', {
-              defaultValue: 'Organization created — you can upgrade from Plan & Usage.',
+              defaultValue: 'Organization created. You can upgrade from Plan & Usage.',
             })
           )
         } catch {
           toast.error(
             t('hub_new.toast.checkoutFailed', {
-              defaultValue: 'Organization created — you can upgrade from Plan & Usage.',
+              defaultValue: 'Organization created. You can upgrade from Plan & Usage.',
             })
           )
         }
@@ -948,7 +956,7 @@ export default function CreateNewOrgPage() {
   return (
     <div className="fixed inset-0 z-[100] bg-white overflow-y-auto">
       <div className="relative min-h-screen">
-        {/* Blueprint grid — fades in from bottom */}
+        {/* Blueprint grid, fades in from bottom */}
         <div
           className="absolute inset-0 pointer-events-none z-0"
           style={{
@@ -984,7 +992,7 @@ export default function CreateNewOrgPage() {
               {isAuthenticated && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <button aria-label="User menu" className="rounded-full">
+                    <button aria-label={t('hub_new.user_menu', { defaultValue: 'User menu' })} className="rounded-full">
                       <UserAvatar border="border-2" rounded="rounded-full" width={34} />
                     </button>
                   </DropdownMenuTrigger>

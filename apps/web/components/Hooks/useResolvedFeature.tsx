@@ -2,7 +2,7 @@ import { useOrg } from '@components/Contexts/OrgContext'
 import { usePlan } from '@components/Hooks/usePlan'
 import { PlanLevel } from '@services/plans/plans'
 import { FeatureKey, getFeatureMeta } from '@services/features/featureMetadata'
-import { GateReason, resolveGateReason } from '@lib/features/gateReason'
+import { DisabledBy, GateReason, resolveGateReason } from '@lib/features/gateReason'
 
 export interface ResolvedFeatureState {
   /** Effective enabled flag from the backend (plan + overrides + admin toggles + packs). */
@@ -13,13 +13,15 @@ export interface ResolvedFeatureState {
   currentPlan: PlanLevel
   /** True when the current plan meets the gate's minimum requirement. */
   meetsPlan: boolean
-  /** True while the org config has not arrived yet — nothing is decided. */
+  /** True while the org config has not arrived yet; nothing is decided. */
   loading: boolean
   /**
-   * Why the gate blocks the user — undefined when the feature is granted.
+   * Why the gate blocks the user; undefined when the feature is granted.
    * `plan` = upgrade needed; `disabled` = plan is OK but feature is toggled off.
    */
   reason?: GateReason
+  /** Who turned the feature off, when reason is 'disabled'. */
+  disabledBy?: DisabledBy
 }
 
 export interface UseResolvedFeatureOptions {

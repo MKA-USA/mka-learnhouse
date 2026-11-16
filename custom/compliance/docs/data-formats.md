@@ -21,6 +21,17 @@ Key: (cycle, department, level). Duplicate rows: later wins (`duplicate-key`). A
 
 > **Atfal is excluded by config** (see README, "Excluded departments"): Atfal rows in any CSV are ignored downstream (no roster rows, no course); pass `--include-atfal` to bring them back.
 
+## Who edits what (department courses)
+| Page / activity | Owner | Source | What `apply` does | Who changes it |
+|---|---|---|---|---|
+| **Your role and resources** (`role`) | Author (the Mohtamim) | Seeded once: last cycle's page if `--from-cycle` is given and that page exists, else the CSV (`responsibilities_md` + `resources_md`) | Creates it when missing; afterwards **never updates it** (plan shows `author-owned (skip)`) | The Mohtamim, in the LearnHouse editor |
+| **Annual department plan and OKRs** (`plan`) | Generated | `dept_plans.csv` (`okrs_md`) | Overwrites on every change; carries a "generated" note | Update the plan with Aitmad (CSV), not the page |
+| Knowledge check, Final sign-off | Generated | Built from the plan objectives / fixed template | Overwrites | Aitmad (template change) |
+| **Contacts directory** (`directory`) | Generated | Roster + overrides + names | Overwrites; carries a "generated" note | Aitmad (overrides.csv / names.csv) |
+
+Learner path (4 chapters, 5 activities): Your role > Your plan (plan page + knowledge check) > Contacts > Finish (sign-off). The old separate goals page, role-at-a-glance page and contact self-check were folded in or dropped; `apply` removes activities that left the spec, **drafts only** (it refuses a published course; `plan` dry-runs the removals).
+A one-off: records created before ownership existed are handed over once (seeded from the spec) and are author-owned from then on.
+
 ## directory_overrides.csv  (`import overrides`)
 Corrections to the generated roster (name and/or mailbox) for one role slot.
 | column | notes |

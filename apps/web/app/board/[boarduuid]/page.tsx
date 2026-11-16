@@ -4,6 +4,8 @@ import { cookies } from 'next/headers'
 import { getServerSession } from '@/lib/auth/server'
 import { redirect } from 'next/navigation'
 import BoardCanvasClient from './client'
+import ResourcePaywall from '@ee/components/Payments/ResourcePaywall'
+import { getOrganizationContextInfo } from '@services/organizations/orgs'
 
 type MetadataProps = {
   params: Promise<{ boarduuid: string }>
@@ -28,13 +30,13 @@ async function BoardEditorPage(props: any) {
   const cookieStore = await cookies()
   const orgslug = cookieStore.get('LH_org')?.value || ''
 
-  // Require authentication to access board canvas. Bare /login only — the proxy
+  // Require authentication to access board canvas. Bare /login only; the proxy
   // rewrites it to /auth/login with tenant context; an /orgs/{slug}/login path
   // isn't a real route (the /orgs prefix is an internal rewrite target) → 404.
   //
   // Redirect ONLY when there is no session at all. A session the server could
   // not resolve (`unresolved`: refresh cookie present, access token expired)
-  // belongs to a signed-in user — bouncing them to /login here was signing
+  // belongs to a signed-in user; bouncing them to /login here was signing
   // people out just for coming back after their 8-hour access token lapsed.
   // The client picks up the real token from the session context instead.
   if (!session) {
@@ -46,13 +48,27 @@ async function BoardEditorPage(props: any) {
     ? params.boarduuid
     : `board_${params.boarduuid}`
 
-  return (
+  const canvas = (
     <BoardCanvasClient
       boardUuid={boardUuid}
       accessToken={access_token}
       orgslug={orgslug}
       username={session?.user?.username || session?.user?.email || ''}
     />
+  )
+
+  // A board sold through a product opens for its buyers; others see what unlocks it.
+  let orgId = 0
+  try {
+    orgId = orgslug ? (await getOrganizationContextInfo(orgslug, { revalidate: 120, tags: ['organizations'] }))?.id ?? 0 : 0
+  } catch {
+    orgId = 0
+  }
+  if (!orgId) return canvas
+  return (
+    <ResourcePaywall orgId={orgId} orgslug={orgslug} resourceUuid={boardUuid}>
+      {canvas}
+    </ResourcePaywall>
   )
 }
 

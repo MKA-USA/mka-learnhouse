@@ -28,7 +28,7 @@ function topDomain(): string | null {
  * Returns `target` only when it is SAFE to navigate to, otherwise `fallback`.
  * Safe = a relative path, or an http(s) URL on the same host or a subdomain of
  * the configured org top-domain (e.g. *.learnhouse.io). Blocks external origins,
- * protocol-relative `//evil.com`, and `javascript:`/`data:` schemes — closing
+ * protocol-relative `//evil.com`, and `javascript:`/`data:` schemes, closing
  * the open-redirect holes on attacker-supplied callbackUrl / returnOrigin.
  */
 export function safeRedirectUrl(target: string | null | undefined, fallback = '/'): string {
@@ -50,4 +50,14 @@ export function safeRedirectUrl(target: string | null | undefined, fallback = '/
     return fallback
   }
   return fallback
+}
+
+/**
+ * Where an auth flow (login, signup, email verification) lands when nothing
+ * asked for a specific page. On a school's own host (subdomain, custom domain,
+ * single tenancy) the page has an org and the user belongs to that school, so
+ * they land on its home page. Only the org-less apex goes to the platform hub.
+ */
+export function defaultPostAuthPath(org: unknown): string {
+  return org ? '/' : '/home'
 }

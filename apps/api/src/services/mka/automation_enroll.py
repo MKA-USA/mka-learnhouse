@@ -46,6 +46,7 @@ from src.services.mka import attributes as attrs
 from src.services.mka import automation_config as cfg
 from src.services.mka import compliance as compliance
 from src.services.mka import compliance_scope as scope
+from src.services.mka import compliance_scoring as cs
 
 logger = logging.getLogger(__name__)
 
@@ -125,12 +126,13 @@ async def plan_autoenroll(db: AsyncSession, user: Any, today: Optional[str] = No
             plan.orgs.append(OrgPlan(org_id=org_id, cycle_id=cycle.id, reason="not_on_active_roster"))
             continue
         departments = {(r.department or "").lower() for r in rows} - {""}
+        needs_plan = any(cs.requires_majlis_plan(r.role_title, r.department) for r in rows)
         op = OrgPlan(org_id=org_id, cycle_id=cycle.id)
         seen: set[int] = set()
         for link, course in await scope.cycle_courses(db, org_id, cycle.id):
             wanted = link.kind == "general" or (
                 link.kind == "department" and (link.department or "").lower() in departments
-            )
+            ) or (link.kind == cs.MAJLIS_PLAN_KIND and needs_plan)
             if not wanted or course.id in seen:
                 continue
             seen.add(course.id)

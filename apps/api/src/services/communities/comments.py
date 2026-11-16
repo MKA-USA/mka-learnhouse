@@ -5,6 +5,7 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 from fastapi import HTTPException, Request
 
+from src.core.ee_hooks import require_ee_resource_paid_access
 from src.db.users import PublicUser, AnonymousUser, APITokenUser, User, UserReadAuthor
 from src.db.communities.communities import Community
 from src.db.communities.discussions import Discussion
@@ -18,6 +19,34 @@ from src.security.rbac import check_resource_access, AccessAction, authorization
 from src.services.communities.moderation import validate_comment_content, enforce_auto_lock
 from src.services.webhooks.dispatch import dispatch_webhooks
 from src.services.moderation_ai import schedule_moderation, forum_text
+from src.services.analytics import events as analytics_events
+from src.services.analytics.analytics import track
+from src.services.communities.access import (
+    require_author_may_still_post,
+    require_community_participant,
+)
+from src.services.communities.discussions import _can_moderate
+from src.security.api_token_utils import token_has_right
+from src.security.auth import resolve_acting_user_id
+
+
+async def _is_comment_author(
+    current_user: Union[PublicUser, AnonymousUser, APITokenUser],
+    comment: DiscussionComment,
+    db_session: AsyncSession,
+) -> bool:
+    """API tokens act as their creator, but only inside their own org and
+    while they may still post."""
+    if not isinstance(current_user, APITokenUser):
+        return comment.author_id == current_user.id
+    if comment.author_id != current_user.created_by_user_id:
+        return False
+    if not token_has_right(current_user, "discussions", "action_create"):
+        return False
+    discussion_org_id = (await db_session.execute(
+        select(Discussion.org_id).where(Discussion.id == comment.discussion_id)
+    )).scalars().first()
+    return discussion_org_id == current_user.org_id
 
 
 async def create_comment(
@@ -66,6 +95,9 @@ async def create_comment(
     await check_resource_access(
         request, db_session, current_user, community.community_uuid, AccessAction.READ
     )
+    await require_ee_resource_paid_access(request, db_session, current_user, community.community_uuid)
+
+    author_id = await require_community_participant(current_user, community, db_session)
 
     # Check content moderation
     await validate_comment_content(content, community.id, db_session)
@@ -74,7 +106,7 @@ async def create_comment(
     comment = DiscussionComment(
         content=content,
         discussion_id=discussion.id,
-        author_id=current_user.id,
+        author_id=author_id,
         comment_uuid=f"comment_{uuid4()}",
         creation_date=str(datetime.now()),
         update_date=str(datetime.now()),
@@ -85,6 +117,16 @@ async def create_comment(
     await db_session.refresh(comment)
     schedule_moderation(kind="forum_post", content_type="discussion_comment", content_uuid=comment.comment_uuid, org_id=community.org_id, author_user_id=comment.author_id, text_loader=forum_text(comment.content))
 
+    await track(
+        event_name=analytics_events.COMMENT_POSTED,
+        org_id=community.org_id,
+        user_id=author_id,
+        properties={
+            "community_uuid": community.community_uuid,
+            "discussion_uuid": discussion.discussion_uuid,
+        },
+    )
+
     # Get author info
     author_statement = select(User).where(User.id == comment.author_id)
     author = (await db_session.execute(author_statement)).scalars().first()
@@ -93,7 +135,11 @@ async def create_comment(
         event_name="comment_created",
         org_id=community.org_id,
         data={
-            "user": {"user_uuid": current_user.user_uuid, "email": current_user.email, "username": current_user.username},
+            "user": {
+                "user_uuid": author.user_uuid if author else "",
+                "email": author.email if author else "",
+                "username": author.username if author else "",
+            },
             "comment": {"comment_uuid": comment.comment_uuid},
             "discussion": {"discussion_uuid": discussion.discussion_uuid, "title": discussion.title},
             "community": {"community_uuid": community.community_uuid},
@@ -139,6 +185,7 @@ async def get_comments_by_discussion(
     await check_resource_access(
         request, db_session, current_user, community.community_uuid, AccessAction.READ
     )
+    await require_ee_resource_paid_access(request, db_session, current_user, community.community_uuid)
 
     offset = (page - 1) * limit
 
@@ -162,7 +209,7 @@ async def get_comments_by_discussion(
     # Get user's votes for these comments
     comment_ids = [c.id for c in comments]
     user_votes = await get_user_votes_for_comments(
-        comment_ids, current_user.id, db_session
+        comment_ids, resolve_acting_user_id(current_user), db_session
     )
 
     # Build response
@@ -204,7 +251,7 @@ async def update_comment(
         raise HTTPException(status_code=404, detail="Comment not found")
 
     # Check if user is the author
-    if comment.author_id != current_user.id:
+    if not await _is_comment_author(current_user, comment, db_session):
         raise HTTPException(
             status_code=403,
             detail="You can only edit your own comments"
@@ -215,9 +262,26 @@ async def update_comment(
         Discussion.id == comment.discussion_id
     )
     discussion = (await db_session.execute(discussion_statement)).scalars().first()
+    community = None
+    if discussion:
+        community = (await db_session.execute(
+            select(Community).where(Community.id == discussion.community_id)
+        )).scalars().first()
+    if not community:
+        raise HTTPException(status_code=404, detail="Discussion not found")
+
+    # Moderators keep editing their own comments; other authors only while
+    # they can still post there and the thread is open.
+    if not await _can_moderate(
+        request, current_user, resolve_acting_user_id(current_user),
+        AccessAction.UPDATE, community, db_session,
+    ):
+        await require_author_may_still_post(
+            request, current_user, community, discussion, db_session
+        )
 
     # Check content moderation for updated content
-    if comment_update.content is not None and discussion:
+    if comment_update.content is not None:
         await validate_comment_content(
             comment_update.content, discussion.community_id, db_session
         )
@@ -239,7 +303,7 @@ async def update_comment(
 
     # Get user's vote status
     user_votes = await get_user_votes_for_comments(
-        [comment.id], current_user.id, db_session
+        [comment.id], resolve_acting_user_id(current_user), db_session
     )
 
     return DiscussionCommentReadWithVoteStatus(
@@ -278,7 +342,7 @@ async def delete_comment(
     discussion = (await db_session.execute(discussion_statement)).scalars().first()
 
     # Check if user is the author or has admin rights
-    is_author = comment.author_id == current_user.id
+    is_author = await _is_comment_author(current_user, comment, db_session)
 
     if not is_author:
         # Check if user is admin of the community
@@ -345,6 +409,7 @@ async def get_comment_count(
     await check_resource_access(
         request, db_session, current_user, community.community_uuid, AccessAction.READ
     )
+    await require_ee_resource_paid_access(request, db_session, current_user, community.community_uuid)
 
     from sqlalchemy import func
     count_statement = select(func.count(DiscussionComment.id)).where(

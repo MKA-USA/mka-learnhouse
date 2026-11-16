@@ -3,8 +3,8 @@
 Image generation is a **Google-only** path: the provider-agnostic text layer in
 ``src/services/ai/llm`` returns text/embeddings only, so images go straight to
 the Google GenAI SDK. It still reuses the same credential resolution as the text
-layer — ``ai_config.api_key`` when the configured provider is Google, otherwise
-the legacy ``ai_config.gemini_api_key`` — so no separate key is needed when the
+layer: ``ai_config.api_key`` when the configured provider is Google, otherwise
+the legacy ``ai_config.gemini_api_key``, so no separate key is needed when the
 deployment already runs on Gemini.
 
 Supports two modes with the same call:
@@ -20,7 +20,9 @@ import logging
 from typing import Optional
 
 from config.config import get_learnhouse_config
+from src.services.ai import mka_brand  # MKA fork
 from src.services.ai.llm import AINotConfiguredError
+from src.services.ai.llm.errors import is_quota_error, is_spend_cap_error
 from src.services.ai.llm.provider import _GOOGLE_ALIASES
 
 logger = logging.getLogger(__name__)
@@ -28,7 +30,7 @@ logger = logging.getLogger(__name__)
 # Google "nano banana" image model. Defaults to the generally-available Gemini 2.5
 # Flash Image model so generation works out of the box on any Gemini API key.
 # Newer/preview models (e.g. Nano Banana 2 / "gemini-3-pro-image-preview") require
-# allowlist access and can 429/500 under capacity — set LEARNHOUSE_AI_IMAGE_MODEL
+# allowlist access and can 429/500 under capacity; set LEARNHOUSE_AI_IMAGE_MODEL
 # to opt into one once it is enabled for your key.
 DEFAULT_IMAGE_MODEL = "gemini-2.5-flash-image"
 
@@ -124,6 +126,9 @@ async def generate_image(
         raise ValueError("A non-empty prompt is required for image generation.")
     if len(prompt) > MAX_PROMPT_CHARS:
         prompt = prompt[:MAX_PROMPT_CHARS]
+    prompt = await mka_brand.brand_image_prompt(  # MKA fork
+        prompt, editing=bool(input_images), max_chars=MAX_PROMPT_CHARS
+    )
 
     api_key, model = _resolve_image_config()
 
@@ -133,7 +138,7 @@ async def generate_image(
     #     Google's image-editing recipe and is what makes the model modify the
     #     attachment instead of generating a fresh image from the words alone.
     #   - TEXT-TO-IMAGE: prompt only.
-    # Sniff each image's real MIME type — a JPEG/WebP mislabeled as PNG is rejected.
+    # Sniff each image's real MIME type; a JPEG/WebP mislabeled as PNG is rejected.
     imgs = [img for img in (input_images or []) if img]
     contents: list = []
     if imgs:
@@ -145,10 +150,10 @@ async def generate_image(
     else:
         contents.append(prompt)
 
-    # Request both output modalities — Google's documented image-editing config.
+    # Request both output modalities, Google's documented image-editing config.
     # TEXT parts are skipped by _extract_image_bytes, so output handling is
     # unchanged; this only avoids a spurious "no image" 502 when an edit turn also
-    # returns a text note. (response_modalities is OUTPUT-only — the edit framing
+    # returns a text note. (response_modalities is OUTPUT-only; the edit framing
     # above, not this, is what makes the input image be used.)
     config = types.GenerateContentConfig(response_modalities=["TEXT", "IMAGE"])
 
@@ -162,22 +167,25 @@ async def generate_image(
                 config=config,
             )
             break
-        except Exception as e:  # noqa: BLE001 — surface a clean error to the router
+        except Exception as e:  # noqa: BLE001 (surface a clean error to the router)
             # Log only the exception type: the underlying SDK error can embed the
             # API key (request URL/headers), so never log the message or traceback.
-            if _is_retryable(e) and attempt < _MAX_ATTEMPTS:
+            # A spent budget is a 429 too, but it fails the same way until topped up.
+            if _is_retryable(e) and not is_spend_cap_error(e) and attempt < _MAX_ATTEMPTS:
                 logger.warning(
                     "Image generation transient error (%s), retry %d/%d",
                     type(e).__name__, attempt, _MAX_ATTEMPTS,
                 )
                 await asyncio.sleep(_RETRY_BACKOFF_SECONDS * attempt)
                 continue
-            logger.error("Image generation call failed: %s", type(e).__name__)
+            (logger.warning if is_quota_error(e) else logger.error)(
+                "Image generation call failed: %s", type(e).__name__
+            )
             raise RuntimeError("Image generation failed") from e
 
     image_bytes = _extract_image_bytes(response)
     if not image_bytes:
-        # Most commonly a safety block — no inline image part was returned.
+        # Most commonly a safety block: no inline image part was returned.
         # `model` is intentionally not logged: it shares a return tuple with the
         # API key, so logging it trips clear-text-secret analysis.
         logger.warning("Image generation returned no image")

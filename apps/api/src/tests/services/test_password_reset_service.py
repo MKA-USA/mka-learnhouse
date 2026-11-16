@@ -4,7 +4,7 @@ import json
 import string
 from datetime import datetime
 from types import SimpleNamespace
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 from fastapi import HTTPException
@@ -40,6 +40,21 @@ async def _make_user(db, **overrides):
     await db.commit()
     await db.refresh(user)
     return user
+
+
+async def _join_org(db, user, org):
+    from src.db.user_organizations import UserOrganization
+
+    db.add(
+        UserOrganization(
+            user_id=user.id,
+            org_id=org.id,
+            role_id=4,
+            creation_date=str(datetime.now()),
+            update_date=str(datetime.now()),
+        )
+    )
+    await db.commit()
 
 
 class TestPasswordResetService:
@@ -108,7 +123,8 @@ class TestPasswordResetService:
             "src.services.users.password_reset.redis.Redis.from_url",
             return_value=fake_redis,
         ), patch(
-            "src.services.users.password_reset.get_base_url_from_request",
+            "src.services.users.password_reset.get_member_link_base_url",
+            new_callable=AsyncMock,
             return_value="https://learnhouse.test",
         ), patch(
             "src.services.users.password_reset.send_password_reset_email",
@@ -148,7 +164,8 @@ class TestPasswordResetService:
             "src.services.users.password_reset._get_redis_connection",
             return_value=fake_redis,
         ), patch(
-            "src.services.users.password_reset.get_base_url_from_request",
+            "src.services.users.password_reset.get_member_link_base_url",
+            new_callable=AsyncMock,
             return_value="https://learnhouse.test",
         ), patch(
             "src.services.users.password_reset.send_password_reset_email_platform",
@@ -175,6 +192,7 @@ class TestPasswordResetService:
             email="resetuser@test.com",
             user_uuid="user_reset",
         )
+        await _join_org(db, user, org)
 
         fake_redis_ok = MagicMock()
         fake_redis_ok.incr.return_value = 1
@@ -258,7 +276,8 @@ class TestPasswordResetService:
             "src.services.users.password_reset.redis.Redis.from_url",
             return_value=Mock(set=Mock()),
         ), patch(
-            "src.services.users.password_reset.get_base_url_from_request",
+            "src.services.users.password_reset.get_member_link_base_url",
+            new_callable=AsyncMock,
             return_value="https://learnhouse.test",
         ), patch(
             "src.services.users.password_reset.send_password_reset_email",
@@ -286,7 +305,7 @@ class TestPasswordResetService:
         reset_code = "RESET123"
         redis_key = f"pwd_reset:user:{user.user_uuid}:org:{org.org_uuid}:code:{reset_code}"
         fake_redis = Mock()
-        fake_redis.get.return_value = json.dumps(
+        fake_redis.getdel.return_value = json.dumps(
             {
                 "reset_code": reset_code,
                 "reset_code_expires": int(datetime.now().timestamp()) + 3600,
@@ -326,7 +345,73 @@ class TestPasswordResetService:
         assert refreshed is not None
         assert refreshed.password != old_password
         assert security_verify_password("NewPassword123!", refreshed.password)
-        fake_redis.delete.assert_called_once_with(redis_key)
+        fake_redis.getdel.assert_called_once_with(redis_key)
+
+    @pytest.mark.asyncio
+    async def test_reset_clears_the_unproven_inbox_marker(
+        self, mock_request, db, org, regular_user
+    ):
+        user = (await db.execute(
+            select(User).where(User.email == regular_user.email)
+        )).scalars().first()
+        assert user is not None
+        from src.services.users.users import _INBOX_UNPROVEN, inbox_unproven
+
+        # A reset code arrives through the inbox, so it proves the owner
+        user.email_verified_at = _INBOX_UNPROVEN
+        db.add(user)
+        await db.commit()
+        old_password = user.password
+        reset_code = "RESET123"
+        redis_key = f"pwd_reset:user:{user.user_uuid}:org:{org.org_uuid}:code:{reset_code}"
+        fake_redis = Mock()
+        fake_redis.getdel.return_value = json.dumps(
+            {
+                "reset_code": reset_code,
+                "reset_code_expires": int(datetime.now().timestamp()) + 3600,
+                "reset_code_type": "password_reset",
+                "created_at": datetime.now().isoformat(),
+                "created_by": user.user_uuid,
+                "org_uuid": org.org_uuid,
+            }
+        )
+
+        with patch(
+            "src.services.users.password_reset.validate_password_complexity",
+            return_value=SimpleNamespace(is_valid=True, errors=[], requirements={}),
+        ), patch(
+            "src.services.users.password_reset.get_learnhouse_config",
+            return_value=SimpleNamespace(
+                redis_config=SimpleNamespace(
+                    redis_connection_string="redis://test"
+                )
+            ),
+        ), patch(
+            "src.services.users.password_reset.redis.Redis.from_url",
+            return_value=fake_redis,
+        ), patch(
+            "src.services.users.password_reset._drop_unverified_sso_links",
+            new_callable=AsyncMock,
+        ) as drop_links:
+            result = await change_password_with_reset_code(
+                mock_request,
+                db,
+                AnonymousUser(),
+                "NewPassword123!",
+                org.id,
+                user.email,
+                reset_code,
+            )
+
+        assert result == "Password changed"
+        refreshed = (await db.execute(select(User).where(User.email == user.email))).scalars().first()
+        assert refreshed is not None
+        assert refreshed.password != old_password
+        assert security_verify_password("NewPassword123!", refreshed.password)
+        assert not inbox_unproven(refreshed)
+        # IdP links made while the inbox was unproven go with it
+        drop_links.assert_awaited_once_with(user.id, db)
+        fake_redis.getdel.assert_called_once_with(redis_key)
 
     @pytest.mark.asyncio
     async def test_change_password_with_reset_code_error_paths(
@@ -381,7 +466,7 @@ class TestPasswordResetService:
             ),
         ), patch(
             "src.services.users.password_reset.redis.Redis.from_url",
-            return_value=Mock(get=Mock(return_value=None)),
+            return_value=Mock(getdel=Mock(return_value=None)),
         ):
             with pytest.raises(HTTPException) as invalid_format_exc:
                 await change_password_with_reset_code(
@@ -419,7 +504,7 @@ class TestPasswordResetService:
             ),
         ), patch(
             "src.services.users.password_reset.redis.Redis.from_url",
-            return_value=Mock(get=Mock(return_value=None)),
+            return_value=Mock(getdel=Mock(return_value=None)),
         ):
             with pytest.raises(HTTPException) as no_match_exc:
                 await change_password_with_reset_code(
@@ -434,7 +519,7 @@ class TestPasswordResetService:
         assert no_match_exc.value.status_code == 400
 
         fake_redis = Mock()
-        fake_redis.get.return_value = None
+        fake_redis.getdel.return_value = None
         with patch(
             "src.services.users.password_reset.validate_password_complexity",
             return_value=SimpleNamespace(is_valid=True, errors=[], requirements={}),
@@ -463,7 +548,7 @@ class TestPasswordResetService:
 
         fake_redis = Mock()
         fake_redis.scan_iter.return_value = [b"reset-key"]
-        fake_redis.get.return_value = json.dumps(
+        fake_redis.getdel.return_value = json.dumps(
             {
                 "reset_code_expires": 0,
                 "created_by": user.user_uuid,
@@ -495,7 +580,44 @@ class TestPasswordResetService:
                     "RESET123",
                 )
         assert expired_exc.value.status_code == 400
-        fake_redis.delete.assert_called_once()
+        fake_redis.getdel.assert_called_once()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("platform_path", [False, True])
+    async def test_reset_proves_the_inbox_and_drops_unverified_idp_links(
+        self, mock_request, db, org, regular_user, platform_path
+    ):
+        """An org's IdP or LMS that linked this address before its owner proved
+        it must not keep signing in once the owner resets the password."""
+        user = (await db.execute(select(User).where(User.email == regular_user.email))).scalars().first()
+        valid = json.dumps({"reset_code_expires": int(datetime.now().timestamp()) + 3600})
+        for verified, expected_calls in ((False, 1), (True, 0)):
+            user.email_verified = verified
+            db.add(user)
+            await db.commit()
+            drop = AsyncMock()
+            with patch(
+                "src.services.users.password_reset.validate_password_complexity",
+                return_value=SimpleNamespace(is_valid=True, errors=[], requirements={}),
+            ), patch(
+                "src.services.users.password_reset.get_learnhouse_config",
+                return_value=SimpleNamespace(redis_config=SimpleNamespace(redis_connection_string="redis://test")),
+            ), patch(
+                "src.services.users.password_reset.redis.Redis.from_url",
+                return_value=Mock(getdel=Mock(return_value=valid)),
+            ), patch(
+                "src.services.users.password_reset._get_redis_connection",
+                return_value=Mock(getdel=Mock(return_value=valid)),
+            ), patch("src.services.users.password_reset._drop_unverified_sso_links", drop):
+                if platform_path:
+                    await change_password_with_reset_code_platform(
+                        mock_request, db, AnonymousUser(), "NewPassword123!", user.email, "PLAT1234"
+                    )
+                else:
+                    await change_password_with_reset_code(
+                        mock_request, db, AnonymousUser(), "NewPassword123!", org.id, user.email, "RESET123"
+                    )
+            assert drop.await_count == expected_calls
 
     @pytest.mark.asyncio
     async def test_platform_reset_code_paths(self, mock_request, db, regular_user):
@@ -513,7 +635,8 @@ class TestPasswordResetService:
             "src.services.users.password_reset._get_redis_connection",
             return_value=fake_redis,
         ), patch(
-            "src.services.users.password_reset.get_base_url_from_request",
+            "src.services.users.password_reset.get_member_link_base_url",
+            new_callable=AsyncMock,
             return_value="https://learnhouse.test",
         ), patch(
             "src.services.users.password_reset.send_password_reset_email_platform",
@@ -541,7 +664,7 @@ class TestPasswordResetService:
             return_value=SimpleNamespace(is_valid=True, errors=[], requirements={}),
         ), patch(
             "src.services.users.password_reset._get_redis_connection",
-            return_value=Mock(get=Mock(return_value=None)),
+            return_value=Mock(getdel=Mock(return_value=None)),
         ):
             with pytest.raises(HTTPException) as invalid_format_exc:
                 await change_password_with_reset_code_platform(
@@ -585,7 +708,7 @@ class TestPasswordResetService:
             return_value=SimpleNamespace(is_valid=True, errors=[], requirements={}),
         ), patch(
             "src.services.users.password_reset._get_redis_connection",
-            return_value=Mock(get=Mock(return_value=None)),
+            return_value=Mock(getdel=Mock(return_value=None)),
         ):
             with pytest.raises(HTTPException) as no_match_exc:
                 await change_password_with_reset_code_platform(
@@ -600,7 +723,7 @@ class TestPasswordResetService:
 
         fake_redis = Mock()
         fake_redis.scan_iter.return_value = [b"reset-key"]
-        fake_redis.get.return_value = None
+        fake_redis.getdel.return_value = None
         with patch(
             "src.services.users.password_reset.validate_password_complexity",
             return_value=SimpleNamespace(is_valid=True, errors=[], requirements={}),
@@ -621,7 +744,7 @@ class TestPasswordResetService:
 
         fake_redis = Mock()
         fake_redis.scan_iter.return_value = [b"reset-key"]
-        fake_redis.get.return_value = json.dumps(
+        fake_redis.getdel.return_value = json.dumps(
             {
                 "reset_code_expires": 0,
                 "created_by": user.user_uuid,
@@ -647,7 +770,7 @@ class TestPasswordResetService:
 
         fake_redis = Mock()
         fake_redis.scan_iter.return_value = [b"reset-key"]
-        fake_redis.get.return_value = json.dumps(
+        fake_redis.getdel.return_value = json.dumps(
             {
                 "reset_code_expires": int(datetime.now().timestamp()) + 3600,
                 "created_by": user.user_uuid,
@@ -728,8 +851,30 @@ class TestPasswordResetService:
         set_redis.set = Mock()
         with patch("src.services.users.password_reset.generate_secure_reset_code", return_value="FAIL1234"), \
              patch("src.services.users.password_reset._get_redis_connection", return_value=set_redis), \
-             patch("src.services.users.password_reset.get_base_url_from_request", return_value="https://test"), \
+             patch("src.services.users.password_reset.get_member_link_base_url",
+            new_callable=AsyncMock, return_value="https://test"), \
              patch("src.services.users.password_reset.send_password_reset_email_platform", return_value=False):
             with pytest.raises(HTTPException) as exc351:
                 await send_reset_password_code_platform(mock_request, db, AnonymousUser(), regular_user.email)
         assert exc351.value.status_code == 500
+
+
+def test_consume_reset_code_falls_back_without_getdel():
+    """Redis older than 6.2 has no GETDEL; the code is still taken atomically."""
+    import json as _json
+    from datetime import datetime as _dt
+
+    import redis as _redis
+
+    from src.services.users.password_reset import _consume_reset_code
+
+    stored = _json.dumps({"reset_code_expires": int(_dt.now().timestamp()) + 60})
+    pipe = MagicMock()
+    pipe.execute.return_value = [stored, 1]
+    r = MagicMock()
+    r.getdel.side_effect = _redis.exceptions.ResponseError("unknown command 'getdel'")
+    r.pipeline.return_value = pipe
+
+    assert _consume_reset_code(r, "k", "user_x") is not None
+    r.pipeline.assert_called_once_with(transaction=True)
+    pipe.delete.assert_called_once_with("k")

@@ -1,5 +1,6 @@
 'use client'
 import React from 'react'
+import { useTranslation, Trans } from 'react-i18next'
 import Image from 'next/image'
 import Link from 'next/link'
 import learnhouseIcon from 'public/learnhouse_bigicon_1.png'
@@ -8,17 +9,19 @@ import OrgSquareLogo from '@components/Objects/Org/OrgSquareLogo'
 import { getUriWithOrg } from '@services/config/config'
 import { cn } from '@/lib/utils'
 import { usePlan } from '@components/Hooks/usePlan'
+import { isWhiteLabelPlan } from '@components/Hooks/useLearnHouseBranding'
 
 interface AuthBrandingPanelProps {
   org: any
   welcomeText?: string
-  // No-org (apex) panel copy — platform-style title + subtitle shown at the top
+  // No-org (apex) panel copy: platform-style title + subtitle shown at the top
   // of the illustration. Falls back to the login wording when omitted.
   title?: string
   subtitle?: string
 }
 
 export default function AuthBrandingPanel({ org, welcomeText, title, subtitle }: AuthBrandingPanelProps) {
+  const { t } = useTranslation()
   const authBranding = org?.config?.config?.customization?.auth_branding || org?.config?.config?.general?.auth_branding || {}
   const {
     welcome_message = '',
@@ -32,10 +35,9 @@ export default function AuthBrandingPanel({ org, welcomeText, title, subtitle }:
   const UNSPLASH_UTM = '?utm_source=LearnHouse&utm_medium=referral'
   const withUtm = (url: string) => (url ? `${url}${UNSPLASH_UTM}` : '')
 
-  // Check if org has enterprise plan - hide LearnHouse branding for enterprise users
-  // In OSS mode, always show branding regardless of plan
+  // Pro+ and EE are white-labelled; OSS keeps the LearnHouse mark
   const plan = usePlan()
-  const isEnterprise = plan === 'enterprise'
+  const isWhiteLabel = isWhiteLabelPlan(plan)
 
   // No org context (the generic apex login) → use the platform's auth
   // illustration instead of the flat gradient.
@@ -44,7 +46,7 @@ export default function AuthBrandingPanel({ org, welcomeText, title, subtitle }:
   const getBackgroundStyle = (): React.CSSProperties => {
     if (noOrg) {
       return {
-        backgroundImage: 'url(/auth-default.png)',
+        backgroundImage: 'url(/auth-default.webp)',
         backgroundSize: 'cover',
         backgroundPosition: 'center',
       }
@@ -76,9 +78,9 @@ export default function AuthBrandingPanel({ org, welcomeText, title, subtitle }:
 
   const displayMessage = welcome_message || welcomeText || ''
   // No-org platform copy (defaults mirror the platform login illustration).
-  const noOrgTitle = title || 'Welcome back to LearnHouse.'
+  const noOrgTitle = title || t('auth.image_title_login')
   const noOrgSubtitle =
-    subtitle || 'Pick up where you left off — your courses, students, and tools are waiting.'
+    subtitle || t('auth.image_subtitle_login')
   // Treat the no-org illustration like a photo background: dark scrim, no
   // blueprint-grid overlay.
   const hasCustomBackground = noOrg || (background_type !== 'gradient' && background_image)
@@ -90,7 +92,7 @@ export default function AuthBrandingPanel({ org, welcomeText, title, subtitle }:
         {/* Base layer: org's chosen background (gradient | custom | unsplash) */}
         <div className="absolute inset-0" style={getBackgroundStyle()} />
 
-        {/* Blueprint + dot overlays — ONLY for gradient fallback (no photo) */}
+        {/* Blueprint + dot overlays, ONLY for gradient fallback (no photo) */}
         {!hasCustomBackground && (
           <>
             <div
@@ -114,7 +116,7 @@ export default function AuthBrandingPanel({ org, welcomeText, title, subtitle }:
         )}
 
         {/* Dark scrim for org photo backgrounds (centered text needs it).
-            The no-org illustration stays vivid — it's darkened only at the top. */}
+            The no-org illustration stays vivid; it's darkened only at the top. */}
         {hasCustomBackground && !noOrg && (
           <div className="absolute inset-0 bg-black/30" />
         )}
@@ -142,9 +144,9 @@ export default function AuthBrandingPanel({ org, welcomeText, title, subtitle }:
 
         {/* Content */}
         <div className="relative z-10 flex flex-col h-full p-10">
-          {/* Top bar with LearnHouse lrn.svg logo - hidden for enterprise users
+          {/* Top bar with LearnHouse lrn.svg logo - hidden for white-label plans
               and for the no-org apex panel (platform shows no logo on the image). */}
-          {!isEnterprise && !noOrg && (
+          {!isWhiteLabel && !noOrg && (
             <div className="login-topbar">
               <Link prefetch href="https://learnhouse.app" target="_blank">
                 <img
@@ -162,7 +164,7 @@ export default function AuthBrandingPanel({ org, welcomeText, title, subtitle }:
           )}
 
           {noOrg ? (
-            /* No-org apex panel — platform layout: heading at the TOP, no logo
+            /* No-org apex panel, platform layout: heading at the TOP, no logo
                box, platform copy. */
             <div className="max-w-md text-white">
               <h1 className="font-black text-[28px] leading-tight tracking-tight">
@@ -173,7 +175,7 @@ export default function AuthBrandingPanel({ org, welcomeText, title, subtitle }:
               </p>
             </div>
           ) : (
-            /* Org panel — centered logo + name (unchanged). */
+            /* Org panel: centered logo + name (unchanged). */
             <>
               <div className="flex-1 flex items-center justify-center">
                 <div className={cn(
@@ -187,14 +189,20 @@ export default function AuthBrandingPanel({ org, welcomeText, title, subtitle }:
                         org={org}
                         wideInsetClassName="p-3"
                         fallback={
-                          <Image
-                            quality={100}
-                            width={96}
-                            height={96}
-                            src={learnhouseIcon}
-                            alt="LearnHouse"
-                            className="object-contain"
-                          />
+                          isWhiteLabel ? (
+                            <span className="text-4xl font-black text-gray-800">
+                              {(org?.name || '?').charAt(0).toUpperCase()}
+                            </span>
+                          ) : (
+                            <Image
+                              quality={100}
+                              width={96}
+                              height={96}
+                              src={learnhouseIcon}
+                              alt="LearnHouse"
+                              className="object-contain"
+                            />
+                          )
                         }
                       />
                     </div>
@@ -226,24 +234,28 @@ export default function AuthBrandingPanel({ org, welcomeText, title, subtitle }:
               "absolute bottom-3 start-4 end-4 z-10 text-[11px] leading-tight",
               text_color === 'light' ? "text-white/70" : "text-gray-700"
             )}>
-              Photo by{' '}
-              <a
-                href={withUtm(unsplash_photographer_url) || withUtm(unsplash_photo_url)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="underline hover:opacity-100 opacity-90"
-              >
-                {unsplash_photographer_name}
-              </a>
-              {' '}on{' '}
-              <a
-                href={`https://unsplash.com/${UNSPLASH_UTM}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="underline hover:opacity-100 opacity-90"
-              >
-                Unsplash
-              </a>
+              <Trans
+                i18nKey="auth.photo_credit"
+                values={{ name: unsplash_photographer_name }}
+                components={{
+                  photographer: (
+                    <a
+                      href={withUtm(unsplash_photographer_url) || withUtm(unsplash_photo_url)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline hover:opacity-100 opacity-90"
+                    />
+                  ),
+                  unsplash: (
+                    <a
+                      href={`https://unsplash.com/${UNSPLASH_UTM}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline hover:opacity-100 opacity-90"
+                    />
+                  ),
+                }}
+              />
             </div>
           )}
         </div>

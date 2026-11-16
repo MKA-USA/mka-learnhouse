@@ -12,17 +12,19 @@ Role/access setup for viewers: `docs/runbooks/mka-compliance-roles.md`.
 - Web: `/orgs/<slug>/dash/compliance`, course tab `compliance`, nav items (hooks H1-H3).
 
 ## Schema: how the tables get created (verified locally)
-Nothing runs Alembic automatically (entrypoint does not call it); the API creates missing tables at startup via
-`SQLModel.metadata.create_all` (`core/events/database.py::_bootstrap_schema`). So after the first deploy of this
-branch the 6 new tables above already exist, with the indexes/constraints declared on the models, and `alembic_version`
-does not know about them.
+Alembic now runs automatically at container start: `docker/start.sh` calls `apps/api/scripts/mka-migrate.sh`
+(`src/services/mka/schema_migrate.py`) before the API boots. The API itself still only creates missing tables via
+`SQLModel.metadata.create_all` (`core/events/database.py::_bootstrap_schema`), which never adds columns; Alembic is what
+adds them. So after the first deploy of this branch the 6 new tables above exist, with the indexes/constraints declared
+on the models, and the start-up migrate step advances `alembic_version` to head (an unstamped DB is stamped at
+`mka_20261008_course_audience` first, see DEPLOYMENT.md). Check `GET /api/v1/mka/health/schema` (`ok` and `alembic_at_head`
+true); on failure grep the service log for `MKA_MIGRATE_FAILED` / `MKA_SCHEMA_DRIFT`.
 
 The three migrations (`mka_20261004_user_profile` -> `mka_20261004_user_attributes` -> `mka_20261004_compliance`,
 single head, parent `b1c2d3e4f5a6`) are idempotent (every create is guarded by an inspector check). Verified on a
 DB built by `create_all`: `alembic stamp b1c2d3e4f5a6 && alembic upgrade head` runs all three as no-ops and ends at
-`mka_20261004_compliance (head)`; a second `upgrade head` is a no-op. Conclusion: running `alembic upgrade head`
-is optional on ilm-dev but recommended once, so `alembic_version` matches the code (otherwise a later upstream
-migration run starts from the wrong revision). If ilm-dev `alembic current` is neither `b1c2d3e4f5a6` nor `mka_20261004_user_profile` (the profile migration is already live on dev), stop and check
+`mka_20261004_compliance (head)`; a second `upgrade head` is a no-op. Conclusion: the start-up migrate step is a safe
+no-op for these tables and keeps `alembic_version` matching the code. If ilm-dev `alembic current` is neither `b1c2d3e4f5a6` nor `mka_20261004_user_profile` (the profile migration is already live on dev), stop and check
 `alembic heads` before upgrading.
 
 ## Env vars
@@ -38,7 +40,7 @@ migration run starts from the wrong revision). If ilm-dev `alembic current` is n
 ## Order of steps
 1. Back up the DB (or take a snapshot).
 2. Deploy the API image of this branch. On startup `create_all` creates the 6 new tables. Check the API log for errors.
-3. (Recommended) `alembic current` should show `b1c2d3e4f5a6` or `mka_20261004_user_profile`; then `alembic upgrade head` (no-ops, advances the stamp).
+3. Confirm the start-up migrate step ran: log has `MKA_MIGRATE_OK`, and `/api/v1/mka/health/schema` returns `ok: true`. (Manual fallback: `cd /app/api && uv run alembic upgrade heads`; set `MKA_SKIP_MIGRATIONS=1` to disable the automatic step.)
 4. Deploy the web image (build with the env above).
 5. Backfill attributes for existing Google users (idempotent, safe to repeat; it can only reuse proof recorded by a
    Google login, never create it): `cd apps/api && python -m src.services.mka.backfill --dry-run`, then without `--dry-run`.

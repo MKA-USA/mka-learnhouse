@@ -1,3 +1,4 @@
+# ruff: noqa: F811  (pytest fixtures imported then re-requested by name)
 """MKA fork seam C: attribute-based compliance scope (spec 2026-10-07 3.C). A Mohtamim / Qaid (and their Naibs) gets the
 Compliance data of their department / region / Majlis ONLY: JSON, CSV, overview and Remind. Synthetic ``example.invalid``
 world from ``mka_compliance_world`` (roster: Northeast = l1 l2 l3 l4 crossorg rq.ne; Albany = l1 l3 crossorg;

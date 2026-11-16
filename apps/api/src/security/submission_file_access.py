@@ -2,13 +2,15 @@
 
 Submission files live under a course-content path
 (``orgs/{org}/courses/{course}/activities/{act}/assignments/{asgn}/tasks/{task}/subs/{file}``)
-and would otherwise be served by the generic activity-content grant — which
+and would otherwise be served by the generic activity-content grant, which
 allows any org member (or anyone at all on a public course) to download them.
 That is an IDOR: one learner could read another learner's submitted work.
 
 These helpers detect the submission sub-path and restrict access to the
 submission's owner or a course instructor.
 """
+
+import re
 
 from fastapi import HTTPException, Request
 from sqlmodel import select
@@ -36,6 +38,65 @@ def _submission_references_file(task_submission, filename: str) -> bool:
     return any(task_submission.get(k) == filename for k in _SUBMISSION_FILE_KEYS)
 
 
+# New submission files carry their uploader's id in the name
+# (``{uuid}_submission_u{user_id}.{ext}``), so a learner can't hand in, or
+# download, a file another learner uploaded just by knowing its name. Files
+# stored before this have no tag and keep the reference-only check.
+_OWNER_TAG = re.compile(r"_submission_u(\d+)\.[A-Za-z0-9]+$")
+
+
+def submission_file_prefix(user_id: int) -> str:
+    """Filename prefix for a submission file uploaded by ``user_id``."""
+    return f"submission_u{int(user_id)}"
+
+
+def submission_file_owner(filename) -> int | None:
+    """The uploader's id from a tagged submission filename, or None if untagged."""
+    if not isinstance(filename, str):
+        return None
+    match = _OWNER_TAG.search(filename)
+    return int(match.group(1)) if match else None
+
+
+def submission_files_belong_to(task_submission, user_id: int) -> bool:
+    """False when the submission references a tagged file someone else uploaded."""
+    if not isinstance(task_submission, dict):
+        return True
+    for key in _SUBMISSION_FILE_KEYS:
+        owner = submission_file_owner(task_submission.get(key))
+        if owner is not None and owner != int(user_id):
+            return False
+    return True
+
+
+# Structural segments the content access checks match on. Folded to lowercase
+# before matching: on a case-insensitive disk ``orgs/x/COURSES/...`` opens the
+# same file as ``orgs/x/courses/...`` but would miss every private pattern and
+# fall through to the public branch.
+_CONTENT_PATH_KEYWORDS = frozenset({
+    "orgs", "users", "courses", "activities", "assignments", "tasks", "subs",
+    "solution", "thumbnails", "podcasts", "episodes", "media",
+})
+
+
+def split_content_path(file_path: str) -> list[str]:
+    """Split a content-relative path, normalizing the case of structural segments.
+
+    The final segment (the filename) is kept as-is since the submission owner
+    check compares it exactly. Directory segments are always generated ASCII
+    (uuids and fixed names); anything else is refused, since filesystems fold
+    some non-ASCII letters onto ASCII ones (``ſ`` -> ``s``, ``ı`` -> ``I``) and
+    ``lower()`` alone would not catch them.
+    """
+    parts = file_path.split("/")
+    if not all(p.isascii() for p in parts[:-1]):
+        raise HTTPException(status_code=400, detail="Invalid path")
+    return [
+        p.lower() if i < len(parts) - 1 and p.lower() in _CONTENT_PATH_KEYWORDS else p
+        for i, p in enumerate(parts)
+    ]
+
+
 def is_submission_file(parts: list[str]) -> bool:
     """True when the split path points at an assignment submission file."""
     return (
@@ -58,8 +119,8 @@ async def enforce_submission_file_access(
     """Raise 401/403 unless the caller may read this submission file.
 
     Allowed: a course instructor (course UPDATE right), or the student who owns a
-    submission referencing this exact file. Everyone else — including anonymous
-    users and other enrolled learners — is denied. Assumes ``is_submission_file``
+    submission referencing this exact file. Everyone else, including anonymous
+    users and other enrolled learners, is denied. Assumes ``is_submission_file``
     already matched ``parts``.
     """
     course_uuid = parts[3]
@@ -72,14 +133,14 @@ async def enforce_submission_file_access(
     if not course:
         raise HTTPException(status_code=403, detail="Access denied")
 
-    # Submission files are never public — authentication is always required.
+    # Submission files are never public; authentication is always required.
     if isinstance(current_user, AnonymousUser) or getattr(current_user, "id", None) is None:
         raise HTTPException(status_code=401, detail="Authentication required")
 
     # An API token must never reach the identity checks below: its ``.id`` is the
     # token's own primary key, not a user id, so the owner query
     # (``user_id == current_user.id``) and the RBAC subject would both treat it
-    # as a same-numbered learner — letting a token read another user's submission
+    # as a same-numbered learner, letting a token read another user's submission
     # file, across orgs. There is no token-integration use case for downloading
     # raw submission files, so deny outright.
     if isinstance(current_user, APITokenUser):
@@ -100,6 +161,11 @@ async def enforce_submission_file_access(
             # Fall through to the owner check on any RBAC lookup error.
             pass
 
+    # A tagged file belongs to its uploader alone
+    owner = submission_file_owner(filename)
+    if owner is not None and owner != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
     # Otherwise the caller must own a submission that references this exact file.
     task = (await db_session.execute(
         select(AssignmentTask).where(
@@ -118,3 +184,53 @@ async def enforce_submission_file_access(
                 return
 
     raise HTTPException(status_code=403, detail="Access denied")
+
+
+def is_solution_file(parts: list[str]) -> bool:
+    """True when the split path points at an assignment model-answer file
+    (``.../activities/{act}/assignments/{asgn}/solution/{file}``)."""
+    return (
+        len(parts) >= 10
+        and parts[0] == "orgs"
+        and parts[2] == "courses"
+        and parts[4] == "activities"
+        and parts[6] == "assignments"
+        and parts[8] == "solution"
+    )
+
+
+async def enforce_solution_file_access(
+    parts: list[str],
+    current_user,
+    db_session: AsyncSession,
+    request: Request | None = None,
+) -> None:
+    """Serve a model-answer file only to whoever the assignment API would hand
+    the corrige to: instructors, or a learner whose own submission meets the
+    teacher's reveal rule. The caller has already run the activity reader gate.
+    Assumes ``is_solution_file`` already matched ``parts``.
+    """
+    from src.db.courses.assignments import Assignment
+    from src.services.courses.activities.assignments import (
+        _resolve_solution_visibility,
+    )
+
+    if isinstance(current_user, AnonymousUser):
+        raise HTTPException(status_code=401, detail="Authentication required")
+    # A token's instructor shortcut in the assignments service presumes the
+    # assignments rights bucket was checked; nothing checked it here.
+    if isinstance(current_user, APITokenUser):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    row = (await db_session.execute(
+        select(Assignment, Course.course_uuid)
+        .join(Course, Course.id == Assignment.course_id)  # type: ignore[arg-type]
+        .where(Assignment.assignment_uuid == parts[7])
+    )).first()
+    if not row or row[1] != parts[3]:
+        raise HTTPException(status_code=404, detail="File not found")
+    assignment, course_uuid = row
+    if not await _resolve_solution_visibility(
+        request, db_session, current_user, course_uuid, assignment
+    ):
+        raise HTTPException(status_code=403, detail="Access denied")

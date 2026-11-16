@@ -46,6 +46,7 @@ import { getUriWithoutOrg } from '@services/config/config';
 import { useDebounce } from '@/hooks/useDebounce';
 import { useTranslation } from 'react-i18next';
 import { useLHAnalytics, AnalyticsEvent } from '@services/analytics';
+import { getErrorMessage } from '@services/utils/ts/errorMessage';
 
 const SUPPORTED_FILES = constructAcceptValue(['jpg', 'png', 'webp', 'gif'])
 
@@ -87,6 +88,9 @@ interface FormValues {
   details: {
     [key: string]: DetailItem;
   };
+  // Re-authentication for an email change; never stored.
+  current_password: string;
+  mfa_code: string;
 }
 
 const DETAIL_TEMPLATES = {
@@ -111,12 +115,12 @@ const DETAIL_TEMPLATES = {
   ]
 } as const;
 
-const validationSchema = Yup.object().shape({
-  email: Yup.string().email('Invalid email').required('Email is required'),
-  username: Yup.string().required('Username is required'),
-  first_name: Yup.string().required('First name is required'),
-  last_name: Yup.string().required('Last name is required'),
-  bio: Yup.string().max(400, 'Bio must be 400 characters or less'),
+const buildValidationSchema = (t: (_key: string) => string) => Yup.object().shape({
+  email: Yup.string().email(t('user.settings.general.validation.invalid_email')).required(t('user.settings.general.validation.email_required')),
+  username: Yup.string().required(t('user.settings.general.validation.username_required')),
+  first_name: Yup.string().required(t('user.settings.general.validation.first_name_required')),
+  last_name: Yup.string().required(t('user.settings.general.validation.last_name_required')),
+  bio: Yup.string().max(400, t('user.settings.general.validation.bio_max_length')),
   details: Yup.object().shape({})
 });
 
@@ -234,14 +238,18 @@ DetailCard.displayName = 'DetailCard';
 // Form component to handle the details section
 const UserEditForm = ({
   values,
+  initialValues,
   setFieldValue,
   handleChange,
   errors,
   touched,
   isSubmitting,
-  profilePicture
+  profilePicture,
+  reauthWithMfa
 }: {
   values: FormValues;
+  initialValues: FormValues;
+  reauthWithMfa: boolean;
   setFieldValue: (_field: string, _value: any) => void;
   handleChange: (_e: React.ChangeEvent<any>) => void;
   errors: any;
@@ -287,11 +295,42 @@ const UserEditForm = ({
               {touched.email && errors.email && (
                 <p className="text-red-500 text-sm mt-1">{errors.email}</p>
               )}
-              {values.email !== values.email && (
-                <div className="flex items-center space-x-2 mt-2 text-amber-600 bg-amber-50 p-2 rounded-md">
-                  <AlertTriangle size={16} />
-                  <span className="text-sm">{t('user.settings.general.logout_warning')}</span>
-                </div>
+              {values.email !== initialValues.email && (
+                <>
+                  <div className="flex items-center space-x-2 mt-2 text-amber-600 bg-amber-50 p-2 rounded-md">
+                    <AlertTriangle size={16} />
+                    <span className="text-sm">{t('user.settings.general.logout_warning')}</span>
+                  </div>
+                  <div className="mt-3">
+                    {reauthWithMfa ? (
+                      <>
+                        <Label htmlFor="mfa_code">{t('user.settings.general.mfa_code')}</Label>
+                        <Input
+                          id="mfa_code"
+                          name="mfa_code"
+                          inputMode="numeric"
+                          autoComplete="one-time-code"
+                          value={values.mfa_code}
+                          onChange={handleChange}
+                        />
+                        <p className="text-gray-500 text-xs mt-1">{t('user.settings.general.mfa_code_hint')}</p>
+                      </>
+                    ) : (
+                      <>
+                        <Label htmlFor="current_password">{t('user.settings.general.current_password')}</Label>
+                        <Input
+                          id="current_password"
+                          name="current_password"
+                          type="password"
+                          autoComplete="current-password"
+                          value={values.current_password}
+                          onChange={handleChange}
+                        />
+                        <p className="text-gray-500 text-xs mt-1">{t('user.settings.general.current_password_hint')}</p>
+                      </>
+                    )}
+                  </div>
+                </>
               )}
             </div>
 
@@ -544,6 +583,7 @@ function AccountGeneral() {
   const [error, setError] = React.useState() as any
   const [success, setSuccess] = React.useState('') as any
   const [userData, setUserData] = useState<any>(null);
+  const [reauthWithMfa, setReauthWithMfa] = useState(false);
   const { t } = useTranslation();
   const { track } = useLHAnalytics('learner');
 
@@ -555,7 +595,7 @@ function AccountGeneral() {
           setUserData(data);
         } catch (error) {
           console.error('Error fetching user data:', error);
-          setError('Failed to load user data');
+          setError(t('user.settings.general.load_failed'));
         }
       }
     };
@@ -607,7 +647,7 @@ function AccountGeneral() {
         setSuccess(t('user.settings.general.avatar_updated'))
       }
     } catch (_error) {
-      setError('Failed to process AI image')
+      setError(t('user.settings.general.ai_image_failed'))
       setIsLoading(false)
     }
   }
@@ -632,7 +672,7 @@ function AccountGeneral() {
         setSuccess(t('user.settings.general.avatar_updated'))
       }
     } catch {
-      setError('Failed to process AI image')
+      setError(t('user.settings.general.ai_image_failed'))
       setIsLoading(false)
     }
   }
@@ -674,14 +714,28 @@ function AccountGeneral() {
           email: userData.email,
           bio: userData.bio || '',
           details: userData.details || {},
+          current_password: '',
+          mfa_code: '',
         }}
-        validationSchema={validationSchema}
+        validationSchema={buildValidationSchema(t)}
         onSubmit={async (values, { setSubmitting }) => {
           const isEmailChanged = values.email !== userData.email
           const loadingToast = toast.loading(t('user.settings.general.saving'))
 
           try {
-            await updateProfile(values, userData.id, access_token)
+            const { current_password, mfa_code, ...profile } = values
+            const res = await updateProfile(
+              isEmailChanged ? { ...profile, current_password, mfa_code } : profile,
+              userData.id,
+              access_token
+            )
+            if (!res.success) {
+              const detail = res.data?.detail
+              // Accounts without a password confirm with their two-factor code.
+              if (detail?.code === 'INVALID_MFA_CODE') setReauthWithMfa(true)
+              toast.error(getErrorMessage(detail, t('user.settings.general.update_failed')), { id: loadingToast })
+              return
+            }
             toast.dismiss(loadingToast)
             track(AnalyticsEvent.AccountProfileUpdated, {
               email_changed: isEmailChanged,
@@ -695,7 +749,7 @@ function AccountGeneral() {
             const refreshedUser = await getUser(userData.id, access_token)
             setUserData(refreshedUser)
           } catch {
-            toast.error('Failed to update profile', { id: loadingToast })
+            toast.error(t('user.settings.general.update_failed'), { id: loadingToast })
           } finally {
             setSubmitting(false)
           }
@@ -704,6 +758,7 @@ function AccountGeneral() {
         {(formikProps) => (
           <UserEditForm
             {...formikProps}
+            reauthWithMfa={reauthWithMfa}
             profilePicture={{
               error,
               success,

@@ -5,6 +5,7 @@ export const idmap = pgTable(
   "idmap",
   {
     id: serial("id").primaryKey(),
+    target: text("target").notNull().default("dev"),
     sourceSystem: text("source_system").notNull(),
     sourceKind: text("source_kind").notNull(),
     sourceId: text("source_id").notNull(),
@@ -13,5 +14,5 @@ export const idmap = pgTable(
     sourcePath: text("source_path"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [unique("idmap_key").on(t.sourceSystem, t.sourceKind, t.sourceId)],
+  (t) => [unique("idmap_key").on(t.target, t.sourceSystem, t.sourceKind, t.sourceId)],
 );

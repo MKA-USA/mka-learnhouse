@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { LhApi, LhClient, buildCycleCourses, executePublish, publishPlan, selectLearners, type MapRow } from "../src";
+import { LhApi, LhClient, buildCycleCourses, buildCyclePayload, validateCyclePayload, executePublish, publishPlan, selectLearners, type MapRow } from "../src";
 
 const row: MapRow = { cycleId: 1, kind: "department", departmentSlug: "tabligh", lhCourseUuid: "course_t", lhCourseId: 1, contentHash: null, structure: { courseId: 1, metaHash: "m", chapters: {}, activities: {
   goals: { id: 1, uuid: "activity_1", hash: "h", chapterKey: "c", kind: "page" },
@@ -30,6 +30,15 @@ describe("cycle-courses.json", () => {
     expect(c.signoff).toEqual({ activity_uuid: "activity_3", assignment_uuid: "assignment_3", task_uuids: { confirm: "task_c", "full-name": "task_d" } });
     expect(c.contact_check?.assignment_uuid).toBe("assignment_2");
     expect(c.activities.length).toBe(3);
+  });
+  test("the Majlis Plan course is exported as its own kind, with no department", () => {
+    const mp = { ...row, kind: "majlis-plan", departmentSlug: "", lhCourseUuid: "course_mp" };
+    const f = buildCycleCourses("2026-27", "2026-11-01", "2026-12-01", [row, mp], new Date("2026-10-05T00:00:00Z"));
+    expect(f.courses.map((c) => `${c.kind}:${c.course_uuid}`).sort()).toEqual(["department:course_t", "majlis-plan:course_mp"]);
+    const payload = buildCyclePayload(f, "2026-11-01", "2026-12-01");
+    expect(payload.courses.find((c) => c.kind === "majlis-plan")).toMatchObject({ department: null, course_uuid: "course_mp" });
+    expect(validateCyclePayload(payload)).toEqual([]);
+    expect(validateCyclePayload({ ...payload, courses: [{ ...payload.courses[0]!, kind: "nonsense" }] }).join()).toContain("general, department or majlis-plan");
   });
 });
 

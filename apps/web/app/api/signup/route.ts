@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerAPIUrl } from '@services/config/config'
-import { isSaaSMode, isCustomDomainRequest } from '@lib/saas'
+import { isSaaSMode, getCustomDomainOrgId } from '@lib/saas'
 import { verifyTurnstile, clientIpFromHeaders } from '@lib/turnstile'
 import { mkaSignupFetch, mkaSignupForwardHeaders, mkaSignupResponseHeaders } from '@lib/mka-signup-proxy' // MKA fork
 import { validateSignupEmail } from '@services/emails/disposableEmail'
@@ -8,13 +8,13 @@ import { addContactWithLoops, sendLoopsEvent, LOOPS_SIGNED_USERS_GROUP } from '@
 
 // Signup gateway. Runs the anti-abuse add-ons (Turnstile, disposable-email)
 // server-side BEFORE creating the account and fires the Loops marketing sync
-// after — secrets never touch the client, and every add-on degrades gracefully
+// after. Secrets never touch the client, and every add-on degrades gracefully
 // when its key is unset (and only runs in SaaS mode).
 //
 // Account creation targets one of three backend endpoints, mirroring how the
 // platform worked:
 //   - org-less apex signup → POST /users/            (a standalone account, NOT
-//     attached to any organization — the user creates/joins orgs later)
+//     attached to any organization; the user creates/joins orgs later)
 //   - org-subdomain signup → POST /users/{org_id}    (create + join that org)
 //   - invite signup        → POST /users/{org_id}/invite/{code}
 // The apex account is NOT linked to the instance default org.
@@ -70,11 +70,18 @@ export async function POST(request: NextRequest) {
   // MKA fork: outside SaaS the API verifies the single-use Turnstile token (forwarded by mkaSignupForwardHeaders below).
 
   if (saas) {
-    // 1. Turnstile — allowed through automatically when no secret is set. Skipped
+    // 1. Turnstile: allowed through automatically when no secret is set. Skipped
     // on org custom domains: the hostname-locked widget can't render there, so the
     // client sends no token and the challenge is disabled end-to-end (matches the
     // client widget + the /api/turnstile/verify route).
-    if (!(await isCustomDomainRequest())) {
+    //
+    // The skip only covers signups INTO the org that owns the domain. Without
+    // that, any registered custom domain was an open door: point a script at it
+    // and create org-less or other-org accounts with no challenge at all.
+    const customDomainOrgId = await getCustomDomainOrgId()
+    const turnstileExempt =
+      customDomainOrgId !== null && String(customDomainOrgId) === String(org_id ?? '')
+    if (!turnstileExempt) {
       const turnstile = await verifyTurnstile(turnstileToken, clientIpFromHeaders(request.headers))
       if (!turnstile.ok) {
         const detail =
@@ -85,11 +92,11 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 2. Disposable-email gate — offline check + optional AbstractAPI.
+    // 2. Disposable-email gate: offline check + optional AbstractAPI.
     const emailCheck = await validateSignupEmail(email)
     if (!emailCheck.ok) {
       return NextResponse.json(
-        { detail: 'Please use a permanent email address — temporary/disposable addresses are not allowed.' },
+        { detail: 'Please use a permanent email address; temporary/disposable addresses are not allowed.' },
         { status: 400 },
       )
     }
@@ -97,7 +104,7 @@ export async function POST(request: NextRequest) {
 
   const base = getServerAPIUrl()
 
-  // The backend UserCreate body — account fields only; the org (if any) is in
+  // The backend UserCreate body: account fields only; the org (if any) is in
   // the URL path, never the body.
   //
   // Every field is listed explicitly rather than spread from the request. The
@@ -126,6 +133,11 @@ export async function POST(request: NextRequest) {
       : {}),
   }
 
+  // org_id is interpolated into the backend path, so it must be a plain id.
+  if (org_id !== undefined && org_id !== null && org_id !== '' && !/^\d+$/.test(String(org_id))) {
+    return NextResponse.json({ detail: 'Invalid organization.' }, { status: 400 })
+  }
+
   let url: string
   if (inviteCode) {
     if (!org_id) {
@@ -137,15 +149,27 @@ export async function POST(request: NextRequest) {
     url = `${base}users/${org_id}`
   } else {
     // Org-less apex: create a standalone account (POST /users/), unattached to
-    // any org — exactly like the platform. The user creates their org next.
+    // any org, exactly like the platform. The user creates their org next.
     url = `${base}users/`
+  }
+
+  // Relay the caller's IP. This is a server-to-server call, so without it the
+  // backend sees this Next.js server as the client for every signup and its
+  // per-IP signup limit becomes one shared bucket: a single caller could use it
+  // up and block signups for everyone. Forwarded verbatim, same as the auth
+  // proxy: the backend's get_client_ip owns the parsing and only trusts these
+  // headers from a private (proxy) address.
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  for (const ipHeader of ['x-forwarded-for', 'x-real-ip']) {
+    const value = request.headers.get(ipHeader)
+    if (value) headers[ipHeader] = value
   }
 
   let backendRes: Response
   try {
     backendRes = await mkaSignupFetch(saas, base, url, { // MKA fork: non-SaaS calls the API on loopback
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...mkaSignupForwardHeaders(saas, request.headers, turnstileToken) }, // MKA fork
+      headers: { ...headers, ...mkaSignupForwardHeaders(saas, request.headers, turnstileToken) }, // MKA fork
       body: JSON.stringify(backendBody),
       signal: AbortSignal.timeout(8000),
     })
@@ -156,7 +180,7 @@ export async function POST(request: NextRequest) {
 
   const data = await backendRes.json().catch(() => ({}))
 
-  // On success, sync the marketing contact (SaaS-only, fire-and-forget) — but
+  // On success, sync the marketing contact (SaaS-only, fire-and-forget), but
   // ONLY for ORG-LESS signups (learnhouse.io self-serve prospects). Members
   // signing up INTO an existing org (org_id present) are that org's learners,
   // not people we market to, so they are not added. Org admins are recorded

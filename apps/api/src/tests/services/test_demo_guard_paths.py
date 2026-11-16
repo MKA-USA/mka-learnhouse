@@ -3,7 +3,7 @@
 Every one of these is a one-line `if this is the demo` inside a function that
 ordinary organizations also use. They are the whole safety story of the feature
 and the easiest thing to delete by accident, so each gets a test that fails if
-the branch stops firing — and, where the same call answers 403 for more than one
+the branch stops firing, and, where the same call answers 403 for more than one
 reason, an assertion pinned to this guard's own message.
 """
 
@@ -171,7 +171,7 @@ async def test_admin_seats_are_unlimited_in_the_demo(db, demo_org, visitor):
     """Every visitor becomes an admin, so a seat limit would lock the demo.
 
     admin_seats has no feature config, so it cannot be raised by the overrides
-    that unlock everything else — hence the branch this covers.
+    that unlock everything else, hence the branch this covers.
     """
     from src.services.orgs.usage import get_org_usage_and_limits
 
@@ -254,45 +254,3 @@ async def test_search_is_unrestricted_in_a_real_org(db, org, admin_user):
     )
 
     assert admin_user.username in {u.username for u in result.users}
-
-
-async def test_the_audit_dossier_refuses_another_visitor(db, demo_org, visitor):
-    """A dossier carries an email address, login IPs and user agents."""
-    from src.routers.audit import _org_member_ids
-
-    student = await _seeded_student(db, demo_org, uid=812)
-
-    stranger = User(
-        id=813, username="strangeraudit", first_name="Stran", last_name="Ger",
-        email="stranger.audit@example.com", password="hashed",
-        user_uuid="user_stranger813", signup_method="email",
-        creation_date=str(datetime.now()), update_date=str(datetime.now()),
-    )
-    db.add(stranger)
-    await db.flush()
-    db.add(
-        UserOrganization(
-            user_id=stranger.id, org_id=demo_org.id, role_id=ADMIN_ROLE_ID,
-            creation_date=str(datetime.now()), update_date=str(datetime.now()),
-        )
-    )
-    await db.commit()
-
-    allowed = await _org_member_ids(
-        [student.id, stranger.id, visitor.id], demo_org.id, db, visitor.id
-    )
-
-    assert student.id in allowed
-    assert visitor.id in allowed
-    assert stranger.id not in allowed
-
-
-async def test_the_audit_dossier_is_unrestricted_in_a_real_org(db, org, admin_user):
-    """The filter is demo-only; a real admin still gets their whole org."""
-    from src.routers.audit import _org_member_ids
-
-    allowed = await _org_member_ids(
-        [admin_user.id], org.id, db, admin_user.id
-    )
-
-    assert admin_user.id in allowed

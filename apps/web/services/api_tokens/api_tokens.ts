@@ -69,6 +69,20 @@ export interface APITokenRights {
   search: {
     action_read: boolean
   }
+  // Admin API: user management and role assignment. Optional because tokens
+  // created before these buckets existed don't carry them.
+  users?: {
+    action_create: boolean
+    action_read: boolean
+    action_update: boolean
+    action_delete: boolean
+  }
+  roles?: {
+    action_create: boolean
+    action_read: boolean
+    action_update: boolean
+    action_delete: boolean
+  }
 }
 
 export interface APIToken {
@@ -167,6 +181,18 @@ export const getDefaultRights = (): APITokenRights => ({
   search: {
     action_read: false,
   },
+  users: {
+    action_create: false,
+    action_read: false,
+    action_update: false,
+    action_delete: false,
+  },
+  roles: {
+    action_create: false,
+    action_read: false,
+    action_update: false,
+    action_delete: false,
+  },
 })
 
 // Full permissions template
@@ -231,6 +257,18 @@ export const getFullRights = (): APITokenRights => ({
   search: {
     action_read: true,
   },
+  users: {
+    action_create: true,
+    action_read: true,
+    action_update: true,
+    action_delete: true,
+  },
+  roles: {
+    action_create: true,
+    action_read: true,
+    action_update: true,
+    action_delete: true,
+  },
 })
 
 // Read-only permissions template
@@ -294,6 +332,18 @@ export const getReadOnlyRights = (): APITokenRights => ({
   },
   search: {
     action_read: true,
+  },
+  users: {
+    action_create: false,
+    action_read: true,
+    action_update: false,
+    action_delete: false,
+  },
+  roles: {
+    action_create: false,
+    action_read: true,
+    action_update: false,
+    action_delete: false,
   },
 })
 
@@ -388,23 +438,14 @@ export async function regenerateAPIToken(
 }
 
 /**
- * Fetch OpenAPI specification from the backend
+ * Fetch the OpenAPI specification scoped to API token routes.
+ * The public /openapi.json only exists in development mode.
  */
-export async function fetchOpenAPISpec(accessToken?: string) {
-  const url = `${getAPIUrl().replace('/api/v1/', '')}/openapi.json`
-
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  }
-  if (accessToken) {
-    headers['Authorization'] = `Bearer ${accessToken}`
-  }
-
-  const response = await fetch(url, {
-    method: 'GET',
-    headers,
-    credentials: 'include',
-  })
+export async function fetchOpenAPISpec(orgId: number, accessToken: string) {
+  const response = await fetch(
+    `${getAPIUrl()}orgs/${orgId}/api-tokens/openapi.json`,
+    RequestBodyWithAuthHeader('GET', null, null, accessToken)
+  )
 
   if (!response.ok) {
     throw new Error('Failed to fetch OpenAPI spec')

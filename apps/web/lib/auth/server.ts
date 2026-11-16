@@ -1,6 +1,13 @@
+import { cache } from 'react'
 import { cookies } from 'next/headers'
 
-const BACKEND_URL = (process.env.NEXT_PUBLIC_LEARNHOUSE_BACKEND_URL || 'http://localhost:1338').replace(/\/+$/, '')
+// LEARNHOUSE_INTERNAL_API_URL (server-only) keeps this lookup on the internal
+// network; see getInternalBackendUrl in services/config/config.ts.
+const BACKEND_URL = (
+  process.env.LEARNHOUSE_INTERNAL_API_URL ||
+  process.env.NEXT_PUBLIC_LEARNHOUSE_BACKEND_URL ||
+  'http://localhost:1338'
+).replace(/\/+$/, '')
 
 // Cookie names (must match the API routes)
 const ACCESS_TOKEN_COOKIE = 'LH_access'
@@ -18,7 +25,7 @@ export interface Session {
   /**
    * True when a refresh cookie exists but the server could not turn it into an
    * access token without consuming it. The user is signed in; the server just
-   * can't see who they are. Pages must NOT redirect to /login on this — render
+   * can't see who they are. Pages must NOT redirect to /login on this; render
    * and let the client hydrate the real session.
    */
   unresolved?: boolean
@@ -27,21 +34,21 @@ export interface Session {
 /**
  * Get server-side session by reading tokens from cookies.
  *
- * IMPORTANT — this must never call `/api/v1/auth/refresh`.
+ * IMPORTANT: this must never call `/api/v1/auth/refresh`.
  *
  * Refresh tokens are one-time-use: the backend marks the presented `jti` as
  * consumed and returns a rotated replacement. A Server Component cannot set
  * cookies, so any refresh performed here consumes the browser's token and then
  * throws the replacement away. The browser keeps sending the dead token, and
  * once the backend's grace window lapses that looks exactly like a stolen
- * token being replayed — which revokes EVERY session the user has, on every
+ * token being replayed, which revokes EVERY session the user has, on every
  * device. That is the "I was randomly logged out" report.
  *
  * So: use the access token if we have one, otherwise report the session as
  * unresolved and let the client restore it through `/api/auth/refresh`, which
  * is a Route Handler and *can* persist the rotation.
  */
-export async function getServerSession(): Promise<Session | null> {
+async function readServerSession(): Promise<Session | null> {
   try {
     const cookieStore = await cookies()
 
@@ -70,7 +77,7 @@ export async function getServerSession(): Promise<Session | null> {
     }
 
     // No usable access token. If a refresh cookie is present the user is still
-    // signed in — we just can't prove it from here without burning the token.
+    // signed in; we just can't prove it from here without burning the token.
     // Report an unresolved session so pages can avoid bouncing a logged-in
     // user to /login; the client resolves it on hydration.
     const refreshToken = cookieStore.get(REFRESH_TOKEN_COOKIE)
@@ -85,16 +92,20 @@ export async function getServerSession(): Promise<Session | null> {
   }
 }
 
+// Layouts, pages and generateMetadata each ask for the session; cache() makes
+// that one backend round trip per request instead of one per caller.
+export const getServerSession = cache(readServerSession)
+
 /**
  * Get access token from cookies for server-side API calls.
  * This is a lightweight alternative when you only need the token.
  *
- * Returns null rather than refreshing — see the note on `getServerSession`
+ * Returns null rather than refreshing; see the note on `getServerSession`
  * about why a Server Component must not consume a one-time-use refresh token.
  * Callers should treat null as "render without personalised data" and let the
  * client fill it in.
  */
-export async function getServerAccessToken(): Promise<string | null> {
+export const getServerAccessToken = cache(async (): Promise<string | null> => {
   try {
     const cookieStore = await cookies()
     return cookieStore.get(ACCESS_TOKEN_COOKIE)?.value || null
@@ -102,4 +113,4 @@ export async function getServerAccessToken(): Promise<string | null> {
     console.error('[SERVER_SESSION] Error getting access token:', error)
     return null
   }
-}
+})

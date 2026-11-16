@@ -1,4 +1,6 @@
 import * as Sentry from "@sentry/nextjs";
+import { scrubSentryBreadcrumb, scrubSentryEvent } from "./services/utils/ts/scrubUrl";
+import { isClientNoise } from "./lib/errors/sentryNoise";
 
 const rc = typeof window !== 'undefined' ? (window as any).__RUNTIME_CONFIG__ || {} : {};
 const SENTRY_DSN = rc.NEXT_PUBLIC_LEARNHOUSE_SENTRY_DSN || process.env.NEXT_PUBLIC_LEARNHOUSE_SENTRY_DSN;
@@ -9,8 +11,6 @@ if (SENTRY_DSN) {
     dsn: SENTRY_DSN,
     tunnel: '/monitoring',
     environment: LEARNHOUSE_ENV,
-    sendDefaultPii: true,
-    enableLogs: true,
     tracesSampleRate: LEARNHOUSE_ENV === "dev" ? 1.0 : 0.1,
     replaysSessionSampleRate: 0.0,
     replaysOnErrorSampleRate: 0.1,
@@ -19,7 +19,7 @@ if (SENTRY_DSN) {
     ],
     // Errors thrown by code we don't ship. Wallet/password-manager extensions
     // inject scripts into every page, and when their own message ports die the
-    // rejection is attributed to whatever page they were injected into — ours.
+    // rejection is attributed to whatever page they were injected into: ours.
     // Nothing here is actionable from this repo.
     ignoreErrors: [
       /Cannot read properties of undefined \(reading '(addListener|emit)'\)/,
@@ -51,8 +51,10 @@ if (SENTRY_DSN) {
       if (msg.includes("Organization not found")) return null;
       if (msg.includes("Organization has no config")) return null;
 
-      // Only frame is an injected extension script — nothing of ours ran.
       const frames = event?.exception?.values?.[0]?.stacktrace?.frames ?? [];
+      if (isClientNoise(msg, frames)) return null;
+
+      // Only frame is an injected extension script; nothing of ours ran.
       if (
         frames.length > 0 &&
         frames.every((frame) => /(^|\/)(inpage|contentscript|content_script)\.js/i.test(frame.filename ?? ""))
@@ -60,7 +62,14 @@ if (SENTRY_DSN) {
         return null;
       }
 
-      return event;
+      // Auth links carry reset codes / tokens / OAuth codes in the query.
+      return scrubSentryEvent(event);
+    },
+    beforeSendTransaction(event) {
+      return scrubSentryEvent(event);
+    },
+    beforeBreadcrumb(breadcrumb) {
+      return scrubSentryBreadcrumb(breadcrumb);
     },
   });
 }

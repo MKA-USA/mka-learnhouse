@@ -8,7 +8,8 @@ import path from 'node:path'
 // "resolves" (pass) and "fails" (warn) branches deterministically/offline.
 vi.mock('node:child_process', async () => {
   const actual = await vi.importActual<typeof import('node:child_process')>('node:child_process')
-  return {
+  const { routeExecFile } = await import('./exec-file-mock.js')
+  return routeExecFile({
     ...actual,
     execSync: vi.fn((cmd: string) => {
       if (typeof cmd === 'string' && cmd.includes('docker ps')) {
@@ -17,7 +18,7 @@ vi.mock('node:child_process', async () => {
       if (typeof cmd === 'string' && cmd.includes('State.Running')) return Buffer.from('true')
       return Buffer.from('')
     }),
-  }
+  })
 })
 const promptStub = vi.hoisted(() => ({
   log: { error: () => {}, info: () => {}, success: () => {}, warn: () => {}, warning: () => {}, message: () => {}, step: () => {} },
@@ -38,7 +39,7 @@ vi.mock('node:dns', () => ({
 
 import { doctorCommand } from '../src/commands/doctor.js'
 
-describe('doctor — DNS resolution check', () => {
+describe('doctor: DNS resolution check', () => {
   let home: string
   let installDir: string
   let origHome: string | undefined

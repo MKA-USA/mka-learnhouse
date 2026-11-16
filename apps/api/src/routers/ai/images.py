@@ -7,7 +7,7 @@ membership → rate limit → reserve credit → generate → refund on failure.
 Refinement reads the prior image server-side by ``source_file_id`` (a client
 base64 data URL is only a fallback), so the edit is reliable without a client
 re-fetch. Durable history rows are grouped by ``session_uuid`` to reconstruct the
-thread — so no Redis session is needed for images (the hybrid model's Redis half
+thread, so no Redis session is needed for images (the hybrid model's Redis half
 is used by the streaming quiz/assignment refine chats instead).
 """
 
@@ -26,7 +26,7 @@ from src.db.organizations import Organization
 from src.db.users import PublicUser
 from src.security.auth import get_authenticated_user
 from src.security.features_utils.usage import refund_ai_credit, reserve_ai_credit
-from src.security.org_auth import is_org_member, enforce_org_mfa
+from src.security.org_auth import is_org_member, enforce_org_mfa, require_org_create_permission
 from src.services.ai.generations import (
     delete_generation,
     list_generations,
@@ -34,6 +34,7 @@ from src.services.ai.generations import (
 )
 from src.services.ai.image.generator import OUTPUT_EXT, generate_image
 from src.services.ai.llm import AINotConfiguredError
+from src.services.ai.llm.errors import AI_QUOTA_MESSAGE, is_quota_error
 from src.services.ai.schemas.image import (
     AIImageHistoryItem,
     GenerateImageRequest,
@@ -81,6 +82,8 @@ async def _load_org_and_authorize(
         )
     # Org-wide two-factor policy, applied after the membership gate.
     await enforce_org_mfa(user.id, org.id, db_session)
+    # Image generation is an authoring tool paid from the org's credits.
+    await require_org_create_permission(user, org.id, db_session, "courses")
     return org
 
 
@@ -145,10 +148,13 @@ async def api_generate_image(
     except AINotConfiguredError as e:
         refund_ai_credit(org.id, IMAGE_CREDIT_COST)
         raise HTTPException(status_code=403, detail=str(e))
-    except Exception:
+    except Exception as e:
         refund_ai_credit(org.id, IMAGE_CREDIT_COST)
         # Do not log the traceback: the chained SDK error can embed the API key.
         # generate_image already logs the sanitized exception type.
+        if is_quota_error(e):
+            logger.warning("Image generation failed: AI provider quota reached")
+            raise HTTPException(status_code=503, detail=AI_QUOTA_MESSAGE)
         logger.error("Image generation failed")
         raise HTTPException(
             status_code=502,

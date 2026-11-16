@@ -30,12 +30,12 @@ export async function downloadCertificateNodeAsPdf(
 
   // Wait for webfonts before rasterising. html2canvas snapshots whatever is
   // painted at that instant, so if the Arabic face hasn't loaded yet the PDF
-  // is written with fallback glyphs — or tofu — and nobody notices, because
+  // is written with fallback glyphs (or tofu) and nobody notices, because
   // the on-screen certificate looks fine by the time anyone opens the file.
   try {
     await document.fonts?.ready
   } catch {
-    // Font Loading API unavailable — proceed; worst case is a fallback face.
+    // Font Loading API unavailable. Proceed; worst case is a fallback face.
   }
 
   const canvas = await html2canvas(node, {
@@ -45,7 +45,8 @@ export async function downloadCertificateNodeAsPdf(
     backgroundColor: '#ffffff',
   })
 
-  const imgData = canvas.toDataURL('image/png')
+  // JPEG keeps the file around 1 MB; a lossless PNG of a 2x A4 capture is ~10 MB.
+  const imgData = canvas.toDataURL('image/jpeg', 0.92)
 
   // Match page orientation to the certificate so we don't letterbox a wide
   // design into a tall page (or vice versa).
@@ -65,7 +66,7 @@ export async function downloadCertificateNodeAsPdf(
 
   pdf.addImage(
     imgData,
-    'PNG',
+    'JPEG',
     (pageWidth - imgWidth) / 2,
     (pageHeight - imgHeight) / 2,
     imgWidth,

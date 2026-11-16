@@ -14,6 +14,9 @@ if [ -n "$LEARNHOUSE_SQL_CONNECTION_STRING" ]; then
     fi
 fi
 
+# MKA fork: apply DB migrations before the API starts (never blocks startup)
+sh /app/api/scripts/mka-migrate.sh
+
 # Start the services
 # Use server-wrapper.js for runtime environment variable injection
 pm2 start server-wrapper.js --cwd /app/web --name learnhouse-web > /dev/null 2>&1

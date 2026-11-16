@@ -1,5 +1,5 @@
 'use client'
-import { BookOpenCheck, Check, FileText, Layers, Video, ChevronLeft, ChevronRight, ChevronDown, Trophy, Package, Puzzle, Globe } from 'lucide-react'
+import { BookOpenCheck, Check, FileText, Layers, Video, ChevronLeft, ChevronRight, ChevronDown, Trophy, Package, Puzzle, Globe, Radio } from 'lucide-react'
 import { MarkdownLogo } from '@phosphor-icons/react'
 import React, { useMemo, memo, useState, useRef, useEffect, useCallback } from 'react'
 import ToolTip from '@components/Objects/StyledElements/Tooltip/Tooltip'
@@ -33,6 +33,8 @@ function getActivityTypeLabel(activityType: string, t: any, activitySubType?: st
       return t('activities.assignment')
     case 'TYPE_SCORM':
       return t('activities.scorm')
+    case 'TYPE_LIVE_SESSION':
+      return t('activities.live_session')
     case 'TYPE_CUSTOM':
       return t('activities.custom')
     default:
@@ -52,6 +54,8 @@ function getActivityTypeBadgeColor(activityType: string): string {
       return 'bg-orange-100 text-orange-700'
     case 'TYPE_SCORM':
       return 'bg-indigo-100 text-indigo-700'
+    case 'TYPE_LIVE_SESSION':
+      return 'bg-red-100 text-red-700'
     case 'TYPE_CUSTOM':
       return 'bg-pink-100 text-pink-700'
     default:
@@ -74,6 +78,8 @@ const ActivityTypeIcon = memo(({ activityType, activitySubType }: { activityType
       return <BookOpenCheck size={16} className="text-gray-400" />
     case 'TYPE_SCORM':
       return <Package size={16} className="text-gray-400" />
+    case 'TYPE_LIVE_SESSION':
+      return <Radio size={16} className="text-gray-400" />
     case 'TYPE_CUSTOM':
       return <Puzzle size={16} className="text-gray-400" />
     default:
@@ -259,7 +265,7 @@ const MobileChapterSelector = memo(({
             return (
               <div key={chapter.id}>
                 <div className={`px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide ${isCurrentChapter ? 'text-teal-600' : 'text-gray-400'}`}>
-                  {t('courses.chapter')} {chapterIdx + 1} — {completedInChapter}/{chapter.activities.length}
+                  {t('courses.chapter')} {chapterIdx + 1}: {completedInChapter}/{chapter.activities.length}
                 </div>
                 {chapter.activities.map((activity: any) => {
                   const isDone = isActivityDone(activity)
@@ -392,7 +398,7 @@ function ActivityIndicators(props: Props) {
       const activityId = nextActivity.activity_uuid.replace('activity_', '')
       router.push(getUriWithOrg(orgslug, '') + `/course/${courseid}/activity/${activityId}`)
     } else if (isOnLastActivity) {
-      // Same destination as the trophy badge — the course-end/certificate view.
+      // Same destination as the trophy badge: the course-end/certificate view.
       router.push(getUriWithOrg(orgslug, '') + `/course/${courseid}/activity/end`)
     }
   }
@@ -514,7 +520,7 @@ function ActivityIndicators(props: Props) {
 
             return (
               <div key={chapter.id} className="flex-1 flex items-center min-w-0">
-                {/* Chapter circle — glued to the left of the bar */}
+                {/* Chapter circle, glued to the left of the bar */}
                 <ToolTip
                   sideOffset={8}
                   unstyled
@@ -550,7 +556,7 @@ function ActivityIndicators(props: Props) {
                   )}
                 </ToolTip>
 
-                {/* Activity segments — glued to circle, flush together */}
+                {/* Activity segments, glued to circle, flush together */}
                 <div className="flex-1 flex items-center min-w-0 -ms-[4px]">
                   {chapter.activities.map((activity: any, activityIndex: number) => {
                     const isDone = isActivityDone(activity)

@@ -23,6 +23,8 @@ from src.security.rbac.constants import ADMIN_OR_MAINTAINER_ROLE_IDS
 from src.security.superadmin import is_user_superadmin
 from src.services.utils.upload_content import upload_file
 from src.services.webhooks.dispatch import dispatch_webhooks
+from src.services.analytics import events as analytics_events
+from src.services.analytics.analytics import track
 
 
 _SUPERADMIN_PLAYGROUND_RIGHTS = {
@@ -73,7 +75,7 @@ async def _get_user_rights(
     if not user_org:
         return {}
 
-    # The caller is a confirmed member — subject to the org's 2FA policy. Every
+    # The caller is a confirmed member and so subject to the org's 2FA policy. Every
     # mutating playground gate (create/update/delete/duplicate and the usergroup
     # ops) resolves rights through here, so enforcing once closes the whole set
     # of write paths against a member who is past their two-factor deadline.
@@ -93,7 +95,7 @@ async def _get_user_rights(
 
 
 async def _enforce_member_mfa(user_id: int, org_id: int, db_session: AsyncSession) -> None:
-    """Apply the org's "require two-factor" policy — but only to actual members.
+    """Apply the org's "require two-factor" policy, but only to actual members.
 
     Playgrounds are also served to non-members and anonymous users (PUBLIC /
     AUTHENTICATED access types), and the org 2FA policy governs *members* of the
@@ -175,6 +177,36 @@ async def _check_read_access(
     raise HTTPException(status_code=403, detail="Access denied to this playground")
 
 
+def _sold_as(playground: Playground) -> str:
+    """Offers name playgrounds by a typed uuid; the stored one is bare."""
+    uuid = playground.playground_uuid
+    return uuid if uuid.startswith("playground_") else f"playground_{uuid}"
+
+
+async def _check_draft_access(
+    playground: Playground,
+    current_user: PublicUser | AnonymousUser | APITokenUser,
+    db_session: AsyncSession,
+) -> None:
+    """Raise 404 if current_user may not see this playground while it is a draft.
+
+    Unpublished (draft) playgrounds must never be exposed by uuid to anyone
+    other than the owner or an org admin. _check_read_access only validates
+    access_type, so without this guard a draft PUBLIC/AUTHENTICATED playground
+    would be readable by anonymous/any authenticated user via its uuid, the
+    same content list_org_playgrounds deliberately hides.
+    """
+    if playground.published:
+        return
+    if isinstance(current_user, AnonymousUser):
+        raise HTTPException(status_code=404, detail="Playground not found")
+    acting_user_id = resolve_acting_user_id(current_user)
+    if playground.created_by != acting_user_id and not await _is_org_admin(
+        acting_user_id, playground.org_id, db_session
+    ):
+        raise HTTPException(status_code=404, detail="Playground not found")
+
+
 async def create_playground(
     request: Request,
     org_id: int,
@@ -191,7 +223,7 @@ async def create_playground(
     # as APITokenUser whose .id is the token id (often 0), not a user id. Using
     # current_user.id directly would (a) make every rights/ownership check fail
     # for token callers and (b) store the token id as created_by, which is a FK
-    # to user.id — corrupting the author reference.
+    # to user.id, corrupting the author reference.
     acting_user_id = resolve_acting_user_id(current_user)
     rights = await _get_user_rights(acting_user_id, org_id, db_session)
     pg_rights = rights.get("playgrounds", {})
@@ -227,6 +259,12 @@ async def create_playground(
     await db_session.commit()
     await db_session.refresh(playground)
 
+    await track(
+        event_name=analytics_events.PLAYGROUND_CREATED,
+        org_id=org_id,
+        user_id=acting_user_id,
+        properties={"playground_uuid": playground.playground_uuid},
+    )
     await dispatch_webhooks(
         event_name="playground_created",
         org_id=org_id,
@@ -253,25 +291,15 @@ async def get_playground(
         raise HTTPException(status_code=404, detail="Playground not found")
 
     await _check_read_access(playground, current_user, db_session)
+    from src.core.ee_hooks import require_ee_resource_paid_access
+    await require_ee_resource_paid_access(request, db_session, current_user, _sold_as(playground))
 
     if not isinstance(current_user, AnonymousUser):
         await _enforce_member_mfa(
             resolve_acting_user_id(current_user), playground.org_id, db_session
         )
 
-    # Unpublished (draft) playgrounds must never be exposed by uuid to anyone
-    # other than the owner or an org admin. _check_read_access only validates
-    # access_type, so without this guard a draft PUBLIC/AUTHENTICATED playground
-    # would be readable by anonymous/any authenticated user via its uuid — the
-    # same content list_org_playgrounds deliberately hides.
-    if not playground.published:
-        if isinstance(current_user, AnonymousUser):
-            raise HTTPException(status_code=404, detail="Playground not found")
-        acting_user_id = resolve_acting_user_id(current_user)
-        if playground.created_by != acting_user_id and not await _is_org_admin(
-            acting_user_id, playground.org_id, db_session
-        ):
-            raise HTTPException(status_code=404, detail="Playground not found")
+    await _check_draft_access(playground, current_user, db_session)
 
     return await _playground_to_read(playground, db_session)
 
@@ -363,9 +391,17 @@ async def list_org_playgrounds(
         )).scalars().all()
         authors_map = {u.id: u for u in authors}
 
+    # Sold playgrounds stay listed (people need to find what to buy), without
+    # their content for anyone who has not bought them.
+    from src.core.ee_hooks import is_ee_resource_locked
+
     result: List[PlaygroundRead] = []
     for pg in allowed:
         read = PlaygroundRead.model_validate(pg)
+        if not is_admin and pg.created_by != user_id and await is_ee_resource_locked(
+            request, db_session, current_user, _sold_as(pg)
+        ):
+            read.html_content = None
         if org:
             read.org_uuid = org.org_uuid
             read.org_slug = org.slug
@@ -486,6 +522,14 @@ async def duplicate_playground(
     if not pg_rights.get("action_create", False):
         raise HTTPException(status_code=403, detail="Insufficient permissions to create playgrounds")
 
+    # A copy hands the caller the source's full content, so the caller must be
+    # able to read the source exactly as get_playground would let them.
+    await _check_read_access(playground, current_user, db_session)
+    # Copying a sold playground would hand out what it sells.
+    from src.core.ee_hooks import require_ee_resource_paid_access
+    await require_ee_resource_paid_access(request, db_session, current_user, _sold_as(playground))
+    await _check_draft_access(playground, current_user, db_session)
+
     now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
     new_playground = Playground(
         name=f"{playground.name} (Copy)",
@@ -533,7 +577,10 @@ async def add_usergroup_to_playground(
 
     from src.db.usergroups import UserGroup
     ug = (await db_session.execute(
-        select(UserGroup).where(UserGroup.usergroup_uuid == usergroup_uuid)
+        select(UserGroup).where(
+            UserGroup.usergroup_uuid == usergroup_uuid,
+            UserGroup.org_id == playground.org_id,
+        )
     )).scalars().first()
     if not ug:
         raise HTTPException(status_code=404, detail="User group not found")
@@ -585,7 +632,10 @@ async def remove_usergroup_from_playground(
 
     from src.db.usergroups import UserGroup
     ug = (await db_session.execute(
-        select(UserGroup).where(UserGroup.usergroup_uuid == usergroup_uuid)
+        select(UserGroup).where(
+            UserGroup.usergroup_uuid == usergroup_uuid,
+            UserGroup.org_id == playground.org_id,
+        )
     )).scalars().first()
     if not ug:
         raise HTTPException(status_code=404, detail="User group not found")
@@ -663,9 +713,9 @@ async def get_playground_usergroups(
     if not playground:
         raise HTTPException(status_code=404, detail="Playground not found")
 
-    # This listing is the playground's access-control configuration — cohort
+    # This listing is the playground's access-control configuration (cohort
     # names, descriptions, and the very usergroup uuids that
-    # add_usergroup_to_playground consumes — so it is gated exactly like the
+    # add_usergroup_to_playground consumes), so it is gated exactly like the
     # mutations that manage it, not like a public read of the playground.
     if isinstance(current_user, AnonymousUser):
         raise HTTPException(status_code=401, detail="Authentication required")

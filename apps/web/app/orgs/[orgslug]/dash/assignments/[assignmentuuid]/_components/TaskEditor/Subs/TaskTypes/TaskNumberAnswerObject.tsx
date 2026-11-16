@@ -7,6 +7,7 @@ import {
 } from '@components/Contexts/Assignments/AssignmentsTaskContext'
 import { useLHSession } from '@components/Contexts/LHSessionContext'
 import AssignmentBoxUI from '@components/Objects/Activities/Assignment/AssignmentBoxUI'
+import { answerInputClass, answerKeyPanelClass, promptTextClass } from '@components/Objects/Activities/Assignment/assignmentUI'
 import {
   getAssignmentTask,
   getAssignmentTaskSubmissionsMe,
@@ -62,7 +63,7 @@ function normalizeContents(raw: any): NumberAnswerContents {
 // Did the answer key actually reach the client?
 //
 // The API strips `correct_value` from the task payload whenever the student
-// isn't allowed to see it yet — notably while retry attempts remain (see
+// isn't allowed to see it yet, notably while retry attempts remain (see
 // _student_may_see_answer_key; max_retries=0 means unlimited, so it never
 // reveals). The client can't re-derive that rule (it has no attempt_number
 // here), so `showCorrectAnswers` can be true while the key is absent. In that
@@ -92,6 +93,11 @@ function TaskNumberAnswerObject({
   const submissionIsGraded = Array.isArray(assignmentSubmission)
     && assignmentSubmission.length > 0
     && assignmentSubmission[0].submission_status === 'GRADED'
+  // Handed in (SUBMITTED) or graded: answers can no longer be saved, so
+  // they can't be edited either; typing would only look like it worked.
+  const answersLocked = submissionIsGraded || (Array.isArray(assignmentSubmission)
+    && assignmentSubmission.length > 0
+    && assignmentSubmission[0].submission_status === 'SUBMITTED');
   const showCorrectAnswers = view === 'student'
     && submissionIsGraded
     && !!assignment?.assignment_object?.show_correct_answers
@@ -100,7 +106,7 @@ function TaskNumberAnswerObject({
   // Tracks whether the server actually sent the answer key (see hasAnswerKey).
   const [answerKeyPresent, setAnswerKeyPresent] = useState(false)
   // The server applies a third reveal condition the client can't reproduce, so
-  // the opt-in gate alone isn't enough — only reveal when the key is really here.
+  // the opt-in gate alone isn't enough; only reveal when the key is really here.
   const revealAnswerKey = showCorrectAnswers && answerKeyPresent
   const [studentAnswer, setStudentAnswer] = useState<string>('')
   const [initialAnswer, setInitialAnswer] = useState<string>('')
@@ -149,7 +155,7 @@ function TaskNumberAnswerObject({
     if (res.success && res.data) {
       setUserSubmissions(res.data)
       const saved = String(res.data.task_submission?.answer ?? '')
-      // The interaction guard has to be checked HERE, after the await — not
+      // The interaction guard has to be checked HERE, after the await, not
       // before it. If the learner starts typing during the round trip, a
       // pre-await check still lets the late response overwrite their text AND
       // reset the dirty baseline, so auto-save never fires and the answer is
@@ -212,7 +218,7 @@ function TaskNumberAnswerObject({
   // --- SAVE PROGRESS (student) ---
   // Matches the QUIZ / FORM pattern: persist the draft answer only. Grading
   // is done server-side via _server_verified_task_grade when the assignment
-  // is finalized — either by the auto-grade path on submission or by the
+  // is finalized, either by the auto-grade path on submission or by the
   // teacher clicking "Set final grade". Keeping the client out of the
   // grading loop also means DevTools tampering can't inflate the score.
   async function submitFC(opts?: { silent?: boolean }) {
@@ -282,7 +288,7 @@ function TaskNumberAnswerObject({
 
   return (
     <AssignmentBoxUI
-      type="form"
+      type="number"
       view={view}
       saveFC={saveFC}
       submitFC={submitFC}
@@ -402,35 +408,35 @@ function TaskNumberAnswerObject({
         )}
 
         {/* === STUDENT VIEW === */}
-        {/* Saving is just persisting a draft — no Correct/Incorrect feedback
+        {/* Saving is just persisting a draft, so there is no Correct/Incorrect feedback
             here. The student sees their grade after the whole assignment is
             graded (visible in the activity header badge). */}
         {view === 'student' && (
           <>
             {contents.prompt && (
-              <p className="text-sm text-slate-700 whitespace-pre-wrap">{contents.prompt}</p>
+              <p className={promptTextClass}>{contents.prompt}</p>
             )}
-            <div className="flex items-center space-x-2">
+            <div className="relative w-full md:max-w-[260px]">
               <input
                 type="text"
                 inputMode="decimal"
                 value={studentAnswer}
-                onChange={(e) => { if (!submissionIsGraded) { interactedRef.current = true; setStudentAnswer(e.target.value) } }}
-                readOnly={submissionIsGraded}
+                onChange={(e) => { if (!answersLocked) { interactedRef.current = true; setStudentAnswer(e.target.value) } }}
+                readOnly={answersLocked}
                 placeholder={t(
                   'dashboard.assignments.editor.task_editor.number_answer.your_answer_placeholder'
                 )}
-                className="w-full max-w-[200px] px-3 py-2 text-sm border-2 border-gray-200 rounded-md bg-white focus:border-blue-400 focus:ring-2 focus:ring-blue-200 outline-none font-mono"
+                className={`${answerInputClass} tabular-nums ${contents.unit ? 'pe-14' : ''}`}
               />
               {contents.unit && (
-                <span className="text-sm font-medium text-slate-500">{contents.unit}</span>
+                <span className="pointer-events-none absolute inset-y-0 end-4 flex items-center text-sm font-medium text-neutral-400">{contents.unit}</span>
               )}
             </div>
-            {/* No answer-key panel at all when the key was withheld — the
+            {/* No answer-key panel at all when the key was withheld; the
                 learner still sees their own answer and their score. A
                 fabricated "Accepted range: 0" would be worse than nothing. */}
             {revealAnswerKey && (
-              <div className="flex flex-col space-y-1.5 p-3 rounded-md bg-emerald-50 border border-emerald-200">
+              <div className={answerKeyPanelClass}>
                 <div className="flex items-center space-x-1.5 text-xs font-semibold text-emerald-700">
                   <CheckCircle2 size={13} />
                   <span>{t('dashboard.assignments.editor.task_editor.number_answer.accepted_range_label')}</span>

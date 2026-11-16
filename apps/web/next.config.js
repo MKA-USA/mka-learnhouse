@@ -1,27 +1,78 @@
-const { withSentryConfig } = require("@sentry/nextjs");
+const fs = require('fs')
+const path = require('path')
+const { withSentryConfig } = require("@sentry/nextjs/config");
+
+// Enterprise Edition modules are imported as `@ee/*`. They resolve to
+// apps/web/ee when it is present (a copied-in folder or local symlink) and to the
+// tracked no-op stubs in apps/web/ee-stub otherwise, so open-source builds
+// compile without EE. LEARNHOUSE_DISABLE_EE=1 or LEARNHOUSE_PUBLIC=true forces
+// the stubs even when ee/ exists.
+const eeForcedOff =
+  process.env.LEARNHOUSE_DISABLE_EE === '1' || process.env.LEARNHOUSE_PUBLIC === 'true'
+const eeDir = path.join(__dirname, 'ee')
+// A broken ee symlink makes `next build` fail with a bare ENOENT; say why.
+try {
+  if (fs.lstatSync(eeDir).isSymbolicLink() && !fs.existsSync(eeDir)) {
+    throw new Error(
+      `apps/web/ee is a symlink to ${fs.readlinkSync(eeDir)}, which does not exist. ` +
+        'Fix the link or remove it to build without Enterprise features.'
+    )
+  }
+} catch (err) {
+  if (err.code !== 'ENOENT') throw err
+}
+// Check a known entrypoint rather than the folder: a leftover ee/ holding only
+// untracked files (e.g. after pulling the commit that untracked it) must not
+// switch the build to EE.
+const eeEnabled =
+  !eeForcedOff && fs.existsSync(path.join(eeDir, 'services', 'tenancy', 'resolveMulti.server.ts'))
+const eeTarget = eeEnabled ? 'ee' : 'ee-stub'
+
+// A symlinked ee/ (local dev against a sibling checkout) lives outside the
+// project root, which Turbopack refuses to resolve. Widen the root to the
+// nearest directory containing both.
+function commonAncestor(a, b) {
+  const pa = a.split(path.sep)
+  const pb = b.split(path.sep)
+  let i = 0
+  while (i < pa.length && i < pb.length && pa[i] === pb[i]) i++
+  // No shared prefix (e.g. different drives on Windows): leave the root alone.
+  if (i === 0) return undefined
+  return pa.slice(0, i).join(path.sep) || path.sep
+}
+// Done even when EE is off: Tailwind's `@source '../ee'` in globals.css still
+// follows the link.
+const eeRealDir = fs.existsSync(eeDir) ? fs.realpathSync(eeDir) : null
+const turbopackRoot =
+  eeRealDir && !eeRealDir.startsWith(fs.realpathSync(__dirname) + path.sep)
+    ? commonAncestor(fs.realpathSync(__dirname), eeRealDir)
+    : undefined
 
 /** @type {import('common.next').NextConfig} */
 const nextConfig = {
   // Required by PostHog's reverse-proxy rewrites below so the trailing-slash
-  // handling on /ingest/* doesn't 308-redirect ingestion requests.
+  // handling on /lhrel/* doesn't 308-redirect ingestion requests.
   skipTrailingSlashRedirect: true,
   async rewrites() {
     return [
-      // PostHog reverse proxy (EU cloud) — served same-origin so adblockers
-      // don't strip ingestion. The client SDK points at api_host: '/ingest'.
+      // PostHog reverse proxy (EU cloud), served same-origin so adblockers
+      // don't strip ingestion. The client SDK points at api_host: '/lhrel'.
+      // Not PostHog's suggested '/ingest': uBlock Origin and AdGuard lists
+      // block '/ingest/*ip=' (the SDK adds ip= to its requests), so that path
+      // lost every visitor running them. '/lhrel' matches no filter list.
       {
-        source: '/ingest/static/:path*',
+        source: '/lhrel/static/:path*',
         destination: 'https://eu-assets.i.posthog.com/static/:path*',
       },
       {
-        source: '/ingest/:path*',
+        source: '/lhrel/:path*',
         destination: 'https://eu.i.posthog.com/:path*',
       },
     ]
   },
   async headers() {
     return [
-      // Global security headers on every route — clickjacking (X-Frame-Options /
+      // Global security headers on every route: clickjacking (X-Frame-Options /
       // frame-ancestors), MIME sniffing, referrer leakage and HSTS. The embed
       // override below comes AFTER this block, so it wins for the same header
       // keys on embed paths only (later source overrides earlier in Next).
@@ -36,6 +87,30 @@ const nextConfig = {
           { key: 'X-Download-Options', value: 'noopen' },
         ],
       },
+      // Un-hashed files from public/. Next serves them with max-age=0, so every
+      // page view revalidated each logo and icon. They can change on deploy, so
+      // a day plus background revalidation, never immutable. api/, _next/ and
+      // the relays are excluded: media proxied through /api is not ours to cache.
+      {
+        source: '/:path((?!api/|_next/|lhrel/|monitoring).*\\.(?:png|svg|ico|jpg|jpeg|webp))',
+        headers: [
+          { key: 'Cache-Control', value: 'public, max-age=86400, stale-while-revalidate=604800' },
+        ],
+      },
+      {
+        source: '/:file(dir-init\\.js|embed-bg\\.js)',
+        headers: [
+          { key: 'Cache-Control', value: 'public, max-age=3600, stale-while-revalidate=86400' },
+        ],
+      },
+      // Rewritten from the environment at container start (server-wrapper.js),
+      // so keep it short-lived.
+      {
+        source: '/runtime-config.js',
+        headers: [
+          { key: 'Cache-Control', value: 'public, max-age=60, stale-while-revalidate=600' },
+        ],
+      },
       {
         source: '/embed/:orgslug/course/:courseuuid/activity/:path*',
         headers: [
@@ -47,6 +122,17 @@ const nextConfig = {
             key: 'Content-Security-Policy',
             value: 'frame-ancestors *',
           },
+        ],
+      },
+      {
+        // LTI: an LMS shows the course picker (deep linking) and the launch
+        // landing page inside its own iframe, from whatever LMS host the org
+        // registered. /lti/link stays unframeable — it asks a signed-in user to
+        // confirm an account link, the one LTI page worth clickjacking.
+        source: '/lti/:page(select|launch)',
+        headers: [
+          { key: 'X-Frame-Options', value: 'ALLOWALL' },
+          { key: 'Content-Security-Policy', value: 'frame-ancestors *' },
         ],
       },
       {
@@ -87,26 +173,33 @@ const nextConfig = {
     ]
   },
   reactStrictMode: false,
+  turbopack: {
+    ...(turbopackRoot ? { root: turbopackRoot } : {}),
+    resolveAlias: {
+      '@ee/*': `./${eeTarget}/*`,
+    },
+  },
+  webpack: (config) => {
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      '@ee': path.join(__dirname, eeTarget),
+    }
+    return config
+  },
   // `next dev` refuses cross-origin requests for its own chunks. A local
-  // multi-tenant run (DEMO_STACK.md) serves orgs from <slug>.lvh.me, so allow
+  // multi-tenant run serves orgs from <slug>.lvh.me, so allow
   // that family of hosts. Dev-only; ignored by `next build`/`next start`.
   allowedDevOrigins: ['lvh.me', '*.lvh.me'],
   output: 'standalone',
+  // No remote patterns: every next/image source is a bundled asset. Allowing
+  // any host turned /_next/image into an open fetch proxy from the server.
   images: {
-    remotePatterns: [
-      {
-        protocol: 'http',
-        hostname: '**',
-      },
-      {
-        protocol: 'https',
-        hostname: '**',
-      },
-    ],
+    remotePatterns: [],
   },
   experimental: {
     optimizePackageImports: [
       '@phosphor-icons/react',
+      '@icons-pack/react-simple-icons',
       'framer-motion',
       'lucide-react',
       '@emoji-mart/react',
@@ -140,16 +233,19 @@ const nextConfig = {
       'react-katex',
     ],
   },
-  // Ensure consistent build IDs across multiple pods in Kubernetes
+  // The build id is how Next spots a tab still running an older deploy: on a
+  // mismatch it does a full page load instead of splicing new chunks into the
+  // old runtime. A fixed id hid every deploy, so open tabs crashed with
+  // "x is not a function" after each release. Pods share one image, so Next's
+  // per-build default is already consistent; CI pins it to the commit so
+  // per-arch builds agree too.
   generateBuildId: async () => {
-    return process.env.BUILD_ID || 'learnhouse-production'
+    return process.env.BUILD_ID || null
   },
 }
 
 // Generate runtime config for development
 if (process.env.NODE_ENV === 'development') {
-  const fs = require('fs')
-  const path = require('path')
   const runtimeConfig = {}
 
   Object.keys(process.env).forEach((key) => {
@@ -168,12 +264,11 @@ if (process.env.NODE_ENV === 'development') {
   )
 }
 
-// Always wrap with Sentry — DSN is resolved at runtime, not build time
+// Always wrap with Sentry; DSN is resolved at runtime, not build time
 module.exports = withSentryConfig(nextConfig, {
   org: process.env.SENTRY_ORG,
   project: process.env.SENTRY_PROJECT,
   silent: true,
-  disableLogger: true,
   tunnelRoute: "/monitoring",
   sourcemaps: {
     disable: !process.env.SENTRY_ORG || !process.env.SENTRY_PROJECT,

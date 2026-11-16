@@ -17,6 +17,7 @@ from src.security.features_utils.dependencies import require_playgrounds_feature
 from src.services.ai.llm import model_for_tier
 from src.services.playgrounds.playgrounds_generator import (
     get_playground_session,
+    get_playground_session_owner,
     create_playground_session,
     generate_playground_stream,
     MAX_ITERATIONS,
@@ -47,6 +48,8 @@ async def get_org_ai_model(org_id: int, db_session: AsyncSession) -> str:
 
 
 async def _get_course_context(
+    request: Request,
+    current_user: PublicUser | AnonymousUser | APITokenUser,
     course_uuid: Optional[str],
     org_id: int,
     db_session: AsyncSession,
@@ -62,13 +65,25 @@ async def _get_course_context(
     if not course or course.org_id != org_id:
         return None, None
 
+    from src.services.ai.rag.access import build_rag_access_scope
+    from src.services.ai.rag.query_service import query_course_rag
+
+    # Generated output is shaped by the retrieved text, so only content the
+    # caller can read may be used. A linked course this editor cannot read is
+    # not an error for the playground itself: generate without it.
     try:
-        from src.services.ai.rag.query_service import query_course_rag
+        scope = await build_rag_access_scope(
+            request, current_user, org_id, db_session, course=course
+        )
+    except HTTPException:
+        return None, course.id
+
+    try:
         rag_result = await query_course_rag(
             question=prompt,
             org_id=org_id,
             db_session=db_session,
-            course_id=course.id,
+            scope=scope,
         )
         return rag_result.get("context") or None, course.id
     except Exception as e:
@@ -132,6 +147,8 @@ async def start_playground_session(
 
     # Fetch RAG context if course linked
     course_context, _ = await _get_course_context(
+        request,
+        current_user,
         session_request.context.course_uuid,
         org.id,
         db_session,
@@ -141,6 +158,7 @@ async def start_playground_session(
     session = create_playground_session(
         playground_uuid=session_request.playground_uuid,
         context=session_request.context,
+        user_id=generate_acting_user_id,
     )
 
     stream = generate_playground_stream(
@@ -213,6 +231,9 @@ async def iterate_playground_session(
 
     # Verify user can edit
     iterate_acting_user_id = resolve_acting_user_id(current_user)
+    session_owner = get_playground_session_owner(session.session_uuid)
+    if session_owner is not None and session_owner != iterate_acting_user_id:
+        raise HTTPException(status_code=404, detail="Session not found")
     from src.services.playgrounds.playgrounds import _get_user_rights
     rights = await _get_user_rights(iterate_acting_user_id, playground.org_id, db_session)
     pg_rights = rights.get("playgrounds", {})
@@ -232,6 +253,8 @@ async def iterate_playground_session(
 
     # Fetch RAG context if course linked
     course_context, _ = await _get_course_context(
+        request,
+        current_user,
         session.context.course_uuid,
         org.id,
         db_session,
@@ -292,6 +315,9 @@ async def get_session_state(
         raise HTTPException(status_code=404, detail="Playground not found")
 
     state_acting_user_id = resolve_acting_user_id(current_user)
+    session_owner = get_playground_session_owner(session.session_uuid)
+    if session_owner is not None and session_owner != state_acting_user_id:
+        raise HTTPException(status_code=404, detail="Session not found")
     from src.services.playgrounds.playgrounds import _get_user_rights
     rights = await _get_user_rights(state_acting_user_id, playground.org_id, db_session)
     pg_rights = rights.get("playgrounds", {})

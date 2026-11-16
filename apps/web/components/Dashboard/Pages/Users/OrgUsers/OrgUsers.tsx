@@ -10,15 +10,16 @@ import ToolTip from '@components/Objects/StyledElements/Tooltip/Tooltip'
 import { getAPIUrl } from '@services/config/config'
 import { getUserAvatarMediaDirectory } from '@services/media/media'
 import { removeUserFromOrg, removeUsersFromOrg, updateUserRole } from '@services/organizations/orgs'
-import { apiFetch } from '@services/utils/ts/requests'
+import { apiFetch, asArray } from '@services/utils/ts/requests'
 import { LogOut, Search, ChevronLeft, ChevronRight, Shield, User, Crown, Users, CheckCircle2, XCircle, Mail, Globe, ArrowUp, ArrowDown, X, Filter, Download, BarChart3, GitCompare, ExternalLink } from 'lucide-react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { getUriWithOrg, getUpgradeUrl } from '@services/config/config'
 import { Dialog, DialogContent } from '@components/ui/dialog'
-import UserDossierModal from '@components/Dashboard/Pages/Users/UserAnalytics/UserDossierModal'
-import UsersComparisonTable from '@components/Dashboard/Pages/Users/UserAnalytics/UsersComparisonTable'
-import UserAuditExport from '@components/Dashboard/Pages/Users/UserAnalytics/UserAuditExport'
+import UserDossierModal from '@ee/components/Analytics/Users/UserDossierModal'
+import UsersComparisonTable from '@ee/components/Analytics/Users/UsersComparisonTable'
+import UserAuditExport from '@ee/components/Analytics/Users/UserAuditExport'
+import { isOrgAnalyticsAvailable } from '@ee/components/Analytics/availability'
 import React, { useState, useCallback, useMemo } from 'react'
 import toast from 'react-hot-toast'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -44,13 +45,13 @@ function formatCustomFieldValue(value: any): string {
 }
 
 function formatShortDate(dateStr: string | null | undefined): string {
-  if (!dateStr) return '—'
+  if (!dateStr) return 'n/a'
   try {
     const date = new Date(dateStr)
-    if (isNaN(date.getTime())) return '—'
+    if (isNaN(date.getTime())) return 'n/a'
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
   } catch {
-    return '—'
+    return 'n/a'
   }
 }
 
@@ -81,8 +82,10 @@ function OrgUsers() {
   const [filterGroupId, setFilterGroupId] = useState<string>('')
   // Per-student analytics (integrated into this Users list)
   const [analyticsUserId, setAnalyticsUserId] = useState<number | null>(null)
-  const [comparing, setComparing] = useState(false)
   const [mkaEdit, setMkaEdit] = useState<{ id: number; name: string } | null>(null) // MKA fork
+  const [comparing, setComparing] = useState(false)
+  // Per-student analytics ship with Enterprise Edition.
+  const showAnalytics = isOrgAnalyticsAvailable()
 
   const buildQuery = () => {
     const params = new URLSearchParams()
@@ -117,6 +120,7 @@ function OrgUsers() {
   const { data: roles } = useQuery({
     queryKey: queryKeys.org.roles(org?.id),
     queryFn: () => apiFetch(`${getAPIUrl()}roles/org/${org.id}`, access_token),
+    select: (res: any) => asArray<any>(res),
     enabled: !!org?.id && !!access_token,
     staleTime: 60_000,
   })
@@ -125,6 +129,9 @@ function OrgUsers() {
   const { data: usergroups } = useQuery({
     queryKey: queryKeys.usergroups.list(org?.id),
     queryFn: () => apiFetch(`${getAPIUrl()}usergroups/org/${org.id}?org_id=${org.id}`, access_token),
+    // Shares its cache key with getUserGroups(), which stores the
+    // {success, data} envelope rather than the bare list.
+    select: (res: any) => asArray<any>(res),
     enabled: !!org?.id && !!access_token,
     staleTime: 60_000,
   })
@@ -201,14 +208,14 @@ function OrgUsers() {
 
   const handleBatchRemove = async () => {
     const ids = Array.from(selectedUserIds)
-    const toastId = toast.loading(`Removing ${ids.length} user(s)...`);
+    const toastId = toast.loading(t('dashboard.users.active_users.actions.batch_removing', { count: ids.length }));
     const res = await removeUsersFromOrg(org.id, ids, access_token)
     if (res.status === 200) {
       setSelectedUserIds(new Set())
       queryClient.invalidateQueries({ queryKey: queryKeys.org.users(org.id) })
-      toast.success(`${ids.length} user(s) removed successfully`, {id:toastId});
+      toast.success(t('dashboard.users.active_users.actions.batch_remove_success', { count: ids.length }), {id:toastId});
     } else {
-      toast.error('Error removing users', {id:toastId});
+      toast.error(t('dashboard.users.active_users.actions.batch_remove_error'), {id:toastId});
     }
   }
 
@@ -234,7 +241,7 @@ function OrgUsers() {
   const handleExportCSV = async () => {
     if (!org || !access_token) return
     setIsExporting(true)
-    const toastId = toast.loading('Exporting users...')
+    const toastId = toast.loading(t('dashboard.users.active_users.actions.exporting'))
 
     try {
       const params = new URLSearchParams()
@@ -266,9 +273,9 @@ function OrgUsers() {
       document.body.removeChild(link)
       URL.revokeObjectURL(downloadUrl)
 
-      toast.success('Users exported successfully', { id: toastId })
+      toast.success(t('dashboard.users.active_users.actions.export_success'), { id: toastId })
     } catch {
-      toast.error('Failed to export users', { id: toastId })
+      toast.error(t('dashboard.users.active_users.actions.export_error'), { id: toastId })
     } finally {
       setIsExporting(false)
     }
@@ -294,7 +301,7 @@ function OrgUsers() {
                   </div>
                 )}
                 {/* Only surfaces once the org holds more members than its plan
-                    includes — within the included seats there is nothing to
+                    includes; within the included seats there is nothing to
                     report. No amounts here: billing owns the numbers. */}
                 {data?.active_users_summary &&
                   data.active_users_summary.members_beyond_included > 0 && (
@@ -336,7 +343,7 @@ function OrgUsers() {
                     className="inline-flex items-center gap-1.5 px-3 py-2 border border-gray-200 rounded-lg text-sm font-medium text-gray-600 bg-white hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
                   >
                     <Download className="w-4 h-4" />
-                    <span className="hidden sm:inline">Export</span>
+                    <span className="hidden sm:inline">{t('dashboard.users.active_users.actions.export')}</span>
                   </button>
                 </ToolTip>
               </div>
@@ -345,15 +352,15 @@ function OrgUsers() {
             {/* Filter Bar */}
             <div className="flex flex-wrap items-center gap-2 px-4 sm:px-6 py-3 border-b border-gray-100 bg-gray-50/30">
               <Filter className="w-4 h-4 text-gray-400" />
-              <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">Filters</span>
+              <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">{t('dashboard.users.active_users.filters.title')}</span>
 
               {/* Role filter */}
               <Select value={filterRole || 'all'} onValueChange={handleFilterChange(setFilterRole)}>
                 <SelectTrigger className="h-8 w-[140px] text-xs border-gray-200 bg-white">
-                  <SelectValue placeholder="All roles" />
+                  <SelectValue placeholder={t('dashboard.users.active_users.filters.all_roles')} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All roles</SelectItem>
+                  <SelectItem value="all">{t('dashboard.users.active_users.filters.all_roles')}</SelectItem>
                   {roles?.map((role: any) => (
                     <SelectItem key={role.id} value={role.id.toString()}>
                       {role.name}
@@ -365,22 +372,22 @@ function OrgUsers() {
               {/* Status filter */}
               <Select value={filterStatus || 'all'} onValueChange={handleFilterChange(setFilterStatus)}>
                 <SelectTrigger className="h-8 w-[140px] text-xs border-gray-200 bg-white">
-                  <SelectValue placeholder="All statuses" />
+                  <SelectValue placeholder={t('dashboard.users.active_users.filters.all_statuses')} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All statuses</SelectItem>
-                  <SelectItem value="verified">Verified</SelectItem>
-                  <SelectItem value="unverified">Unverified</SelectItem>
+                  <SelectItem value="all">{t('dashboard.users.active_users.filters.all_statuses')}</SelectItem>
+                  <SelectItem value="verified">{t('dashboard.users.analytics.identity.verified')}</SelectItem>
+                  <SelectItem value="unverified">{t('dashboard.users.analytics.identity.unverified')}</SelectItem>
                 </SelectContent>
               </Select>
 
               {/* Group filter */}
               <Select value={filterGroupId || 'all'} onValueChange={handleFilterChange(setFilterGroupId)}>
                 <SelectTrigger className="h-8 w-[160px] text-xs border-gray-200 bg-white">
-                  <SelectValue placeholder="All groups" />
+                  <SelectValue placeholder={t('dashboard.users.active_users.filters.all_groups')} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All groups</SelectItem>
+                  <SelectItem value="all">{t('dashboard.users.active_users.filters.all_groups')}</SelectItem>
                   {usergroups?.map((group: any) => (
                     <SelectItem key={group.id} value={group.id.toString()}>
                       {group.name}
@@ -395,7 +402,7 @@ function OrgUsers() {
                   className="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 font-medium px-2 py-1 rounded hover:bg-gray-100 transition-all"
                 >
                   <X className="w-3 h-3" />
-                  Clear filters
+                  {t('dashboard.users.active_users.filters.clear_filters')}
                 </button>
               )}
             </div>
@@ -404,32 +411,36 @@ function OrgUsers() {
             {selectedUserIds.size > 0 && (
               <div className="flex items-center justify-between px-6 py-3 bg-indigo-50 border-b border-indigo-100">
                 <span className="text-sm font-medium text-indigo-700">
-                  {selectedUserIds.size} user{selectedUserIds.size !== 1 ? 's' : ''} selected
+                  {t('dashboard.users.active_users.selection.selected', { count: selectedUserIds.size })}
                 </span>
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => setSelectedUserIds(new Set())}
                     className="text-xs text-indigo-600 hover:text-indigo-800 font-medium px-3 py-1.5 rounded-md hover:bg-indigo-100 transition-all"
                   >
-                    Clear selection
+                    {t('dashboard.users.active_users.selection.clear')}
                   </button>
-                  <button
-                    onClick={() => setComparing(true)}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white text-indigo-700 border border-indigo-200 hover:bg-indigo-100 rounded-md text-xs font-medium transition-all"
-                  >
-                    <GitCompare className="w-3.5 h-3.5" />
-                    <span>{t('dashboard.users.analytics.compare')}</span>
-                  </button>
-                  <UserAuditExport userIds={Array.from(selectedUserIds)} label={t('dashboard.users.analytics.export_selected', { count: selectedUserIds.size })} />
+                  {showAnalytics && (
+                    <>
+                      <button
+                        onClick={() => setComparing(true)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white text-indigo-700 border border-indigo-200 hover:bg-indigo-100 rounded-md text-xs font-medium transition-all"
+                      >
+                        <GitCompare className="w-3.5 h-3.5" />
+                        <span>{t('dashboard.users.analytics.compare')}</span>
+                      </button>
+                      <UserAuditExport userIds={Array.from(selectedUserIds)} label={t('dashboard.users.analytics.export_selected', { count: selectedUserIds.size })} />
+                    </>
+                  )}
                   {canManageOrg && (
                     <ConfirmationModal
-                      confirmationButtonText={`Remove ${selectedUserIds.size} user${selectedUserIds.size !== 1 ? 's' : ''}`}
-                      confirmationMessage={`Are you sure you want to remove ${selectedUserIds.size} user${selectedUserIds.size !== 1 ? 's' : ''} from the organization? This action cannot be undone.`}
-                      dialogTitle="Remove selected users"
+                      confirmationButtonText={t('dashboard.users.active_users.selection.remove_button', { count: selectedUserIds.size })}
+                      confirmationMessage={t('dashboard.users.active_users.selection.remove_message', { count: selectedUserIds.size })}
+                      dialogTitle={t('dashboard.users.active_users.selection.remove_title')}
                       dialogTrigger={
                         <button className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-rose-600 text-white hover:bg-rose-700 rounded-md text-xs font-medium transition-all">
                           <LogOut className="w-3.5 h-3.5" />
-                          <span>Remove selected</span>
+                          <span>{t('dashboard.users.active_users.selection.remove_selected')}</span>
                         </button>
                       }
                       functionToExecute={handleBatchRemove}
@@ -497,7 +508,7 @@ function OrgUsers() {
                         onClick={resetFilters}
                         className="text-xs text-indigo-600 hover:text-indigo-800 font-medium"
                       >
-                        Clear all filters
+                        {t('dashboard.users.active_users.filters.clear_all_filters')}
                       </button>
                     )}
                   </div>
@@ -512,7 +523,7 @@ function OrgUsers() {
                 <table className="w-full">
                   <thead>
                     <tr className="border-b border-gray-100">
-                      <th className="text-start px-6 py-3 w-10">
+                      <th className="text-start px-3 sm:px-6 py-3 w-10">
                         <input
                           type="checkbox"
                           checked={allVisibleSelected}
@@ -520,18 +531,18 @@ function OrgUsers() {
                           className="w-4 h-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                         />
                       </th>
-                      <th className="text-start text-xs font-semibold text-gray-500 uppercase tracking-wider px-6 py-3">
+                      <th className="text-start text-xs font-semibold text-gray-500 uppercase tracking-wider px-3 sm:px-6 py-3">
                         {t('dashboard.users.active_users.table.user') || 'User'}
                       </th>
-                      <th className="text-start text-xs font-semibold text-gray-500 uppercase tracking-wider px-6 py-3">
+                      <th className="text-start text-xs font-semibold text-gray-500 uppercase tracking-wider px-3 sm:px-6 py-3">
                         {t('dashboard.users.active_users.table.groups') || 'Groups'}
                       </th>
                       <th
-                        className="text-start text-xs font-semibold text-gray-500 uppercase tracking-wider px-6 py-3 cursor-pointer select-none hover:text-gray-700 transition-colors"
+                        className="text-start text-xs font-semibold text-gray-500 uppercase tracking-wider px-3 sm:px-6 py-3 cursor-pointer select-none hover:text-gray-700 transition-colors"
                         onClick={toggleSortOrder}
                       >
                         <div className="inline-flex items-center gap-1">
-                          Joined
+                          {t('dashboard.users.active_users.table.joined')}
                           {sortOrder === 'desc' ? (
                             <ArrowDown className="w-3.5 h-3.5" />
                           ) : (
@@ -539,22 +550,22 @@ function OrgUsers() {
                           )}
                         </div>
                       </th>
-                      <th className="text-start text-xs font-semibold text-gray-500 uppercase tracking-wider px-6 py-3">
-                        Status
+                      <th className="text-start text-xs font-semibold text-gray-500 uppercase tracking-wider px-3 sm:px-6 py-3">
+                        {t('dashboard.users.active_users.table.status')}
                       </th>
-                      <th className="text-start text-xs font-semibold text-gray-500 uppercase tracking-wider px-6 py-3">
+                      <th className="text-start text-xs font-semibold text-gray-500 uppercase tracking-wider px-3 sm:px-6 py-3">
                         {t('dashboard.users.active_users.table.role') || 'Role'}
                       </th>
                       {/* One column per custom signup field the org collects. */}
                       {customFields.map((field) => (
                         <th
                           key={field.key}
-                          className="text-start text-xs font-semibold text-gray-500 uppercase tracking-wider px-6 py-3 whitespace-nowrap"
+                          className="text-start text-xs font-semibold text-gray-500 uppercase tracking-wider px-3 sm:px-6 py-3 whitespace-nowrap"
                         >
                           {field.label || field.key}
                         </th>
                       ))}
-                      <th className="text-end text-xs font-semibold text-gray-500 uppercase tracking-wider px-6 py-3">
+                      <th className="text-end text-xs font-semibold text-gray-500 uppercase tracking-wider px-3 sm:px-6 py-3">
                         {t('dashboard.users.active_users.table.actions') || 'Actions'}
                       </th>
                     </tr>
@@ -566,7 +577,7 @@ function OrgUsers() {
                         className={`hover:bg-gray-50 transition-colors ${selectedUserIds.has(user.user.id) ? 'bg-indigo-50/40' : ''}`}
                       >
                         {/* Checkbox */}
-                        <td className="px-6 py-4 w-10">
+                        <td className="px-3 sm:px-3 sm:px-6 py-3 sm:py-4 w-10">
                           <input
                             type="checkbox"
                             checked={selectedUserIds.has(user.user.id)}
@@ -576,7 +587,7 @@ function OrgUsers() {
                         </td>
 
                         {/* User Info */}
-                        <td className="px-6 py-4">
+                        <td className="px-3 sm:px-3 sm:px-6 py-3 sm:py-4">
                           <div className="flex items-center gap-3">
                             <UserAvatar
                               width={40}
@@ -605,7 +616,7 @@ function OrgUsers() {
                         </td>
 
                         {/* User Groups */}
-                        <td className="px-6 py-4">
+                        <td className="px-3 sm:px-3 sm:px-6 py-3 sm:py-4">
                           {user.usergroups && user.usergroups.length > 0 ? (
                             <div className="flex items-center gap-1.5 flex-wrap">
                               {user.usergroups.map((group: any) => (
@@ -620,30 +631,30 @@ function OrgUsers() {
                               ))}
                             </div>
                           ) : (
-                            <span className="text-xs text-gray-400">—</span>
+                            <span className="text-xs text-gray-400">{t('dashboard.users.active_users.table.not_available')}</span>
                           )}
                         </td>
 
                         {/* Joined */}
-                        <td className="px-6 py-4">
+                        <td className="px-3 sm:px-3 sm:px-6 py-3 sm:py-4">
                           <span className="text-xs text-gray-500">
                             {formatShortDate(user.joined_at)}
                           </span>
                         </td>
 
                         {/* Status (Verified + Sign-up method + Last login) */}
-                        <td className="px-6 py-4">
+                        <td className="px-3 sm:px-3 sm:px-6 py-3 sm:py-4">
                           <div className="flex flex-col gap-1">
                             <div className="flex items-center gap-2">
                               {user.user.email_verified ? (
-                                <span className="inline-flex items-center gap-1 text-xs text-emerald-600" title="Email verified">
+                                <span className="inline-flex items-center gap-1 text-xs text-emerald-600" title={t('dashboard.users.active_users.table.email_verified')}>
                                   <CheckCircle2 className="w-3.5 h-3.5" />
-                                  <span>Verified</span>
+                                  <span>{t('dashboard.users.analytics.identity.verified')}</span>
                                 </span>
                               ) : (
-                                <span className="inline-flex items-center gap-1 text-xs text-amber-600" title="Email not verified">
+                                <span className="inline-flex items-center gap-1 text-xs text-amber-600" title={t('dashboard.users.active_users.table.email_not_verified')}>
                                   <XCircle className="w-3.5 h-3.5" />
-                                  <span>Unverified</span>
+                                  <span>{t('dashboard.users.analytics.identity.unverified')}</span>
                                 </span>
                               )}
                               {user.user.signup_method && (
@@ -657,13 +668,13 @@ function OrgUsers() {
                                   ) : (
                                     <Mail className="w-3 h-3" />
                                   )}
-                                  {user.user.signup_method === 'email' ? 'Email' : user.user.signup_method === 'google' ? 'Google' : user.user.signup_method.charAt(0).toUpperCase() + user.user.signup_method.slice(1)}
+                                  {user.user.signup_method === 'email' ? t('dashboard.users.active_users.table.signup_email') : user.user.signup_method === 'google' ? t('dashboard.users.active_users.table.signup_google') : user.user.signup_method.charAt(0).toUpperCase() + user.user.signup_method.slice(1)}
                                 </span>
                               )}
                             </div>
                             {user.user.last_login_at && (
                               <span className="text-xs text-gray-400">
-                                Last login: {formatShortDate(user.user.last_login_at)}
+                                {t('dashboard.users.active_users.table.last_login', { date: formatShortDate(user.user.last_login_at) })}
                               </span>
                             )}
                             {typeof user.visit_days === 'number' && (
@@ -673,20 +684,20 @@ function OrgUsers() {
                                     ? 'bg-emerald-50 text-emerald-600'
                                     : 'bg-gray-100 text-gray-500'
                                 }`}
-                                title={`Seen on ${user.visit_days} day${user.visit_days === 1 ? '' : 's'} this month${user.is_active ? ' — counts as an active user' : ''}`}
+                                title={t(user.is_active ? 'dashboard.users.active_users.table.visit_days_tooltip_active' : 'dashboard.users.active_users.table.visit_days_tooltip', { count: user.visit_days })}
                               >
-                                {user.is_active ? 'Active' : 'Inactive'} · {user.visit_days}d
+                                {t(user.is_active ? 'dashboard.users.active_users.table.active_days' : 'dashboard.users.active_users.table.inactive_days', { count: user.visit_days })}
                               </span>
                             )}
                           </div>
                         </td>
 
                         {/* Role */}
-                        <td className="px-6 py-4">
+                        <td className="px-3 sm:px-3 sm:px-6 py-3 sm:py-4">
                           <Select
                             value={user.role.role_uuid}
                             onValueChange={(newRoleUuid) => handleRoleChange(user.user.id, newRoleUuid)}
-                            disabled={!roles || !canManageOrg}
+                            disabled={!roles || !canManageOrg || user.user.id === session?.data?.user?.id}
                           >
                             <SelectTrigger className={`h-8 w-fit px-3 text-xs font-semibold rounded-md nice-shadow transition-all border-0 ${
                               user.role.name.toLowerCase().includes('admin')
@@ -731,34 +742,38 @@ function OrgUsers() {
                         {customFields.map((field) => (
                           <td
                             key={field.key}
-                            className="px-6 py-4 text-sm text-gray-600 max-w-[220px] truncate"
+                            className="px-3 sm:px-3 sm:px-6 py-3 sm:py-4 text-sm text-gray-600 max-w-[220px] truncate"
                             title={formatCustomFieldValue(user.user.extra_metadata?.[field.key])}
                           >
                             {formatCustomFieldValue(user.user.extra_metadata?.[field.key]) || (
-                              <span className="text-gray-300">—</span>
+                              <span className="text-gray-300">{t('dashboard.users.active_users.table.not_available')}</span>
                             )}
                           </td>
                         ))}
 
                         {/* Actions */}
-                        <td className="px-6 py-4 text-end">
+                        <td className="px-3 sm:px-3 sm:px-6 py-3 sm:py-4 text-end">
                           <div className="inline-flex items-center gap-1.5">
-                            <button
-                              onClick={() => setAnalyticsUserId(user.user.id)}
-                              className="inline-flex items-center gap-1.5 h-8 px-3 bg-white text-gray-600 hover:bg-indigo-50 hover:text-indigo-600 rounded-md text-xs font-medium nice-shadow transition-all"
-                              title={t('dashboard.users.analytics.view_analytics')}
-                            >
-                              <BarChart3 className="w-3.5 h-3.5" />
-                              <span>{t('dashboard.users.analytics.button')}</span>
-                            </button>
-                            <ToolTip content={t('dashboard.users.analytics.open_full_page')} side="top">
-                              <Link
-                                href={getUriWithOrg(params.orgslug, '') + `/dash/users/analytics/${user.user.id}`}
-                                className="inline-flex items-center justify-center h-8 w-8 bg-white text-gray-500 hover:bg-gray-100 hover:text-gray-700 rounded-md nice-shadow transition-all"
-                              >
-                                <ExternalLink className="w-3.5 h-3.5" />
-                              </Link>
-                            </ToolTip>
+                            {showAnalytics && (
+                              <>
+                                <button
+                                  onClick={() => setAnalyticsUserId(user.user.id)}
+                                  className="inline-flex items-center gap-1.5 h-8 px-3 bg-white text-gray-600 hover:bg-indigo-50 hover:text-indigo-600 rounded-md text-xs font-medium nice-shadow transition-all"
+                                  title={t('dashboard.users.analytics.view_analytics')}
+                                >
+                                  <BarChart3 className="w-3.5 h-3.5" />
+                                  <span>{t('dashboard.users.analytics.button')}</span>
+                                </button>
+                                <ToolTip content={t('dashboard.users.analytics.open_full_page')} side="top">
+                                  <Link
+                                    href={getUriWithOrg(params.orgslug, '') + `/dash/users/analytics/${user.user.id}`}
+                                    className="inline-flex items-center justify-center h-8 w-8 bg-white text-gray-500 hover:bg-gray-100 hover:text-gray-700 rounded-md nice-shadow transition-all"
+                                  >
+                                    <ExternalLink className="w-3.5 h-3.5" />
+                                  </Link>
+                                </ToolTip>
+                              </>
+                            )}
                           {/* MKA fork: admin-only (canManageOrg = org admin / superadmin) */}
                           {canManageOrg && (
                             <button
@@ -838,21 +853,25 @@ function OrgUsers() {
             )}
           </div>
 
-      {/* Per-student analytics (integrated into the Users tab) */}
-      <UserDossierModal userId={analyticsUserId} onOpenChange={(o) => !o && setAnalyticsUserId(null)} />
       {/* MKA fork: admin edit of a member's Majlis/mobile/AMC ID/Tanzeem */}
       {mkaEdit && org?.id && (
         <MkaProfileEditDialog open onOpenChange={(o) => !o && setMkaEdit(null)} userId={mkaEdit.id} orgId={org.id} displayName={mkaEdit.name} />
       )}
-      <Dialog open={comparing} onOpenChange={setComparing}>
-        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto bg-[#f8f8f8] p-6 sm:p-8">
-          <h2 className="font-bold text-xl tracking-tight mb-4">{t('dashboard.users.analytics.compare_students')}</h2>
-          <UsersComparisonTable
-            userIds={Array.from(selectedUserIds)}
-            onOpenUser={(id) => { setComparing(false); setAnalyticsUserId(id) }}
-          />
-        </DialogContent>
-      </Dialog>
+      {/* Per-student analytics (integrated into the Users tab) */}
+      {showAnalytics && (
+        <>
+          <UserDossierModal userId={analyticsUserId} onOpenChange={(o) => !o && setAnalyticsUserId(null)} />
+          <Dialog open={comparing} onOpenChange={setComparing}>
+            <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto bg-[#f8f8f8] p-6 sm:p-8">
+              <h2 className="font-bold text-xl tracking-tight mb-4">{t('dashboard.users.analytics.compare_students')}</h2>
+              <UsersComparisonTable
+                userIds={Array.from(selectedUserIds)}
+                onOpenUser={(id) => { setComparing(false); setAnalyticsUserId(id) }}
+              />
+            </DialogContent>
+          </Dialog>
+        </>
+      )}
     </div>
   )
 }

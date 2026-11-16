@@ -52,6 +52,7 @@ def _patch_client(handler):
     """Patch ``httpx.AsyncClient`` so the service talks to ``handler`` instead."""
 
     def _factory(**kwargs):
+        kwargs.pop("transport", None)
         return _REAL_ASYNC_CLIENT(transport=httpx.MockTransport(handler), **kwargs)
 
     return patch("src.services.utils.link_preview.httpx.AsyncClient", _factory)
@@ -166,7 +167,8 @@ async def test_fetch_link_preview_blocks_redirect_url_validation_errors():
             await fetch_link_preview("https://example.com/page")
 
     assert exc_info.value.status_code == 400
-    assert "blocked redirect URL" in exc_info.value.detail
+    # blocked redirect URL; the reason stays server-side.
+    assert exc_info.value.detail == "This URL cannot be previewed"
     assert handler.requested_urls == ["https://example.com/page"]
     mock_peer_allowed.assert_called_once()
 
@@ -207,7 +209,8 @@ async def test_fetch_link_preview_blocks_invalid_url_before_request():
             await fetch_link_preview("http://localhost/page")
 
     assert exc_info.value.status_code == 400
-    assert "Blocked hostname" in exc_info.value.detail
+    # Blocked hostname; the reason stays server-side.
+    assert exc_info.value.detail == "This URL cannot be previewed"
     # The client is opened, but the guard runs before the first hop is sent.
     assert handler.requested_urls == []
 
@@ -227,7 +230,8 @@ async def test_fetch_link_preview_blocks_peer_validation_errors():
             await fetch_link_preview("https://example.com/page")
 
     assert exc_info.value.status_code == 400
-    assert "DNS rebinding detected" in exc_info.value.detail
+    # DNS rebinding detected; the reason stays server-side.
+    assert exc_info.value.detail == "This URL cannot be previewed"
 
 
 @pytest.mark.asyncio
@@ -281,7 +285,8 @@ async def test_fetch_link_preview_blocks_redirect_peer_validation_and_fallback_f
             await fetch_link_preview("https://example.com/page")
 
     assert exc_info.value.status_code == 400
-    assert "blocked redirect peer" in exc_info.value.detail
+    # blocked redirect peer; the reason stays server-side.
+    assert exc_info.value.detail == "This URL cannot be previewed"
     assert handler.requested_urls == ["https://example.com/page", redirect_url]
 
 
@@ -557,3 +562,20 @@ async def test_fetch_link_preview_stops_after_the_redirect_budget():
 
     assert result == _MINIMAL_PREVIEW
     assert len(handler.requested_urls) == hops
+
+
+@pytest.mark.asyncio
+async def test_fetch_link_preview_blocks_a_name_that_rebinds_at_connect_time():
+    import socket
+
+    public = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.215.14", 0))]
+    loopback = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 0))]
+    # The first lookup passes the guard; the one made when connecting does not
+    with patch(
+        "src.services.utils.ssrf_guard.socket.getaddrinfo", side_effect=[public, loopback]
+    ):
+        with pytest.raises(HTTPException) as exc_info:
+            await fetch_link_preview("http://rebind.example/admin")
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail == "This URL cannot be previewed"

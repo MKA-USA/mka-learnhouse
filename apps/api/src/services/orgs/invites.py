@@ -22,6 +22,8 @@ from src.services.orgs.orgs import (
     rbac_check,
 )
 from src.services.users.emails import send_invitation_email
+from src.services.analytics import events as analytics_events
+from src.services.analytics.analytics import track
 
 logger = logging.getLogger(__name__)
 
@@ -174,6 +176,14 @@ async def create_invite_code(
             status_code=400,
             detail="Maximum number of invite codes reached",
         )
+
+    # A shareable link invites nobody in particular yet, so no count.
+    await track(
+        event_name=analytics_events.USER_INVITED,
+        org_id=org_id,
+        user_id=resolve_acting_user_id(current_user),
+        properties={"invite_method": "invite_code"},
+    )
 
     return inviteCodeObject
 
@@ -344,8 +354,8 @@ async def delete_invite_code(
         )
 
     # SECURITY: the UUID is interpolated into a Redis SCAN glob pattern. Without
-    # validation an admin could pass wildcard characters (e.g. "*") to match —
-    # and delete — every invite code key for the org in a single call, instead
+    # validation an admin could pass wildcard characters (e.g. "*") to match,
+    # and delete, every invite code key for the org in a single call, instead
     # of the one resource the endpoint is meant to address. Restrict to the
     # exact "org_invite_code_<uuid4>" shape this codebase generates.
     if not re.fullmatch(r"org_invite_code_[0-9a-fA-F-]{36}", invite_code_uuid):
@@ -392,7 +402,7 @@ async def send_invite_email(
                     invite_code = json.loads(data).get("invite_code")
 
     # Build signup URL rooted at the org's own frontend subdomain (or primary
-    # verified custom domain if one is configured — passing db_session opts in).
+    # verified custom domain if one is configured; passing db_session opts in).
     from src.services.email.utils import get_org_signup_base_url
     org_base_url = await get_org_signup_base_url(
         org.slug, request, db_session=db_session, org_id=org.id

@@ -158,12 +158,13 @@ describe("hook guard: upstream MKA hook lines exist (re-apply after pulling upst
   test("H2 DashMobileMenu", () => {
     const s = read("components/Dashboard/Menus/DashMobileMenu.tsx");
     expect(s).toContain("const mkaScope = useMkaComplianceScope() // MKA fork");
-    expect(s).toContain('<PanelItem href="/dash/compliance"');
+    // Upstream 1.4.5 made the mobile "More" sheet data-driven (a `sections` array), not <PanelItem> JSX.
+    expect(s).toContain("mkaScope !== 'none' && { href: '/dash/compliance'");
     expect(s).toMatch(/import \{[^}]*\bShieldCheck\b[^}]*\} from '@phosphor-icons\/react'/);
   });
   test("H3 course subpage", () => {
     const s = read("app/orgs/[orgslug]/dash/courses/course/[courseuuid]/[subpage]/page.tsx");
-    expect(s).toContain("tabs.push(...useMkaCourseTabs(params.courseuuid)) // MKA fork");
+    expect(s).toContain("...useMkaCourseTabs(params.courseuuid), // MKA fork");
     expect(s).toContain("params.subpage == 'compliance' && hasPermission('update')");
     expect(s).toContain("from '@components/mka/compliance/course-tab' // MKA fork");
   });

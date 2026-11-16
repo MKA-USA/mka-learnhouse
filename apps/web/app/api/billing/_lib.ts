@@ -1,6 +1,6 @@
 // Shared helpers for the billing route handlers.
 //
-// Files prefixed with `_` are private modules — the Next.js App Router never
+// Files prefixed with `_` are private modules: the Next.js App Router never
 // treats them as routes, so this is a safe place for code shared across the
 // sibling route.ts handlers.
 import { cookies } from "next/headers";
@@ -46,16 +46,21 @@ export interface AuthedUser {
 /**
  * Authenticate the caller from the httpOnly LH_access cookie by validating it
  * against the backend session endpoint. Identity (email, roles) is ALWAYS
- * taken from this verified session — never from caller-supplied request fields,
+ * taken from this verified session, never from caller-supplied request fields,
  * which would otherwise allow acting on another user's billing (IDOR).
  *
  * Returns the authenticated user, or a 401 `NextResponse` to return directly.
  */
-export async function authenticateUser(): Promise<AuthedUser | NextResponse> {
+export async function authenticateUser(
+  bearerToken?: string,
+): Promise<AuthedUser | NextResponse> {
   const unauthorized = () =>
     NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const token = (await cookies()).get(ACCESS_TOKEN_COOKIE)?.value;
+  // The cookie wins; a bearer token is only a fallback for pages where the
+  // cookie isn't sent (custom domains). Either way it is checked against the
+  // backend session below, and a header can't be forged cross-site.
+  const token = (await cookies()).get(ACCESS_TOKEN_COOKIE)?.value || bearerToken;
   if (!token) return unauthorized();
 
   let session: any;
@@ -109,20 +114,21 @@ export function canManageOrgBilling(
  * On success returns `{ user }` (with the verified session email/roles);
  * otherwise returns `{ error }` with a 401/403 response to return directly.
  *
- * Callers MUST use the returned `user.email` and the validated `orgId` — never
- * the email/orgId from the request body — when invoking billing services.
+ * Callers MUST use the returned `user.email` and the validated `orgId`, never
+ * the email/orgId from the request body, when invoking billing services.
  */
 export async function requireOrgBillingAccess(
   orgId: string | number,
+  bearerToken?: string,
 ): Promise<{ user: AuthedUser } | { error: NextResponse }> {
-  const user = await authenticateUser();
+  const user = await authenticateUser(bearerToken);
   if (user instanceof NextResponse) return { error: user };
   if (!canManageOrgBilling(user, orgId)) {
     return { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };
   }
   if (isDemoOrg(user, orgId)) {
     // The demo runs on the pro plan so every feature is demonstrable, which
-    // also makes it look like an ordinary billable organization — and every
+    // also makes it look like an ordinary billable organization, and every
     // visitor holds admin on it, so the authorization check above passes for
     // all of them. Without this a prospect clicking Upgrade could start a real
     // Stripe subscription against a shared sandbox that is rewritten on a
@@ -147,7 +153,7 @@ export async function requireOrgBillingAccess(
  * Read from the session roles rather than fetched: the session is already
  * loaded and already trusted for authorization, each role entry carries its
  * org's `is_demo`, and it adds no request. An earlier version called
- * `GET /orgs/{id}` — which does not exist (405), so the guard silently never
+ * `GET /orgs/{id}`, which does not exist (405), so the guard silently never
  * fired.
  *
  * A superadmin who has never entered the demo has no role entry for it and so

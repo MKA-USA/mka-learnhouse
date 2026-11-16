@@ -1,0 +1,4 @@
+#!/bin/sh
+# Chain to the pre-existing local hook (core.hooksPath moved here from .git/hooks).
+[ -x "$(git rev-parse --git-dir)/hooks/post-merge" ] && exec "$(git rev-parse --git-dir)/hooks/post-merge" "$@"
+exit 0

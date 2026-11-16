@@ -21,6 +21,7 @@ from src.db.webhooks import WebhookEndpoint, WebhookDeliveryLog
 from src.services.utils.ssrf_guard import (
     SSRFBlockedError,
     assert_connected_peer_allowed,
+    pinned_transport,
     resolve_and_validate_url,
 )
 from src.services.webhooks.crypto import decrypt_secret, compute_signature
@@ -44,12 +45,68 @@ LOG_RETENTION_PER_ENDPOINT = 200
 # fire-and-forget in the shared worker, so an endless (or gzip-bombed) response
 # body must never be buffered or decompressed here.
 MAX_RESPONSE_BYTES = 8 * 1024
+# Delivery logs are shown to org admins; the guard's own message names the
+# resolved address, which would reveal internal IPs.
+_SSRF_BLOCKED_MESSAGE = "Blocked: the endpoint resolves to a non-public address"
+# Bound concurrent outbound requests across all orgs in this worker so an
+# event burst can't open thousands of sockets at once.
+MAX_CONCURRENT_DELIVERIES = 20
+_delivery_semaphore = asyncio.Semaphore(MAX_CONCURRENT_DELIVERIES)
+# Short-lived "does this org have any active endpoint" flag, so events from
+# orgs without webhooks (the common case) don't spawn a task + DB query each.
+ACTIVE_CACHE_KEY = "webhooks:has_active:{org_id}"
+ACTIVE_CACHE_TTL_SECONDS = 30
+
+
+def _active_cache_get(org_id: int) -> Optional[bool]:
+    from src.core.redis import get_redis_client
+
+    r = get_redis_client()
+    if r is None:
+        return None
+    try:
+        v = r.get(ACTIVE_CACHE_KEY.format(org_id=org_id))
+    except Exception:
+        return None
+    if v is None:
+        return None
+    return v in (b"1", "1")
+
+
+def _active_cache_set(org_id: int, has_active: bool) -> None:
+    from src.core.redis import get_redis_client
+
+    r = get_redis_client()
+    if r is None:
+        return
+    try:
+        r.set(
+            ACTIVE_CACHE_KEY.format(org_id=org_id),
+            "1" if has_active else "0",
+            ex=ACTIVE_CACHE_TTL_SECONDS,
+        )
+    except Exception:
+        pass
+
+
+def invalidate_active_endpoint_cache(org_id: int) -> None:
+    """Call after creating/updating/deleting an org's endpoints."""
+    from src.core.redis import get_redis_client
+
+    r = get_redis_client()
+    if r is None:
+        return
+    try:
+        r.delete(ACTIVE_CACHE_KEY.format(org_id=org_id))
+    except Exception:
+        pass
 
 
 def _get_webhook_client() -> httpx.AsyncClient:
     global _webhook_client
     if _webhook_client is None:
         _webhook_client = httpx.AsyncClient(
+            transport=pinned_transport(),
             timeout=10.0,
             follow_redirects=False,
             headers={"User-Agent": "LearnHouse-Webhooks/1.0"},
@@ -68,7 +125,7 @@ async def close_webhook_client() -> None:
 async def _read_capped_body(response: httpx.Response) -> str:
     """Read at most MAX_RESPONSE_BYTES of a streamed response body.
 
-    Breaking out of the iterator aborts the transfer — the surrounding
+    Breaking out of the iterator aborts the transfer; the surrounding
     ``client.stream`` context closes the connection on exit.
     """
     declared = response.headers.get("content-length")
@@ -117,6 +174,8 @@ async def dispatch_webhooks(
                      (used by the test/ping feature).
     """
     validate_event_data(event_name, data)
+    if not webhook_ids and _active_cache_get(org_id) is False:
+        return
     task = asyncio.create_task(
         _deliver_webhooks(event_name, org_id, data, webhook_ids)
     )
@@ -126,6 +185,25 @@ async def dispatch_webhooks(
         lambda t: logger.error("Webhook delivery batch failed: %s", t.exception())
         if not t.cancelled() and t.exception() else None
     )
+
+
+async def _org_plan_includes_webhooks(org_id: int, db_session) -> bool:
+    """Endpoints outlive a downgrade; stop delivering once the plan lapses.
+
+    Only a definite "not entitled" stops delivery. A lookup that errors for
+    any other reason delivers, so a transient failure doesn't silently drop a
+    paying org's events.
+    """
+    from fastapi import HTTPException
+    from src.security.features_utils.plan_check import check_org_plan
+
+    try:
+        await check_org_plan(org_id, "pro", "Webhooks", db_session)
+    except HTTPException as exc:
+        return exc.status_code != 403
+    except Exception:
+        logger.warning("Plan lookup failed for webhooks of org %s", org_id, exc_info=True)
+    return True
 
 
 async def _deliver_webhooks(
@@ -153,7 +231,12 @@ async def _deliver_webhooks(
                     WebhookEndpoint.org_id == org_id,
                     WebhookEndpoint.is_active == True,
                 )
-            for ep in (await db_session.execute(statement)).scalars().all():
+            rows = (await db_session.execute(statement)).scalars().all()
+            if not webhook_ids:
+                _active_cache_set(org_id, bool(rows))
+            if rows and not await _org_plan_includes_webhooks(org_id, db_session):
+                return
+            for ep in rows:
                 if webhook_ids or event_name in (ep.events or []):
                     endpoints.append(_EndpointInfo(
                         id=ep.id,  # type: ignore
@@ -236,34 +319,38 @@ async def _deliver_to_endpoint(
             created_at=str(datetime.now()),
         )
 
-        try:
-            # SSRF guard: resolve DNS, verify all returned IPs are public,
-            # then after the request verify the peer we actually connected
-            # to was one of the approved IPs (defeats DNS rebinding).
-            validated_ips = resolve_and_validate_url(ep.url)
+        # Only the network call holds a slot, not the backoff sleep
+        async with _delivery_semaphore:
+            try:
+                # SSRF guard: resolve DNS, verify all returned IPs are public,
+                # then after the request verify the peer we actually connected
+                # to was one of the approved IPs (defeats DNS rebinding).
+                validated_ips = resolve_and_validate_url(ep.url)
 
-            # Streamed so the response body is capped as it arrives instead of
-            # being buffered whole before we truncate it to 500 bytes.
-            async with client.stream(
-                "POST", ep.url, content=payload_bytes, headers=headers
-            ) as resp:
-                try:
-                    assert_connected_peer_allowed(resp, validated_ips)
-                except SSRFBlockedError as ssrf_exc:
-                    log_entry.success = False
-                    log_entry.error_message = f"SSRF guard: {ssrf_exc}"[:1000]
-                else:
-                    body = await _read_capped_body(resp)
-                    log_entry.response_status = resp.status_code
-                    log_entry.response_body = body[:500] if body else None
-                    log_entry.success = 200 <= resp.status_code < 300
+                # Streamed so the response body is capped as it arrives instead of
+                # being buffered whole before we truncate it to 500 bytes.
+                async with client.stream(
+                    "POST", ep.url, content=payload_bytes, headers=headers
+                ) as resp:
+                    try:
+                        assert_connected_peer_allowed(resp, validated_ips)
+                    except SSRFBlockedError as ssrf_exc:
+                        logger.warning("Webhook %s blocked by SSRF guard: %s", ep.id, ssrf_exc)
+                        log_entry.success = False
+                        log_entry.error_message = _SSRF_BLOCKED_MESSAGE
+                    else:
+                        body = await _read_capped_body(resp)
+                        log_entry.response_status = resp.status_code
+                        log_entry.response_body = body[:500] if body else None
+                        log_entry.success = 200 <= resp.status_code < 300
 
-        except SSRFBlockedError as e:
-            log_entry.success = False
-            log_entry.error_message = f"SSRF guard: {e}"[:1000]
-        except Exception as e:
-            log_entry.success = False
-            log_entry.error_message = str(e)[:1000]
+            except SSRFBlockedError as e:
+                logger.warning("Webhook %s blocked by SSRF guard: %s", ep.id, e)
+                log_entry.success = False
+                log_entry.error_message = _SSRF_BLOCKED_MESSAGE
+            except Exception as e:
+                log_entry.success = False
+                log_entry.error_message = str(e)[:1000]
 
         # Short-lived session just to persist the log entry.
         async with _async_session_factory() as db_session:

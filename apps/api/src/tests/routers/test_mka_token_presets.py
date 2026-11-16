@@ -105,8 +105,8 @@ async def test_empty_rights_refused_everywhere(db, org, world):  # noqa: F811
 async def test_full_access_token_of_another_org_still_cannot_read(db, org, other_org, world):  # noqa: F811
     async with await _client(db, other_org, FULL, "apitoken_other") as c:
         for path in READ_PATHS:
-            assert (await c.get(f"{BASE}/{path}", params=_q(org))).status_code in (403, 404), path
-        assert (await c.post(f"{BASE}/cycles", params=_q(org), json=cycle_payload())).status_code in (403, 404)
+            assert (await c.get(f"{BASE}/{path}", params=_q(org))).status_code in (401, 403, 404)  # upstream now rejects tokens whose creator is not in the org (401), path
+        assert (await c.post(f"{BASE}/cycles", params=_q(org), json=cycle_payload())).status_code in (401, 403, 404)  # upstream now rejects tokens whose creator is not in the org (401)
 
 
 # ---- writes need the whole Full Access update set ------------------------------------------------------------

@@ -173,16 +173,16 @@ index d94e081a..aee7defd 100644
 
 ### `apps/api/src/services/ai/rag/query_service.py`
 
-- **Date**: 2026-10-03
+- **Date**: 2026-10-03 (re-applied 2026-10-11 after upstream RAG access-scope restructure: rerank now lives in `search_course_content`; `course_name` fetched after `_open_rag`)
 - **Reason**: Reranking must happen between the vector query and context assembly inside `query_course_rag`; there is no hook between those steps. Logic lives in `jev/client.py`; the hunk is a candidate-count helper plus one call.
 - **Diff**:
 
 ```diff
 diff --git a/apps/api/src/services/ai/rag/query_service.py b/apps/api/src/services/ai/rag/query_service.py
-index 927c3c44..a7e64d8c 100644
+index 5934714c..81e0844a 100644
 --- a/apps/api/src/services/ai/rag/query_service.py
 +++ b/apps/api/src/services/ai/rag/query_service.py
-@@ -1,8 +1,8 @@
+@@ -1,13 +1,13 @@
  """
  RAG query service.
  
@@ -192,19 +192,25 @@ index 927c3c44..a7e64d8c 100644
 +LLM responses grounded in course content.
  """
  
+ import json
  import logging
-@@ -20,6 +20,24 @@ logger = logging.getLogger(__name__)
- TOP_K = 5
+-from typing import AsyncGenerator
++from typing import AsyncGenerator, Optional
  
+ from sqlalchemy import bindparam, text
+ from sqlmodel.ext.asyncio.session import AsyncSession
+@@ -24,6 +24,35 @@ TOP_K = 5
+ OVERFETCH_FACTOR = 4
+ SNIPPET_CHARS = 280
  
-+# Candidates fetched from vector search when Jev reranking is active.
++# Candidates fetched from vector search when Jev reranking is active. (MKA fork)
 +JEV_RERANK_CANDIDATES = 10
 +
 +
 +def _resolve_rag_limits(top_k: int, org_id: Optional[int] = None) -> tuple[int, int]:
-+    """Return (retrieve_k, final_k).
++    """Return (retrieve_k, final_k). MKA fork: Jev reranking over-retrieves.
 +
-+    When Jev reranking is active for this org we fetch more candidates from
++    When Jev reranking is active for this org we keep more candidates from
 +    vector search than the caller asked for, rerank them, then trim to the
 +    original top_k. Otherwise the two values are identical (no behaviour change).
 +    """
@@ -215,64 +221,9 @@ index 927c3c44..a7e64d8c 100644
 +    return top_k, top_k
 +
 +
- async def query_course_rag(
-     question: str,
-     org_id: int,
-@@ -28,7 +46,8 @@ async def query_course_rag(
-     top_k: int = TOP_K,
- ) -> dict:
-     """
--    Retrieve relevant course content via vector similarity search.
-+    Retrieve relevant course content via vector similarity search,
-+    optionally reranked by Jev for semantic precision.
- 
-     Args:
-         question: The user's question
-@@ -40,6 +59,8 @@ async def query_course_rag(
-     Returns:
-         {context: str, sources: list[dict]}
-     """
-+    retrieve_k, final_k = _resolve_rag_limits(top_k, org_id)
-+
-     # Embed the question
-     query_embedding = await embed_single_text(question)
- 
-@@ -62,7 +83,7 @@ async def query_course_rag(
-             "query_embedding": embedding_str,
-             "org_id": org_id,
-             "course_id": course_id,
--            "top_k": top_k,
-+            "top_k": retrieve_k,
-         }
-     else:
-         sql = text("""
-@@ -79,7 +100,7 @@ async def query_course_rag(
-         params = {
-             "query_embedding": embedding_str,
-             "org_id": org_id,
--            "top_k": top_k,
-+            "top_k": retrieve_k,
-         }
- 
-     results = (await db_session.execute(sql, params)).fetchall()
-@@ -87,6 +108,10 @@ async def query_course_rag(
-     if not results:
-         return {"context": "", "sources": []}
- 
-+    # Optional Jev reranking: score all retrieved chunks, keep the best final_k
-+    if retrieve_k > final_k:
-+        results = await _jev_rerank(question, results, final_k)
-+
-     # Build numbered context and deduplicated source list
-     context_parts = []
-     sources = []
-@@ -121,6 +146,18 @@ async def query_course_rag(
-     return {"context": context, "sources": sources}
- 
- 
 +async def _jev_rerank(question: str, results: list, final_k: int) -> list:
 +    """Rerank vector-search results via Jev. Falls back to vector order
-+    (trimmed to final_k) if Jev is unavailable or fails."""
++    (trimmed to final_k) if Jev is unavailable or fails. (MKA fork)"""
 +    from src.services.ai.jev.client import jev_rerank_chunks
 +
 +    reranked = await jev_rerank_chunks(question, results, final_k)
@@ -281,10 +232,34 @@ index 927c3c44..a7e64d8c 100644
 +        return results[:final_k]
 +    return reranked[:final_k]
 +
-+
- async def query_course_rag_stream(
-     question: str,
-     org_id: int,
+ _KIND_LABELS = {
+     SourceType.COURSE.value: "Course",
+     SourceType.CHAPTER.value: "Chapter",
+@@ -53,6 +82,7 @@ async def search_course_content(
+     if not scope.course_ids:
+         return []
+ 
++    retrieve_k, final_k = _resolve_rag_limits(top_k, org_id)  # MKA fork (Jev rerank)
+     query_embedding = await embed_single_text(question)
+     embedding_str = "[" + ",".join(str(v) for v in query_embedding) + "]"
+ 
+@@ -74,11 +104,14 @@ async def search_course_content(
+         "query_embedding": embedding_str,
+         "org_id": org_id,
+         "course_ids": scope.course_ids,
+-        "limit": top_k * OVERFETCH_FACTOR,
++        "limit": retrieve_k * OVERFETCH_FACTOR,
+     }
+ 
+     rows = (await db_session.execute(sql, params)).fetchall()
+-    return (await filter_readable_chunks(rows, scope, db_session))[:top_k]
++    readable = (await filter_readable_chunks(rows, scope, db_session))[:retrieve_k]
++    if retrieve_k > final_k and readable:  # MKA fork: optional Jev reranking
++        return await _jev_rerank(question, readable, final_k)
++    return readable[:final_k]
+ 
+ 
+ def source_from_row(row) -> Source:
 ```
 
 ### `apps/api/src/services/ai/quiz.py`
@@ -323,16 +298,27 @@ index 9a10cb95..5fd8282b 100644
 
 ### `apps/api/src/routers/ai/rag.py`
 
-- **Date**: 2026-10-03
+- **Date**: 2026-10-03 (re-applied 2026-10-11 after upstream RAG access-scope restructure: rerank now lives in `search_course_content`; `course_name` fetched after `_open_rag`)
 - **Reason**: Needs a fire-and-forget audit call after the final SSE event and an intent-routing check before retrieval; no middleware hook exists inside the SSE generator or endpoint. Logic lives in `services/ai/jev_integration.py`.
 - **Diff**:
 
 ```diff
 diff --git a/apps/api/src/routers/ai/rag.py b/apps/api/src/routers/ai/rag.py
-index 34ed6518..8f1d849d 100644
+index 3efd5435..07e2c5b5 100644
 --- a/apps/api/src/routers/ai/rag.py
 +++ b/apps/api/src/routers/ai/rag.py
-@@ -105,6 +105,16 @@ async def rag_chat_event_generator(
+@@ -64,7 +64,9 @@ class RAGChatRequest(BaseModel):
+     message: str = Field(max_length=AI_MESSAGE_MAX_CHARS)
+     course_uuid: Optional[str] = None
+     aichat_uuid: Optional[str] = None
+-    mode: Literal["course_only", "general"] = "course_only"
++    # None = client expressed no preference (treated as "course_only"; the only
++    # case where opt-in Jev intent routing may switch to "general").
++    mode: Optional[Literal["course_only", "general"]] = None
+     org_slug: Optional[str] = None
+ 
+ 
+@@ -147,6 +149,16 @@ async def rag_chat_event_generator(
          # Send done event
          yield f"data: {json.dumps({'type': 'done', 'aichat_uuid': aichat_uuid})}\n\n"
  
@@ -349,23 +335,19 @@ index 34ed6518..8f1d849d 100644
          # Generate follow-up suggestions
          follow_ups = await generate_follow_up_suggestions(
              full_response,
-@@ -168,6 +178,7 @@ async def api_rag_chat(
-     - If course_uuid is omitted, searches across all courses for the user's org.
-     """
-     course_id = None
-+    course_name = ""
-     org_id = None
+@@ -294,6 +306,11 @@ async def api_rag_chat(
+     org_id, access_scope = await _open_rag(
+         request, current_user, chat_request.course_uuid, chat_request.org_slug, db_session
+     )
++    course_name = ""  # MKA fork: used by opt-in Jev intent routing
++    if chat_request.course_uuid:
++        course_name = (await db_session.execute(
++            select(Course.name).where(Course.course_uuid == chat_request.course_uuid)
++        )).scalars().first() or ""
+     chat_acting_user_id = resolve_acting_user_id(current_user)
  
-     if chat_request.course_uuid:
-@@ -177,6 +188,7 @@ async def api_rag_chat(
-         if not course:
-             raise HTTPException(status_code=404, detail="Course not found")
-         course_id = course.id
-+        course_name = getattr(course, "name", "") or ""
-         org_id = course.org_id
-     else:
-         if chat_request.org_slug:
-@@ -250,6 +262,18 @@ async def api_rag_chat(
+     # Validate session ownership BEFORE reserving credits. Reserving first means
+@@ -311,6 +328,18 @@ async def api_rag_chat(
      # Get or create chat session
      chat_session = get_chat_session_history(chat_request.aichat_uuid)
  
@@ -384,15 +366,24 @@ index 34ed6518..8f1d849d 100644
      # Perform RAG query with streaming
      stream, sources = await query_course_rag_stream(
          question=chat_request.message,
-@@ -257,7 +281,7 @@ async def api_rag_chat(
+@@ -318,7 +347,7 @@ async def api_rag_chat(
          db_session=db_session,
          message_history=chat_session["message_history"],
-         course_id=course_id,
+         scope=access_scope,
 -        mode=chat_request.mode or "course_only",
 +        mode=effective_mode,
      )
  
      return StreamingResponse(
+@@ -332,7 +361,7 @@ async def api_rag_chat(
+             user_id=chat_acting_user_id,
+             course_uuid=chat_request.course_uuid,
+             is_new_session=is_new_session,
+-            mode=chat_request.mode,
++            mode=effective_mode,
+             org_id=org_id,
+         ),
+         media_type="text/event-stream",
 ```
 
 Follow-up (Executor E): `RAGChatRequest.mode` became `Optional[Literal["course_only","general"]] = None` (None = no explicit client choice; intent routing applies only then, and `effective_mode` falls back to `"course_only"`). The SSE generator now receives `mode=effective_mode` (instead of `chat_request.mode`) so chat history records the mode actually used. Re-apply:
@@ -1469,6 +1460,38 @@ diff --git a/apps/web/components/Auth/TurnstileWidget.tsx b/apps/web/components/
 
 - **Re-apply**: `grep -rn "MKA fork" apps/web/app/api/signup apps/web/app/api/turnstile apps/web/components/Auth/TurnstileWidget.tsx`.
 
+### `.gitignore` secret-hygiene block (MKA fork)
+
+- **File**: `.gitignore` (upstream-owned)
+- **Date**: 2026-10-12
+- **Reason**: no extension point; git only reads `.gitignore` files. Single delimited block appended at the end to minimise merge conflicts. Deviations from the first draft: `skills/` anchored to `/skills/` (unanchored would hide tracked `.claude/skills` and `.qwen/skills`), `.qwen/` narrowed to `.qwen/tmp/` + `.qwen/worktrees/` (tracked `.qwen/skills/*` live there), and `docs/agents/` omitted (referenced by CLAUDE.md, must stay trackable).
+- **Diff**:
+```diff
++# --- MKA fork: never commit secrets or local agent state (see docs/security/secrets.md) ---
++.env.*
++!.env.example
++!.env.sample
++!.env.template
++*.key
++*.p12
++*.pfx
++.agents/
++.considered/
++.hermes/
++.kiro/
++.qwen/tmp/
++.qwen/worktrees/
++.serena/
++/skills/
++skills-lock.json
++docs/superpowers/
++DEVLOG.md
++DEVLOG.raw.md
++# --- end MKA fork ---
+```
+- **Re-apply after pulling upstream**: if the block is lost, re-append it verbatim.
+- **Upstream PR**: none
+
 ---
 
 **Reminder**: Before modifying an upstream file, verify that no extension point, plugin, or wrapper approach exists. Document the change here immediately after making it.
@@ -1662,7 +1685,7 @@ preload = ["./tests/setup/dom.mjs"]
 
 - **Reason**: Turnstile was enforced only in the Next signup proxy, so a direct `POST /api/v1/users/...` bypassed it, and upstream's `check_signup_rate_limit` was never called. Fork-only logic: `apps/api/src/services/security/mka_signup_guard.py` (FastAPI dependency `mka_signup_guard`: inert in SaaS mode; exempts only API tokens, superadmins and ADMINs of the target org; guarded callers get Turnstile first, then the `MKA_SIGNUP_RATE_LIMIT_PER_HOUR` limiter, default 60, skipped for non-global client IPs), `apps/api/src/services/security/mka_turnstile.py` (siteverify via httpx, enforced only when both keys are set, fails open on Cloudflare errors), `apps/web/lib/mka-signup-proxy.ts` (forwarded headers, loopback API URL; there is no fallback to the public URL, a failed loopback call returns the route's 502). Tests: `apps/api/src/tests/services/test_mka_turnstile.py`, `test_mka_signup_rate_limit.py`, `apps/web/tests/mka-signup-proxy.test.mjs`. Evaluation: `docs/superpowers/specs/2026-10-05-mka-signup-hardening-eval.md`.
 - **Why no extension point**: FastAPI has no per-route hook registry; a route-level `Depends` is the smallest change. Not hooked into `create_user` (OAuth also calls it). The Next route has no fetch hook; the fetch call is wrapped in one line.
-- **Single-use token / loopback**: outside SaaS the Next route no longer verifies; it forwards `X-Turnstile-Token` (plus `X-Forwarded-For` / `X-Real-IP` verbatim) and calls the API on loopback only (`mkaSignupFetch`; no public-URL fallback). The API verifies once. SaaS mode: no extra headers, original URL, upstream verify block unchanged, API guard inert.
+- **Single-use token / loopback**: outside SaaS the Next route no longer verifies; it forwards `X-Turnstile-Token` (since 1.4.5 `X-Forwarded-For` / `X-Real-IP` are relayed by upstream's route, not by `mkaSignupForwardHeaders`) and calls the API on loopback only (`mkaSignupFetch`; no public-URL fallback). The API verifies once. SaaS mode: no extra headers, original URL, upstream verify block unchanged, API guard inert.
 - **Diff** (`git diff origin/dev..HEAD`, verbatim):
 
 ```diff
@@ -1782,3 +1805,170 @@ Why: a member who already has a profile and joins another org (invite or open jo
 ```
 
 Re-apply: `grep -n "MKA fork" apps/api/src/services/orgs/join.py` (3 lines).
+
+### Course audience router registration (`apps/api/src/router.py`, 2026-10-08)
+
+Why: the new fork router `routers/mka_course_audience.py` (`/mka/courses/{course_uuid}/audience`) must be mounted; same registration point as every other `mka_*` router.
+
+```diff
++from src.routers import mka_course_audience as mka_course_audience_router_module  # MKA fork
+@@ after the mka_identity include_router
++v1_router.include_router(  # MKA fork: course audience; session (author/admin of the course) or org API token, gated per handler
++    mka_course_audience_router_module.router,
++    prefix="/mka/courses",
++    tags=["mka-course-audience"],
++    dependencies=[Depends(require_authenticated_user_or_api_token)],
++)
+```
+
+Re-apply: `grep -n "mka_course_audience" apps/api/src/router.py` (2 lines + the include block). No other upstream file is touched: the publish-triggered enrolment is a SQLAlchemy `after_commit` listener in the fork file `services/mka/course_audience.py`; the sign-in / profile-save / backfill hooks live in the fork file `services/mka/identity_sync.py`.
+
+### Course Audience panel mount (`apps/web/components/Dashboard/Pages/Course/EditCourseAccess/EditCourseAccess.tsx`, 2026-10-08)
+
+Why: the per-course Audience panel must sit on the course Access tab; EditCourseAccess has no slot/extension point. The panel is flag-gated (`NEXT_PUBLIC_MKA_COURSE_AUDIENCE_ENABLED=1`) and renders nothing when off. All logic lives in `apps/web/components/mka/course-audience/` and `apps/web/services/mka/courseAudience*.ts`.
+
+```diff
+ import { useLHAnalytics, AnalyticsEvent } from '@services/analytics'
++import CourseAudiencePanel from '@components/mka/course-audience/CourseAudiencePanel' // MKA fork
+@@ EditCourseAccess return, directly above the "Access type cards" block
++                <CourseAudiencePanel /> {/* MKA fork */}
+                 {/* Access type cards */}
+```
+
+Re-apply: `grep -n "MKA fork" apps/web/components/Dashboard/Pages/Course/EditCourseAccess/EditCourseAccess.tsx` (2 lines).
+
+### RAG audience guard hook (`apps/api/src/services/ai/rag/sources/__init__.py`, 2026-10-13)
+
+Why: the shared per-course RAG index embedded `mkaAudience` (restricted) lesson text, readable by every learner via RAG chat/search. The walker (`dynamic._NODE_HANDLERS`) and extractor registry (`_EXTRACTORS`) have no plugin point, and this package `__init__` is the one module every extraction (web, queue consumer, scheduler, CLI backfill) must import, so the fork installs its guard at its end. All logic lives in the fork file `services/mka/rag_audience.py` (no-op `mkaAudience` handler + wrapper that strips audience nodes and drops segments of audience-referenced blocks, fail closed). One-off cleanup: `services/mka/rag_audience_reindex.py`.
+
+```diff
+ register_ee_rag_sources()
++
++from src.services.mka.rag_audience import install as _mka_install_rag_audience  # noqa: E402  # MKA fork
++
++_mka_install_rag_audience()  # MKA fork: keep audience-restricted lesson text out of the shared index
+```
+
+Re-apply: `grep -n "MKA fork" apps/api/src/services/ai/rag/sources/__init__.py` (2 lines, at the end of the file, after `register_ee_rag_sources()`). Guarded by `src/tests/services/mka/test_rag_audience.py` (fails if the registry/walker is renamed). Extractors registered after import time (plugins) are not wrapped.
+
+### Run DB migrations at container start (`docker/start.sh`, `apps/api/src/router.py`, 2026-10-13)
+
+Why: deploys build the root Dockerfile and nothing runs Alembic (the API only does `create_all`, which never adds columns), so upstream v1.4.0's `assignmenttask.order` was missing on dev. `docker/start.sh` has no hook point, so one line calls the fork-owned `apps/api/scripts/mka-migrate.sh` (all logic is in fork files: `services/mka/schema_migrate.py`, `services/mka/schema_drift.py`, `routers/mka_health.py`). `router.py` mounts the unauthenticated schema health router, same registration point as every other `mka_*` router. The Dockerfile is NOT touched (the script lives under `apps/api`, which it already copies).
+
+```diff
+--- a/docker/start.sh
+@@ before "# Start the services"
++# MKA fork: apply DB migrations before the API starts (never blocks startup)
++sh /app/api/scripts/mka-migrate.sh
++
+--- a/apps/api/src/router.py
++from src.routers import mka_health as mka_health_router_module  # MKA fork
+@@ before the usergroups include_router
++v1_router.include_router(  # MKA fork: schema health; deliberately unauthenticated (deploy checks), returns counts only
++    mka_health_router_module.router,
++    prefix="/mka/health",
++    tags=["mka-health"],
++)
+```
+
+Re-apply: `grep -n "mka-migrate" docker/start.sh` (1 line) and `grep -n "mka_health" apps/api/src/router.py` (2 lines + the include block).
+
+## Learner activity navigation and submit labels (fix/mka-lesson-nav-ui)
+
+Why: usability test found bottom NEXT looking disabled, and three different final-submit labels. No extension point exists for these upstream components, so each edit is minimal.
+
+- `apps/web/app/orgs/[orgslug]/(withmenu)/course/[courseuuid]/activity/[activityid]/activity.tsx` (`NextActivityButton`): class swap `bg-gray-200 ... text-gray-600 ... hover:bg-gray-200` -> `bg-gray-800 ... nice-shadow text-white ... hover:bg-gray-700`, label `text-gray-500` -> `text-gray-300`.
+- `apps/web/locales/en.json` (English only): `activities.save_answers` "Save answers" -> "Save draft"; `assignments.submit_for_grading`, `assignments.hand_in`, `assignments.submit_assignment` -> "Submit".
+- `apps/e2e/features/assignments/pages/student.ts`: selectors follow the new labels (`getByText('Submit', { exact: true })`, button `Submit` exact).
+
+Re-apply: after a sync, re-check those four en.json keys and the `NextActivityButton` class string; re-run `git diff origin/dev -- <files>` from the PR.
+
+## Route all AI through the MKA Brand Center MCP (feat/mka-brandcenter-ai)
+
+Why: owner decision to apply MKA brand/culture guardrails to every AI call (live MCP tool-calling plus a deterministic cached floor). `llm/client.py::_agent` and `image/generator.py::generate_image` are the only choke points for text and images; no extension point exists. All logic lives in the fork-owned `apps/api/src/services/ai/mka_brand/`; no upstream signature changes. Enabled iff `MKA_BRANDCENTER_TOKEN` is set (kill switch: unset it, behavior is identical to upstream). Other AI entry points (`base.py`, `editor.py`, `captions.py`, `rag/media.py`, `caption_jobs.py`, `ai.py`, `quiz.py`, etc.) all funnel into `llm.client.generate/generate_stream`, so they need no hook. Not covered: TTS audio synthesis in `audio/generator.py` (speech, not text; its script text does go through `generate`).
+
+- `apps/api/src/services/ai/llm/client.py` (`_agent`): import `mka_brand`; hoist `build_model(...)` into a local so `toolsets_for(model)` can check tool support.
+- `apps/api/src/services/ai/image/generator.py` (`generate_image`): import `mka_brand`; rewrite the prompt after the length clamp.
+- `apps/api/pyproject.toml` + `apps/api/uv.lock`: `pydantic-ai-slim` gains the `mcp` extra (regenerate the lock with `uv lock`, never hand-merge).
+
+```diff
+--- a/apps/api/src/services/ai/llm/client.py
++from src.services.ai import mka_brand  # MKA fork
+ from src.services.ai.llm.provider import build_model
+@@ def _agent
+-    return Agent(
+-        build_model(model_name),
+-        output_type=output_type,
+-        system_prompt=system_prompt or (),
+-    )
++    model = build_model(model_name)  # MKA fork: hoisted so toolsets_for can inspect it
++    return Agent(
++        model,
++        output_type=output_type,
++        system_prompt=mka_brand.augment(system_prompt) or (),  # MKA fork
++        toolsets=mka_brand.toolsets_for(model),  # MKA fork
++    )
+--- a/apps/api/src/services/ai/image/generator.py
++from src.services.ai import mka_brand  # MKA fork
+ from src.services.ai.llm import AINotConfiguredError
+@@ generate_image, after the MAX_PROMPT_CHARS clamp
++    prompt = await mka_brand.brand_image_prompt(  # MKA fork
++        prompt, editing=bool(input_images), max_chars=MAX_PROMPT_CHARS
++    )
+--- a/apps/api/pyproject.toml
+-    "pydantic-ai-slim[openai,anthropic,google,mistral]==2.54.0",
++    "pydantic-ai-slim[openai,anthropic,google,mistral,mcp]==2.54.0",
+```
+
+Re-apply: `grep -n "MKA fork" apps/api/src/services/ai/llm/client.py apps/api/src/services/ai/image/generator.py` (4 + 2 lines), then `cd apps/api && uv lock`. Guarded by `apps/api/src/tests/mka_brand/` (fails if `_agent` stops honoring toolsets/system prompt). Note: pydantic-ai 2.54 has no `MCPServerStreamableHTTP`; the integration uses `pydantic_ai.mcp.MCPToolset` (fastmcp client, `headers=`).
+
+
+## Upstream sync 1.4.5 (2026-11-15, branch `sync/upstream-manual`): hook relocations and drops
+
+Merge base was `5e28b0723` (upstream 1.4.0 era); 436 upstream commits merged. Every conflicted upstream file was
+resolved by taking upstream, then re-applying the fork hooks below. Hooks not listed here were re-applied at the same
+spot (`grep -rn "MKA fork" apps/` to enumerate them).
+
+### Moved hook sites (new location, same behaviour)
+
+- `apps/web/components/Objects/Activities/DynamicCanva/DynamicCanva.tsx` -> **`DynamicCanva/activityExtensions.ts`**:
+  upstream moved the extension list into `getActivityExtensions()`; `...mkaEditorExtensions({ editable: false, activity: props.activity, courseUuid: props.courseUuid })` is spread right after `MagicBlock.configure(...)`. `DynamicCanva.tsx` no longer imports it. Guard test `tests/mka-editor-hooks.test.mjs` updated (REQUIRED now lists `activityExtensions.ts`; `DynamicCanva.tsx` is allow-listed).
+- `apps/web/components/Dashboard/Menus/DashMobileMenu.tsx`: the "More" sheet is now data-driven; the fork entry is
+  `mkaScope !== 'none' && { href: '/dash/compliance', Icon: ShieldCheck, label: 'Compliance' }, // MKA fork` in `sections`
+  (plus `canModerate && { href: '/dash/moderation', ... }`). Guard test H2 updated.
+- `apps/web/components/Dashboard/Menus/DashLeftMenu.tsx`: compliance `MenuLink` sits after the analytics hover menu
+  (before the "Optional features" menu); moderation `MenuLink` after playgrounds. `ShieldCheck` is added to the phosphor import.
+- `apps/web/app/orgs/[orgslug]/dash/courses/course/[courseuuid]/[subpage]/page.tsx`: `tabs` is now
+  `[...allTabs.filter(...), ...useMkaCourseTabs(params.courseuuid)]` (was `tabs.push(...)`). Guard test H3 updated.
+- `apps/api/src/services/ai/ai.py`: upstream now renders activity content per reader (`render_for_reader`, its own
+  conditional/dynamic blocks). `mka_content_for_ai(...)` is applied to the result of `render_for_reader` at all three call sites.
+- `apps/api/src/services/ai/llm/client.py`: `_agent(model: Model, ...)` now receives a built model, so the fork hook is just
+  `system_prompt=mka_brand.augment(system_prompt) or ()` and `toolsets=mka_brand.toolsets_for(model)` (the `build_model` hoist is gone).
+- `apps/web/app/api/signup/route.ts`: upstream now relays `x-forwarded-for`/`x-real-ip` itself; the fork merges
+  `mkaSignupForwardHeaders(...)` (token only; it no longer adds the IP headers, which would have been sent twice) over upstream's `headers` and still uses `mkaSignupFetch`.
+- `apps/web/app/auth/signup/{OpenSignup,InviteOnlySignUp}.tsx`: `applyMkaServerErrors(res.status, message?.detail, setFieldError)`
+  now uses the `setFieldError` from Formik's `onSubmit` helpers (upstream added `getFieldErrors`).
+- `apps/web/app/auth/{login,forgot}/page.tsx`: titles are `... | MKA Ilm` (upstream replaced the em dash with `|`).
+- `apps/web/components/Objects/Watermark.tsx`, `OrgMenu.tsx`: upstream gates both on `useShowLearnHouseBranding()`; the fork keeps the
+  MKA logo/link inside that gate.
+- `AssignmentSubmissionsSubPage.tsx`: the moderation flag indicator moved into the learner cell of `SubmissionRow` (the old status-badge row no longer exists).
+
+### Hooks added to files the sync would otherwise have dropped
+
+- `apps/web/package.json`: `"@radix-ui/react-radio-group": "^1.4.8"` (fork `components/ui/radio-group.tsx`, PR #34); lockfile regenerated with `bun install`.
+- `apps/api/pyproject.toml`: `pydantic-ai-slim[...,mcp]` and `typesafe-sdk==0.7.2` (Brand Center MCP + Jev); `uv.lock` regenerated with `uv lock`. Also `[tool.coverage.report] fail_under = 95` (upstream sets 100; fork modules in `services/mka` and `routers/mka_*` sit at about 99% overall, so the `test` check fails at 100).
+- `apps/web/locales/en.json`: top-level `moderation` block (upstream has none at the top level).
+- `.gitignore`: MKA secret-hygiene block re-appended.
+- `apps/api/src/tests/routers/conftest.py` (new, fork-owned): upstream caps API-token rights by the creator's current role and the shared
+  `ADMIN_RIGHTS` fixture has no `assignments` bucket, so `test_mka_*` modules give the fixture admin that bucket (real Admin roles have it).
+
+### Hooks that no longer have a site (needs coordinator decision, not re-applied)
+
+- `routers/ai/rag.py` RAG **chat** endpoint was removed upstream (Jev guardrail audit, intent routing, `RAGChatRequest.mode`, `copilot` page).
+  `jev_integration.should_route_to_general` / `intent_routing_active` are now unused; `test_rag_request_mode_defaults_to_none` was removed.
+- Upstream made org analytics, audit/user dossier, the demo org and the payments UI Enterprise-only or rewrote them; those
+  upstream files were deleted from the OSS tree and the fork's edits to them were dropped (`apps/web/ee-stub/` supplies stand-ins).
+
+## Footer MKA symbol (post-1.4.5 fix, `apps/web/app/orgs/[orgslug]/(withmenu)/layout.tsx`)
+
+`<Image src="/logos/mka-usa-symbol-dark.svg">` 404ed on dev and prod: `/logos/...` is not excluded from the `proxy.ts` matcher, so the middleware rewrites it to an org route. The fork now imports the SVG statically (`import mkaSymbol from '@public/logos/mka-usa-symbol-dark.svg'`, `src={mkaSymbol}`), the same way `OrgMenu.tsx` and `Watermark.tsx` already do, instead of touching the upstream matcher.

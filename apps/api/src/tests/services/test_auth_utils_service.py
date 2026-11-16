@@ -225,7 +225,9 @@ class TestAuthUtilsService:
             "src.security.features_utils.usage.increase_feature_usage", AsyncMock()
         ), patch(
             "src.routers.users._invalidate_session_cache"
-        ) as mock_invalidate:
+        ) as mock_invalidate, patch(
+            "src.services.analytics.analytics.track", new_callable=AsyncMock
+        ) as mock_track:
             await signWithGoogle(
                 request=request,
                 access_token="access-token",
@@ -236,10 +238,16 @@ class TestAuthUtilsService:
             )
 
         mock_invalidate.assert_called_once_with(user.id)
+        mock_track.assert_awaited_once_with(
+            event_name="user_joined_org",
+            org_id=10,
+            user_id=user.id,
+            properties={"join_method": "google"},
+        )
 
     @pytest.mark.asyncio
     async def test_sign_with_google_username_fallback_to_user(self):
-        """Covers line 76 — username_parts.append('user') when name parts are absent
+        """Covers line 76: username_parts.append('user') when name parts are absent
         and the email has no '@', so the prefix-based branch is also skipped."""
         request = Mock(spec=Request)
         current_user = Mock()
@@ -302,7 +310,7 @@ class TestAuthUtilsService:
                 )
 
         # After the F-03 fix, a missing or unverified Google email is a 401
-        # (authentication failure) rather than a 400 (malformed request) — the
+        # (authentication failure) rather than a 400 (malformed request), so the
         # attacker cannot compensate for it by tweaking their request body.
         assert exc_info.value.status_code == 401
         assert "verified email" in exc_info.value.detail.lower()

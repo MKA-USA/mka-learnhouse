@@ -4,7 +4,7 @@ Why this is evaluated per org-access rather than at login
 ---------------------------------------------------------
 Users can belong to many orgs (``UserOrganization`` is many-to-many). Someone
 who is in Org A (2FA required) and Org B (not) must still be able to sign in
-and use Org B. So the policy cannot be a login-time gate — it is a property of
+and use Org B. So the policy cannot be a login-time gate; it is a property of
 *accessing a particular org*, evaluated per request.
 
 Deliberately NOT enforced by suspending or deleting accounts: a user past their
@@ -21,10 +21,11 @@ from fastapi import HTTPException, status
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from src.db.organization_config import OrganizationConfig
+from src.services.orgs.org_config_lookup import get_session_org_config
 from src.db.user_organizations import UserOrganization
 from src.db.users import User
 from src.services.auth.mfa import is_mfa_active
+from src.security.session_context import ORG_HELD_AUTH_METHODS, POLICY_AUTH_METHODS, get_session_provenance
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +65,7 @@ def _parse_dt(value: Optional[str]) -> Optional[datetime]:
 
     Dates are persisted as ``str(datetime.now())`` in some tables and ISO-8601
     in others. A value we cannot parse must not be allowed to silently become
-    "no deadline" — callers treat None as "unknown" and fall back to the policy
+    "no deadline"; callers treat None as "unknown" and fall back to the policy
     anchor rather than granting an open-ended grace period.
     """
     if not value:
@@ -84,11 +85,7 @@ def _parse_dt(value: Optional[str]) -> Optional[datetime]:
 
 
 async def get_org_mfa_policy(db_session: AsyncSession, org_id: int) -> OrgMFAPolicy:
-    row = (
-        await db_session.execute(
-            select(OrganizationConfig).where(OrganizationConfig.org_id == org_id)
-        )
-    ).scalars().first()
+    row = await get_session_org_config(db_session, org_id)
     if row is None or not isinstance(row.config, dict):
         return OrgMFAPolicy()
 
@@ -108,6 +105,28 @@ async def get_org_mfa_policy(db_session: AsyncSession, org_id: int) -> OrgMFAPol
         return OrgMFAPolicy()
 
 
+def _signed_in_externally(user: User, org_id: int) -> bool:
+    """Did an external identity provider vouch for *this* session?
+
+    The exemption is about how the user signed in now, not how the account was
+    created: someone who signed up with SSO and then logs in with a password
+    has had no second factor checked by anyone. Sessions that don't record a
+    human sign-in method (minted before methods were recorded, or by a machine
+    credential) fall back to the account's signup method as before.
+    """
+    provenance = get_session_provenance()
+    method = provenance.amr if provenance is not None else None
+    if method in ORG_HELD_AUTH_METHODS:
+        # An LMS launch (or a host app's embed session) only vouches for the
+        # user inside the org that registered that LMS (minted that session). Anywhere else it is a session like any other,
+        # and an account created by a launch never earns the exemption on its
+        # own.
+        return provenance.org_id == org_id
+    if method not in POLICY_AUTH_METHODS:
+        method = user.signup_method
+    return (method or "").lower() in EXTERNAL_AUTH_METHODS
+
+
 async def evaluate_mfa_compliance(
     db_session: AsyncSession,
     user: User,
@@ -122,14 +141,14 @@ async def evaluate_mfa_compliance(
     if await is_mfa_active(db_session, user.id):
         return MFAComplianceState(required=True, satisfied=True)
 
-    if policy.exempt_external_auth and (user.signup_method or "").lower() in EXTERNAL_AUTH_METHODS:
+    if policy.exempt_external_auth and _signed_in_externally(user, org_id):
         return MFAComplianceState(
             required=True,
             satisfied=True,
             exempt_reason="external_auth",
         )
 
-    # Not satisfied — work out whether they are still inside their grace window.
+    # Not satisfied. Work out whether they are still inside their grace window.
     anchor = _parse_dt(policy.enabled_at)
     membership = (
         await db_session.execute(
@@ -141,7 +160,7 @@ async def evaluate_mfa_compliance(
     ).scalars().first()
     joined = _parse_dt(membership.creation_date) if membership else None
 
-    # Later of "policy switched on" and "user joined this org" — see the
+    # Later of "policy switched on" and "user joined this org"; see the
     # SecurityAdminToggle docstring for why the max() is load-bearing.
     candidates = [d for d in (anchor, joined) if d is not None]
     start = max(candidates) if candidates else datetime.now()
@@ -188,7 +207,10 @@ async def is_org_mfa_blocking(db_session: AsyncSession, user_id: int, org_id: in
         # row in the org at all; a per-org policy must not strand them.
         from src.security.superadmin import is_user_superadmin
 
-        if not await is_user_superadmin(user_id, db_session):
+        # Most orgs don't require 2FA. The policy read is shared with the
+        # auth-method gate, so checking it first skips the user lookup for them.
+        policy = await get_org_mfa_policy(db_session, org_id)
+        if policy.require_2fa and not await is_user_superadmin(user_id, db_session):
             user = (
                 await db_session.execute(select(User).where(User.id == user_id))
             ).scalars().first()
@@ -201,7 +223,7 @@ async def is_org_mfa_blocking(db_session: AsyncSession, user_id: int, org_id: in
     except Exception:
         # A policy lookup that errors must not take down ordinary access. The
         # policy is an additional restriction layered on top of RBAC, never the
-        # thing standing between a stranger and the data — RBAC has already run.
+        # thing standing between a stranger and the data; RBAC has already run.
         logger.exception(
             "MFA policy evaluation failed for user %s in org %s; allowing through",
             user_id,

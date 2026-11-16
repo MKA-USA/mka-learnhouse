@@ -20,6 +20,7 @@ from src.services.api_tokens.api_tokens import (
     revoke_api_token,
     update_api_token,
 )
+from src.services.api_tokens.openapi_spec import get_api_token_openapi_spec
 from src.services.security.rate_limiting import check_api_token_rate_limit
 
 router = APIRouter()
@@ -31,7 +32,7 @@ router = APIRouter()
     summary="Create API token",
     description=(
         "Create a new API token for an organization. The full token value is only "
-        "returned once upon creation — store it securely, as it cannot be retrieved later. "
+        "returned once upon creation; store it securely, as it cannot be retrieved later. "
         "Requires the user to have `roles.action_create` permission in the organization."
     ),
     responses={
@@ -95,6 +96,18 @@ async def api_list_api_tokens(
     return await list_api_tokens(request, db_session, org_id, current_user)
 
 
+# Declared before /{token_uuid} so "openapi.json" is not read as a token uuid.
+@router.get("/{org_id}/api-tokens/openapi.json", include_in_schema=False)
+async def api_get_api_token_openapi_spec(
+    request: Request,
+    org_id: int,
+    current_user: PublicUser = Depends(get_current_user),
+    db_session: AsyncSession = Depends(get_db_session),
+) -> dict:
+    """OpenAPI spec for the API Access playground, scoped to API token routes."""
+    return await get_api_token_openapi_spec(request, db_session, org_id, current_user)
+
+
 @router.get(
     "/{org_id}/api-tokens/{token_uuid}",
     response_model=APITokenRead,
@@ -129,7 +142,7 @@ async def api_get_api_token(
     summary="Update API token",
     description=(
         "Update an API token's name, description, rights, or expiration. The token "
-        "secret cannot be changed here — use the regenerate endpoint for that. "
+        "secret cannot be changed here; use the regenerate endpoint for that. "
         "Requires `roles.action_update` permission."
     ),
     responses={
@@ -190,7 +203,7 @@ async def api_revoke_api_token(
     summary="Regenerate API token secret",
     description=(
         "Regenerate the secret for an API token. The old token will immediately stop "
-        "working. The new full token value is only returned once — store it securely. "
+        "working. The new full token value is only returned once; store it securely. "
         "Requires `roles.action_update` permission."
     ),
     responses={

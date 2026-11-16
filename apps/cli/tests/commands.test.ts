@@ -3,10 +3,11 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-// Docker helpers shell out via execSync — stub it so guard-path tests never
+// Docker helpers shell out via execSync; stub it so guard-path tests never
 // touch a real daemon. spawn returns a fake long-lived child (so the dev
 // happy-path can reach its keep-alive without launching real servers);
 // spawnSync reports success (dependency installs are no-ops).
+import { expectMode } from './platform.js'
 vi.mock('node:child_process', async () => {
   const actual = await vi.importActual<typeof import('node:child_process')>('node:child_process')
   const fakeChild = () => {
@@ -14,9 +15,14 @@ vi.mock('node:child_process', async () => {
     // exitCode 0 → killProcess() resolves immediately (no real process to await).
     return { stdout: stream, stderr: stream, on: () => {}, kill: () => {}, killed: false, exitCode: 0, pid: 1 }
   }
+  // execFileSync (used by the docker helpers since 1.6.0) is routed through the
+  // execSync mock as one joined command string, so per-test overrides and
+  // command assertions on execSync keep covering both.
+  const execSync = vi.fn((..._a: unknown[]) => Buffer.from(''))
   return {
     ...actual,
-    execSync: vi.fn(() => Buffer.from('')),
+    execSync,
+    execFileSync: vi.fn((file: string, args: string[] = [], opts?: unknown) => execSync([file, ...args].join(' '), opts)),
     spawn: vi.fn(() => fakeChild()),
     spawnSync: vi.fn(() => ({ status: 0, stdout: Buffer.from(''), stderr: Buffer.from('') })),
   }
@@ -30,20 +36,24 @@ const H = vi.hoisted(() => {
   const cancel = Symbol('cancel')
   const q: Record<string, unknown[]> = { select: [], text: [], confirm: [], multiselect: [], password: [] }
   const pull = (k: string, fallback: unknown) => (q[k].length ? q[k].shift() : fallback)
+  // Every prompt's options, in call order, so tests can assert what was shown.
+  const calls: { kind: string; opts: unknown }[] = []
   const noop = () => {}
   const mock = {
     log: { error: noop, info: noop, success: noop, warn: noop, warning: noop, message: noop, step: noop },
     intro: noop, outro: noop, cancel: noop, note: noop, group: noop,
     spinner: () => ({ start: noop, stop: noop, message: noop }),
-    select: async () => pull('select', cancel),
+    select: async (o?: unknown) => { calls.push({ kind: 'select', opts: o }); return pull('select', cancel) },
     multiselect: async () => pull('multiselect', cancel),
     // text/password also run any inline validate(value) so those branches are exercised.
     text: async (o?: { validate?: (v: string) => unknown }) => {
+      calls.push({ kind: 'text', opts: o })
       const v = pull('text', cancel)
       if (o && typeof o.validate === 'function' && v !== cancel) o.validate(v as string)
       return v
     },
     password: async (o?: { validate?: (v: string) => unknown }) => {
+      calls.push({ kind: 'password', opts: o })
       const v = pull('password', cancel)
       if (o && typeof o.validate === 'function' && v !== cancel) o.validate(v as string)
       return v
@@ -51,18 +61,27 @@ const H = vi.hoisted(() => {
     confirm: async () => pull('confirm', false),
     isCancel: (v: unknown) => v === cancel,
   }
-  return { cancel, q, mock, reset: () => { for (const k of Object.keys(q)) q[k] = [] } }
+  return { cancel, q, calls, mock, reset: () => { for (const k of Object.keys(q)) q[k] = []; calls.length = 0 } }
 })
 vi.mock('@clack/prompts', () => H.mock)
 vi.mock('../src/utils/prompt.js', () => H.mock)
 
-// Health pollers would otherwise hit real URLs / exec on a 3-minute timeout —
+// Health pollers would otherwise hit real URLs / exec on a 3-minute timeout;
 // stub them (overridable per test) so setup/update run in-process without hanging.
-const healthMock = vi.hoisted(() => ({
-  waitForHealth: vi.fn(async () => true),
-  waitForOrgSeed: vi.fn(async () => true),
-  waitForEeReady: vi.fn(async () => 'ee' as const),
-}))
+// waitForAppHealth / waitForAppOrgSeed (the config-aware wrappers setup and
+// update call since 1.6.0) forward to waitForHealth / waitForOrgSeed, so a
+// per-test override of the base pollers drives both.
+const healthMock = vi.hoisted(() => {
+  const m = {
+    waitForHealth: vi.fn(async (..._a: unknown[]) => true),
+    waitForOrgSeed: vi.fn(async (..._a: unknown[]) => true),
+    waitForEeReady: vi.fn(async (..._a: unknown[]) => 'ee' as 'ee' | 'oss' | 'timeout'),
+    waitForHealthInContainer: vi.fn(async (..._a: unknown[]) => m.waitForHealth()),
+    waitForAppHealth: vi.fn(async (..._a: unknown[]) => m.waitForHealth()),
+    waitForAppOrgSeed: vi.fn(async (..._a: unknown[]) => m.waitForOrgSeed()),
+  }
+  return m
+})
 vi.mock('../src/services/health.js', () => healthMock)
 
 import { configCommand } from '../src/commands/config.js'
@@ -92,7 +111,7 @@ import { checkPrerequisites } from '../src/prompts/prerequisites.js'
 import { setupEnterprise } from '../src/commands/setup-ee.js'
 import { dockerLogin, dockerComposeLogs, dockerLogsMulti, dockerExecInteractive } from '../src/services/docker.js'
 
-// ─── Command guards — every entry point must bail cleanly with no install ──
+// ─── Command guards: every entry point must bail cleanly with no install ──
 //
 // Each command resolves an install, then `process.exit(1)`s when none exists.
 // Real process.exit would terminate; the code after it assumes a non-null
@@ -104,7 +123,7 @@ class ProcessExit extends Error {
   constructor(code: number) { super(`process.exit(${code})`); this.code = code }
 }
 
-describe('command guards — no installation / bad arguments', () => {
+describe('command guards: no installation / bad arguments', () => {
   let emptyHome: string
   let origHome: string | undefined
 
@@ -148,7 +167,7 @@ describe('command guards — no installation / bad arguments', () => {
   })
 
   it('deployments (menu-first) exits cleanly when the menu is dismissed', async () => {
-    // deployments has no install guard — it opens a select menu; a cancelled
+    // deployments has no install guard: it opens a select menu; a cancelled
     // selection must exit(0), not crash or hang.
     await expect(deploymentsCommand()).rejects.toBeInstanceOf(ProcessExit)
   })
@@ -159,12 +178,12 @@ describe('command guards — no installation / bad arguments', () => {
   })
 })
 
-// ─── scale — compose mem_limit parse / set (pure) ───────────
+// ─── scale: compose mem_limit parse / set (pure) ───────────
 //
 // `scale` reads and rewrites mem_limit lines in docker-compose.yml. These
 // are the exact text transforms, exercised without Docker.
 
-describe('scale — mem_limit parse/set', () => {
+describe('scale: mem_limit parse/set', () => {
   const compose = [
     'services:',
     '  learnhouse-app:',
@@ -193,8 +212,12 @@ describe('scale — mem_limit parse/set', () => {
     expect(limits.has('redis')).toBe(false)
   })
 
+  // Regression: a service that already has a mem_limit *after* container_name
+  // (the layout scale itself writes) must have that line replaced, not get a
+  // second mem_limit key.
   it('setMemLimit replaces an existing mem_limit in place', () => {
     const updated = setMemLimit(compose, 'learnhouse-app', '512m')
+    expect(updated.match(/mem_limit:/g)).toHaveLength(1)
     fs.writeFileSync(path.join(dir, 'docker-compose.yml'), updated)
     expect(parseMemLimit(path.join(dir, 'docker-compose.yml')).get('learnhouse-app')).toBe('512m')
   })
@@ -217,9 +240,36 @@ describe('scale — mem_limit parse/set', () => {
     expect(limits.get('db')).toBe('1g')
     expect(limits.get('redis')).toBe('256m')
   })
+
+  it('setMemLimit on an Enterprise compose (no container_name) inserts under the service header', () => {
+    const ee = [
+      'name: learnhouse-ee1',
+      'services:',
+      '  api:',
+      '    image: images.learnhouse.app/enterprise-backend:prod',
+      '    environment:',
+      '      LEARNHOUSE_TENANCY: single',
+      '  collab:',
+      '    image: images.learnhouse.app/enterprise-collab:prod',
+      'volumes:',
+      '  pgdata:',
+      '',
+    ].join('\n')
+    let c = setMemLimit(ee, 'api', '1g')
+    expect(c).toMatch(/ {2}api:\n {4}mem_limit: 1g\n {4}image:/)
+    c = setMemLimit(c, 'collab', '256m') // the service right before a top-level key
+    expect(c).toMatch(/ {2}collab:\n {4}mem_limit: 256m\n {4}image:/)
+    expect(c).toContain('volumes:\n  pgdata:') // top-level keys untouched
+    c = setMemLimit(c, 'api', '2g') // second run replaces, never duplicates
+    expect(c.match(/mem_limit: /g)).toHaveLength(2)
+    fs.writeFileSync(path.join(dir, 'docker-compose.yml'), c)
+    const limits = parseMemLimit(path.join(dir, 'docker-compose.yml'))
+    expect(limits.get('api')).toBe('2g')
+    expect(limits.get('collab')).toBe('256m')
+  })
 })
 
-// ─── dev pre-flight — checkDevEnv (the dev command's env gate) ───
+// ─── dev pre-flight: checkDevEnv (the dev command's env gate) ───
 //
 // `dev` spawns the real API/Web servers (not unit-testable), but its
 // pre-flight env check is pure fs: it scans apps/*/.env for required vars
@@ -267,6 +317,26 @@ describe('checkDevEnv', () => {
       .toContain('COLLAB_PORT=4000')
   })
 
+  it('generates a random collab internal key shared by API and collab', async () => {
+    H.q.select.push('defaults')
+    expect(await checkDevEnv(root)).toBe(true)
+    const keyIn = (rel: string) =>
+      fs.readFileSync(path.join(root, rel), 'utf-8').match(/^COLLAB_INTERNAL_KEY=(.*)$/m)?.[1]
+    const apiKey = keyIn('apps/api/.env')
+    expect(apiKey).toBeTruthy()
+    expect(apiKey!.length).toBeGreaterThanOrEqual(32)
+    expect(apiKey).not.toBe('dev-collab-internal-key-change-in-prod')
+    expect(keyIn('apps/collab/.env')).toBe(apiKey)
+  })
+
+  it('reuses the collab key from the collab env file when the API lacks one', async () => {
+    writeEnv('apps/collab/.env', 'COLLAB_INTERNAL_KEY=existing-collab-key\n')
+    H.q.select.push('defaults')
+    expect(await checkDevEnv(root)).toBe(true)
+    expect(fs.readFileSync(path.join(root, 'apps/api/.env'), 'utf-8'))
+      .toContain('COLLAB_INTERNAL_KEY=existing-collab-key')
+  })
+
   it('appends defaults to an existing env file that lacks a trailing newline', async () => {
     // Pre-existing partial file with NO trailing newline → appendToEnvFile must
     // insert the missing separator before adding the defaulted vars.
@@ -280,8 +350,8 @@ describe('checkDevEnv', () => {
 
 // ─── Interactive command flows (driven via scripted prompts) ────
 //
-// These exercise the FULL bodies of the interactive commands — not just
-// guards — by scripting prompt responses and pointing the command at a
+// These exercise the FULL bodies of the interactive commands (not just
+// guards) by scripting prompt responses and pointing the command at a
 // real fixture install in a temp $HOME. Docker calls hit the mocked
 // execSync, so nothing touches a daemon.
 
@@ -452,19 +522,28 @@ describe('interactive command flows', () => {
     await expect(deploymentsCommand()).rejects.toBeInstanceOf(ProcessExit)
   })
 
-  it('deployments → view falls back to the app-only listing when the broad query fails', async () => {
+  it('deployments → view groups Community and Enterprise containers from one labelled query', async () => {
     const m = (await import('node:child_process')).execSync as unknown as ReturnType<typeof vi.fn>
     let ps = 0
     m.mockImplementation(((cmd: string) => {
-      if (cmd.includes('name=learnhouse-app-')) {
-        return Buffer.from('learnhouse-app-abc123\tUp 2 hours\tlearnhouse/app:1.4.8')
+      if (cmd.includes('docker ps')) {
+        ps++
+        expect(cmd).toContain('com.docker.compose.project')
+        return Buffer.from([
+          'learnhouse-app-abc123\tUp 2 hours\tlearnhouse/app:1.4.8\tlearnhouse-abc123\tlearnhouse-app',
+          'learnhouse-ee1-api-1\tUp 1 hour\tenterprise-backend:prod\tlearnhouse-ee1\tapi',
+          'learnhouse-ee1-collab-1\tExited (1) 2 min ago\tenterprise-collab:prod\tlearnhouse-ee1\tcollab',
+        ].join('\n'))
       }
-      if (cmd.includes('name=learnhouse-')) { ps++; throw new Error('broad query failed') }
       return Buffer.from('')
     }) as never)
+    const out = vi.spyOn(console, 'log').mockImplementation(() => {})
     H.q.select.push('view')
     await expect(deploymentsCommand()).resolves.toBeUndefined()
-    expect(ps).toBeGreaterThan(0)
+    expect(ps).toBe(1)
+    const printed = out.mock.calls.map((a) => a.join(' ')).join('\n')
+    expect(printed).toContain('Deployment abc123')
+    expect(printed).toContain('Deployment ee1')
   })
 
   it('deployments → scale handles no running containers in the stats fallback', async () => {
@@ -611,13 +690,48 @@ describe('interactive command flows', () => {
     // Edit an EXISTING key so the rewrite loop runs: the edited line is replaced
     // (102-103) while POSTGRES_DB passes through unchanged (105).
     H.q.select.push('security', 'NEXTAUTH_SECRET', '_done')
-    H.q.text.push('rotated-secret-value')
+    H.q.password.push('rotated-secret-value') // secrets use a hidden input
     H.q.confirm.push(false) // no restart
     await expect(envCommand()).resolves.toBeUndefined()
     const body = fs.readFileSync(path.join(installDir, '.env'), 'utf-8')
     expect(body).toContain('STRAY_LINE_WITHOUT_EQUALS')        // 97-98
     expect(body).toContain('POSTGRES_DB=learnhouse')            // 105
     expect(body).toContain('NEXTAUTH_SECRET=rotated-secret-value')
+  })
+
+  it('env writes changed values quoted and never shows a secret, not even as a placeholder', async () => {
+    fs.writeFileSync(path.join(installDir, '.env'), [
+      'LEARNHOUSE_DOMAIN=localhost',
+      "LEARNHOUSE_SMTP_PASSWORD='old$secret'",
+      'LEARNHOUSE_SYSTEM_EMAIL_ADDRESS=noreply@x.dev',
+      '',
+    ].join('\n'))
+    const shown = vi.spyOn(H.mock.log, 'message')
+    H.q.select.push(
+      'email', 'LEARNHOUSE_SYSTEM_EMAIL_ADDRESS',
+      'email', 'LEARNHOUSE_SMTP_PASSWORD',
+      '_done',
+    )
+    H.q.text.push('Ops Team <ops@x.dev>') // has spaces → must be quoted
+    H.q.password.push('new $ecret')       // has "$" → must stay literal
+    H.q.confirm.push(false)               // no restart
+    await expect(envCommand()).resolves.toBeUndefined()
+
+    const body = fs.readFileSync(path.join(installDir, '.env'), 'utf-8')
+    expect(body).toContain("LEARNHOUSE_SYSTEM_EMAIL_ADDRESS='Ops Team <ops@x.dev>'")
+    expect(body).toContain("LEARNHOUSE_SMTP_PASSWORD='new $ecret'")
+    expect(body).toContain('LEARNHOUSE_DOMAIN=localhost\n') // untouched line stays byte-for-byte
+    expectMode(path.join(installDir, '.env'), 0o600)
+
+    // The old secret never reached the screen: not in the value listing, the
+    // select labels, nor any prompt's placeholder/default.
+    const everything = JSON.stringify(H.calls) + JSON.stringify(shown.mock.calls)
+    expect(everything).not.toContain('old$secret')
+    expect(everything).toContain('********')
+    const secretPrompt = H.calls.find((c) => c.kind === 'password')
+    expect(secretPrompt?.opts).not.toHaveProperty('placeholder')
+    expect(secretPrompt?.opts).not.toHaveProperty('defaultValue')
+    expect(H.calls.some((c) => c.kind === 'text' && JSON.stringify(c.opts).includes('noreply@x.dev'))).toBe(true)
   })
 
   it('env appends a previously-missing variable to .env', async () => {
@@ -688,10 +802,10 @@ describe('interactive command flows', () => {
   })
 })
 
-// ─── setup input layer — the prompt sub-modules (driven) ────────
+// ─── setup input layer: the prompt sub-modules (driven) ────────
 //
 // setup's file generation is covered by the binary `setup --ci` test in
-// unit.test.ts; here we drive its INPUT gathering — the prompt modules —
+// unit.test.ts; here we drive its INPUT gathering (the prompt modules)
 // with scripted answers and assert the config objects they return.
 
 describe('setup input prompts', () => {
@@ -826,7 +940,6 @@ describe('setup input prompts', () => {
     H.q.multiselect.push(['ai', 'email', 's3', 'google'])
     H.q.select.push('smtp')
     H.q.text.push(
-      'AIzaKEY',          // gemini key
       'smtp.test',        // smtp host
       '587',              // smtp port
       'user',             // smtp username
@@ -834,9 +947,10 @@ describe('setup input prompts', () => {
       'mybucket',         // s3 bucket
       '',                 // s3 endpoint (empty → AWS default)
       'gid',              // google client id
-      'gsecret',          // google client secret
     )
-    H.q.password.push('smtp-pw')
+    // Secrets are collected with password() (not echoed): gemini key, smtp
+    // password, google client secret, in prompt order.
+    H.q.password.push('AIzaKEY', 'smtp-pw', 'gsecret')
     H.q.confirm.push(true) // use TLS
 
     await expect(promptFeatures()).resolves.toMatchObject({
@@ -852,7 +966,8 @@ describe('setup input prompts', () => {
   it('promptFeatures with Resend email collects the API key', async () => {
     H.q.multiselect.push(['email'])
     H.q.select.push('resend')
-    H.q.text.push('re_key', 'noreply@test.dev')
+    H.q.password.push('re_key')         // Resend API key is a hidden input
+    H.q.text.push('noreply@test.dev')
     await expect(promptFeatures()).resolves.toMatchObject({
       emailEnabled: true, emailProvider: 'resend',
       resendApiKey: 're_key', systemEmailAddress: 'noreply@test.dev',
@@ -913,7 +1028,7 @@ describe('setup input prompts', () => {
 
 // ─── dev command guards ─────────────────────────────────────────
 //
-// devCommand ends in `await new Promise(() => {})` — it runs the local
+// devCommand ends in `await new Promise(() => {})`: it runs the local
 // servers until Ctrl+C and never returns by design, so the happy-path tail
 // (spawn + keep-alive) cannot be asserted past that point. Every DECISION
 // branch before it is reachable, driven here by controlling process.cwd()
@@ -963,7 +1078,7 @@ describe('dev command guards', () => {
   })
 
   it('exits when not inside a LearnHouse project', async () => {
-    process.chdir(tmp) // a bare temp dir — no apps/api+apps/web up the tree
+    process.chdir(tmp) // a bare temp dir, no apps/api+apps/web up the tree
     await expect(devCommand({})).rejects.toBeInstanceOf(ProcessExit)
   })
 
@@ -1059,6 +1174,56 @@ describe('dev command guards', () => {
       promise.catch(() => {})
       await new Promise((r) => setTimeout(r, 150))
       expect(fs.existsSync(path.join(root, 'apps', 'api', 'ee'))).toBe(true) // symlink created
+    } finally {
+      for (const h of process.listeners('SIGINT').slice(sigintBefore)) process.removeListener('SIGINT', h as never)
+      for (const h of process.listeners('SIGTERM')) process.removeListener('SIGTERM', h as never)
+    }
+  })
+
+  it('replaces a dangling web EE symlink instead of failing with EEXIST', async () => {
+    const root = fakeRepo(true)
+    fs.mkdirSync(path.join(tmp, 'ee', 'apps', 'api', 'ee'), { recursive: true })
+    fs.mkdirSync(path.join(tmp, 'ee', 'apps', 'web', 'ee'), { recursive: true })
+    for (const d of ['apps/web/node_modules', 'apps/collab/node_modules', 'apps/api/.venv']) {
+      fs.mkdirSync(path.join(root, d), { recursive: true })
+    }
+    fs.symlinkSync(path.join(tmp, 'gone', 'ee'), path.join(root, 'apps', 'web', 'ee'))
+    process.chdir(root)
+    const cp = await import('node:child_process')
+    const spawnMock = cp.spawn as unknown as ReturnType<typeof vi.fn>
+    spawnMock.mockClear()
+    const sigintBefore = process.listenerCount('SIGINT')
+    try {
+      const promise = devCommand({ ee: true, adminEmail: 'a@b.dev', adminPassword: 'pw' })
+      promise.catch(() => {})
+      await new Promise((r) => setTimeout(r, 150))
+      expect(fs.realpathSync(path.join(root, 'apps', 'web', 'ee')))
+        .toBe(fs.realpathSync(path.join(tmp, 'ee', 'apps', 'web', 'ee')))
+    } finally {
+      for (const h of process.listeners('SIGINT').slice(sigintBefore)) process.removeListener('SIGINT', h as never)
+      for (const h of process.listeners('SIGTERM')) process.removeListener('SIGTERM', h as never)
+    }
+  })
+
+  it('symlinks the web EE folder and shares web node_modules with the EE checkout', async () => {
+    const root = fakeRepo(true)
+    fs.mkdirSync(path.join(tmp, 'ee', 'apps', 'api', 'ee'), { recursive: true })
+    fs.mkdirSync(path.join(tmp, 'ee', 'apps', 'web', 'ee'), { recursive: true })
+    for (const d of ['apps/web/node_modules', 'apps/collab/node_modules', 'apps/api/.venv']) {
+      fs.mkdirSync(path.join(root, d), { recursive: true })
+    }
+    process.chdir(root)
+    const cp = await import('node:child_process')
+    const spawnMock = cp.spawn as unknown as ReturnType<typeof vi.fn>
+    spawnMock.mockClear()
+    const sigintBefore = process.listenerCount('SIGINT')
+    try {
+      const promise = devCommand({ ee: true, adminEmail: 'a@b.dev', adminPassword: 'pw' })
+      promise.catch(() => {})
+      await new Promise((r) => setTimeout(r, 150))
+      expect(fs.lstatSync(path.join(root, 'apps', 'web', 'ee')).isSymbolicLink()).toBe(true)
+      expect(fs.realpathSync(path.join(tmp, 'ee', 'apps', 'web', 'node_modules')))
+        .toBe(fs.realpathSync(path.join(root, 'apps', 'web', 'node_modules')))
     } finally {
       for (const h of process.listeners('SIGINT').slice(sigintBefore)) process.removeListener('SIGINT', h as never)
       for (const h of process.listeners('SIGTERM')) process.removeListener('SIGTERM', h as never)
@@ -1412,7 +1577,7 @@ describe('dev command guards', () => {
     spawnMock.mockClear()
 
     const sigintBefore = process.listenerCount('SIGINT')
-    // devCommand never resolves — it ends in `await new Promise(() => {})`.
+    // devCommand never resolves; it ends in `await new Promise(() => {})`.
     const promise = devCommand({ adminEmail: 'a@b.dev', adminPassword: 'pw' })
     promise.catch(() => {}) // guard against an unhandled rejection if it ever errors
     await new Promise((r) => setTimeout(r, 150)) // let the async flow run to the keep-alive
@@ -1485,8 +1650,12 @@ describe('command success paths', () => {
     await expect(startCommand()).resolves.toBeUndefined()
   })
 
-  it('stop brings services down', async () => {
+  it('stop stops the containers with `docker compose stop` (not down)', async () => {
+    const m = (await import('node:child_process')).execSync as unknown as ReturnType<typeof vi.fn>
     await expect(stopCommand()).resolves.toBeUndefined()
+    const cmds = m.mock.calls.map(([c]) => String(c))
+    expect(cmds).toContain('docker compose stop')
+    expect(cmds.some((c) => c.includes('compose down'))).toBe(false)
   })
 
   it('health runs every probe and completes', async () => {
@@ -1943,7 +2112,7 @@ describe('command success paths', () => {
 // ─── setup + update full bodies (in-process, mocked docker/health) ──
 //
 // These run the orchestration that the integration suite exercises as a
-// subprocess — driven here in-process so the bodies are measurably covered.
+// subprocess, driven here in-process so the bodies are measurably covered.
 
 describe('setup / update in-process', () => {
   let home: string
@@ -1957,7 +2126,7 @@ describe('setup / update in-process', () => {
     vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
       throw new ProcessExit(code ?? 0)
     }) as never)
-    // resolveAppImage hits GitHub/GHCR — force the offline fallback to :latest.
+    // resolveAppImage hits GitHub/GHCR, so force the offline fallback to :latest.
     vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('offline'))
     healthMock.waitForHealth.mockResolvedValue(true)
     healthMock.waitForOrgSeed.mockResolvedValue(true)
@@ -1974,7 +2143,18 @@ describe('setup / update in-process', () => {
     fs.rmSync(home, { recursive: true, force: true })
     H.reset()
     vi.restoreAllMocks()
+    process.exitCode = undefined
   })
+
+  // Install files go through writeFileAtomic (temp file + fsync + rename);
+  // make opening the temp file fail like a full disk would.
+  const failAtomicWrites = () => {
+    const realOpen = fs.openSync
+    vi.spyOn(fs, 'openSync').mockImplementation(((file: fs.PathLike, ...rest: unknown[]) => {
+      if (String(file).endsWith('.tmp')) throw new Error('ENOSPC: disk full')
+      return (realOpen as (...a: unknown[]) => number)(file, ...rest)
+    }) as never)
+  }
 
   it('setup --ci --no-start generates a complete install', async () => {
     await setupCommand({
@@ -2013,7 +2193,7 @@ describe('setup / update in-process', () => {
       'admin@school.dev',   // admin email
     )
     H.q.password.push('adminpassword123')
-    H.q.confirm.push(true, false) // db credential ack = true; start now = false
+    H.q.confirm.push(false)       // start now = false
     H.q.multiselect.push([])      // no optional features
 
     await setupCommand({})
@@ -2038,7 +2218,7 @@ describe('setup / update in-process', () => {
       'Edited Org', 'edited', // re-run of the organization step
     )
     H.q.password.push('adminpassword123')
-    H.q.confirm.push(true, false)
+    H.q.confirm.push(false) // start now = no
     H.q.multiselect.push([])
 
     await setupCommand({})
@@ -2059,7 +2239,7 @@ describe('setup / update in-process', () => {
     )
     H.q.text.push(name, 'localhost', '8104', 'Test Org', 'default', 'admin@school.dev', ...(extra.text ?? []))
     H.q.password.push('adminpassword123', ...(extra.password ?? []))
-    H.q.confirm.push(true, ...(extra.confirm ?? []), false) // db ack; …; start now = no
+    H.q.confirm.push(...(extra.confirm ?? []), false) // …; start now = no
     H.q.multiselect.push([], ...(extra.multiselect ?? []))
   }
 
@@ -2077,7 +2257,7 @@ describe('setup / update in-process', () => {
   })
 
   it('the wizard edit menu can re-run the database step', async () => {
-    wizardThenEdit('edit-db', 2, { select: ['local', 'ai', 'local'], confirm: [true] }) // case 2: db+image+redis, ack
+    wizardThenEdit('edit-db', 2, { select: ['local', 'ai', 'local'] }) // case 2: db+image+redis
     await setupCommand({})
     expect(fs.existsSync(path.join(home, '.learnhouse', 'edit-db', 'docker-compose.yml'))).toBe(true)
   })
@@ -2125,7 +2305,7 @@ describe('setup / update in-process', () => {
       'a@b.dev',                  // s4 admin email (forward again)
     )
     H.q.password.push('adminpassword123', 'adminpassword123') // admin runs twice
-    H.q.confirm.push(true, true, true, false) // db ack ×3 (s2 runs 3×); start now = no
+    H.q.confirm.push(false) // start now = no (the db step asks no confirm)
     H.q.multiselect.push([])
     await setupCommand({})
     expect(fs.existsSync(path.join(home, '.learnhouse', 'bn', 'docker-compose.yml'))).toBe(true)
@@ -2192,7 +2372,6 @@ describe('setup / update in-process', () => {
     H.q.select.push('community', 'stable', 'continue', 'local', 'ai', 'local', 'continue', 'continue', 'continue', 'cancel')
     H.q.text.push('sum-cancel', 'localhost', '8106', 'Test Org', 'default', 'admin@school.dev')
     H.q.password.push('adminpassword123')
-    H.q.confirm.push(true)
     H.q.multiselect.push([])
     await expect(setupCommand({})).rejects.toBeInstanceOf(ProcessExit) // summary 'cancel' → exit (470-471)
   })
@@ -2201,7 +2380,7 @@ describe('setup / update in-process', () => {
     H.q.select.push('community', 'stable', 'continue', 'local', 'ai', 'local', 'continue', 'continue', 'continue', 'confirm')
     H.q.text.push('start-cancel', 'localhost', '8107', 'Test Org', 'default', 'admin@school.dev')
     H.q.password.push('adminpassword123')
-    H.q.confirm.push(true, H.cancel) // db ack; "start now?" cancelled → exit (584)
+    H.q.confirm.push(H.cancel) // "start now?" cancelled → exit
     H.q.multiselect.push([])
     await expect(setupCommand({})).rejects.toBeInstanceOf(ProcessExit)
   })
@@ -2210,33 +2389,50 @@ describe('setup / update in-process', () => {
     H.q.select.push('community', 'stable', 'auto', 'continue', 'local', 'ai', 'local', 'continue', 'continue', 'continue', 'confirm')
     H.q.text.push('autossl', 'learn.test.dev', 'ops@test.dev', '443', 'Test Org', 'default', 'admin@school.dev')
     H.q.password.push('adminpassword123')
-    H.q.confirm.push(true, false) // db ack; start now = no
+    H.q.confirm.push(false) // start now = no
     H.q.multiselect.push([])
     await setupCommand({})
     expect(fs.existsSync(path.join(home, '.learnhouse', 'autossl', 'extra', 'Caddyfile'))).toBe(true) // 565
   })
 
+  // A pre-existing Community install (config with a deploymentId + .env) that
+  // a re-run of the wizard reconfigures in place.
+  const seedExisting = (name: string) => {
+    const dir = path.join(home, '.learnhouse', name)
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, 'learnhouse.config.json'), JSON.stringify({
+      version: '1.5.0', deploymentId: 'keep1234', createdAt: '2026-01-01T00:00:00Z',
+      installDir: dir, domain: 'localhost', httpPort: 8108,
+      useHttps: false, autoSsl: false, useExternalDb: false, orgSlug: 'default',
+    }))
+    fs.writeFileSync(path.join(dir, '.env'), 'POSTGRES_PASSWORD=kept-db-pw\nNEXTAUTH_SECRET=kept-nextauth\n')
+    return dir
+  }
+
   it('the wizard warns and can overwrite an existing installation', async () => {
-    const existing = path.join(home, '.learnhouse', 'dup')
-    fs.mkdirSync(existing, { recursive: true })
-    fs.writeFileSync(path.join(existing, 'learnhouse.config.json'), '{}') // pre-existing install
+    const existing = seedExisting('dup')
     H.q.select.push('community', 'stable', 'continue', 'local', 'ai', 'local', 'continue', 'continue', 'continue', 'confirm')
     H.q.text.push('dup', 'localhost', '8108', 'Test Org', 'default', 'admin@school.dev')
     H.q.password.push('adminpassword123')
-    H.q.confirm.push(true, true, false) // overwrite=yes, db ack=yes, start now=no (73-77)
+    H.q.confirm.push(true, false) // "Reconfigure it?" = yes, start now = no
     H.q.multiselect.push([])
     await setupCommand({})
     expect(fs.existsSync(path.join(existing, 'docker-compose.yml'))).toBe(true)
+    // Reconfiguring keeps the deployment and the secrets its data was created with.
+    const cfg = JSON.parse(fs.readFileSync(path.join(existing, 'learnhouse.config.json'), 'utf-8'))
+    expect(cfg.deploymentId).toBe('keep1234')
+    const env = fs.readFileSync(path.join(existing, '.env'), 'utf-8')
+    expect(env).toContain('POSTGRES_PASSWORD=kept-db-pw')
+    expect(env).toContain('NEXTAUTH_SECRET=kept-nextauth')
   })
 
   it('the wizard exits when an existing-install overwrite is declined', async () => {
-    const existing = path.join(home, '.learnhouse', 'dup2')
-    fs.mkdirSync(existing, { recursive: true })
-    fs.writeFileSync(path.join(existing, 'learnhouse.config.json'), '{}')
+    const existing = seedExisting('dup2')
     H.q.select.push('community', 'stable')
     H.q.text.push('dup2')
-    H.q.confirm.push(false) // overwrite declined → exit (78-80)
-    await expect(setupCommand({})).rejects.toBeInstanceOf(ProcessExit)
+    H.q.confirm.push(false) // "Reconfigure it?" declined → exit(0)
+    await expect(setupCommand({})).rejects.toMatchObject({ code: 0 })
+    expect(fs.existsSync(path.join(existing, 'docker-compose.yml'))).toBe(false) // nothing written
   })
 
   it('the wizard edit menu cancels cleanly when the step picker is dismissed', async () => {
@@ -2244,7 +2440,6 @@ describe('setup / update in-process', () => {
     H.q.select.push('community', 'stable', 'continue', 'local', 'ai', 'local', 'continue', 'continue', 'continue', 'edit')
     H.q.text.push('edit-cancel', 'localhost', '8105', 'Test Org', 'default', 'admin@school.dev')
     H.q.password.push('adminpassword123')
-    H.q.confirm.push(true)
     H.q.multiselect.push([])
     // step picker empty → isCancel → continue; the next summary select is also empty → cancel → exit(0)
     await expect(setupCommand({})).rejects.toBeInstanceOf(ProcessExit)
@@ -2254,9 +2449,8 @@ describe('setup / update in-process', () => {
     H.q.select.push('community', 'stable', 'continue', 'local', 'ai', 'local', 'continue', 'continue', 'continue', 'confirm')
     H.q.text.push('failwrite', 'localhost', '8102', 'Test Org', 'default', 'admin@school.dev')
     H.q.password.push('adminpassword123')
-    H.q.confirm.push(true, false)
     H.q.multiselect.push([])
-    vi.spyOn(fs, 'writeFileSync').mockImplementation(() => { throw new Error('ENOSPC: disk full') })
+    failAtomicWrites()
     await expect(setupCommand({})).rejects.toBeInstanceOf(ProcessExit)
   })
 
@@ -2273,7 +2467,7 @@ describe('setup / update in-process', () => {
     H.q.select.push('community', 'stable', 'continue', 'local', 'ai', 'local', 'continue', 'continue', 'continue', 'confirm')
     H.q.text.push('pc-wiz', 'localhost', '8099', 'Test Org', 'default', 'admin@school.dev')
     H.q.password.push('adminpassword123')
-    H.q.confirm.push(true, true) // start now → dockerComposeUp throws port-allocated
+    H.q.confirm.push(true) // start now → dockerComposeUp throws port-allocated
     H.q.multiselect.push([])
     await expect(setupCommand({})).rejects.toBeInstanceOf(ProcessExit)
   })
@@ -2287,20 +2481,21 @@ describe('setup / update in-process', () => {
     H.q.select.push('community', 'stable', 'continue', 'local', 'ai', 'local', 'continue', 'continue', 'continue', 'confirm')
     H.q.text.push('gen-wiz', 'localhost', '8100', 'Test Org', 'default', 'admin@school.dev')
     H.q.password.push('adminpassword123')
-    H.q.confirm.push(true, true)
+    H.q.confirm.push(true) // start now
     H.q.multiselect.push([])
     await expect(setupCommand({})).rejects.toBeInstanceOf(ProcessExit)
   })
 
   it('the wizard start path warns on a health timeout but still completes', async () => {
-    healthMock.waitForHealth.mockResolvedValue(false) // never healthy → timeout warn, not exit
+    healthMock.waitForHealth.mockResolvedValue(false) // never healthy → "installed, but not responding yet"
     H.q.select.push('community', 'stable', 'continue', 'local', 'ai', 'local', 'continue', 'continue', 'continue', 'confirm')
     H.q.text.push('timeout-wiz', 'localhost', '8101', 'Test Org', 'default', 'admin@school.dev')
     H.q.password.push('adminpassword123')
-    H.q.confirm.push(true, true)
+    H.q.confirm.push(true) // start now
     H.q.multiselect.push([])
-    await setupCommand({})
+    await setupCommand({}) // completes (no exit) …
     expect(fs.existsSync(path.join(home, '.learnhouse', 'timeout-wiz', 'docker-compose.yml'))).toBe(true)
+    expect(process.exitCode).toBe(1) // … but reports the unhealthy start through the exit code
   })
 
   it('the wizard start path exits when the org never seeds', async () => {
@@ -2308,7 +2503,7 @@ describe('setup / update in-process', () => {
     H.q.select.push('community', 'stable', 'continue', 'local', 'ai', 'local', 'continue', 'continue', 'continue', 'confirm')
     H.q.text.push('noseed', 'localhost', '8098', 'Test Org', 'default', 'admin@school.dev')
     H.q.password.push('adminpassword123')
-    H.q.confirm.push(true, true) // start now = yes
+    H.q.confirm.push(true) // start now = yes
     H.q.multiselect.push([])
     await expect(setupCommand({})).rejects.toBeInstanceOf(ProcessExit)
   })
@@ -2317,11 +2512,14 @@ describe('setup / update in-process', () => {
     H.q.select.push('community', 'stable', 'continue', 'local', 'ai', 'local', 'continue', 'continue', 'continue', 'confirm')
     H.q.text.push('started', 'localhost', '8094', 'Test Org', 'default', 'admin@school.dev')
     H.q.password.push('adminpassword123')
-    H.q.confirm.push(true, true) // db ack = yes; start now = YES (mocked docker + health)
+    H.q.confirm.push(true) // start now = YES (mocked docker + health)
     H.q.multiselect.push([])
 
     await setupCommand({})
     expect(fs.existsSync(path.join(home, '.learnhouse', 'started', 'docker-compose.yml'))).toBe(true)
+    expect(healthMock.waitForAppHealth).toHaveBeenCalled()
+    expect(healthMock.waitForAppOrgSeed).toHaveBeenCalledWith(expect.anything(), 'default')
+    expect(process.exitCode).toBeFalsy()
   })
 
   it('setup --ci with start surfaces a port-conflict and exits', async () => {
@@ -2364,13 +2562,93 @@ describe('setup / update in-process', () => {
     })).rejects.toBeInstanceOf(ProcessExit)
   })
 
-  it('setup --ci with start warns when the health check times out', async () => {
-    healthMock.waitForHealth.mockResolvedValue(false) // never healthy → "timed out" (301)
-    await setupCommand({
+  it('setup --ci with start exits 1 when the health check times out', async () => {
+    healthMock.waitForHealth.mockResolvedValue(false) // never healthy → CI must fail, not warn
+    await expect(setupCommand({
       ci: true, name: 'slow', domain: 'localhost', port: 8095,
       adminEmail: 'admin@school.dev', adminPassword: 'password123', start: true,
-    })
+    })).rejects.toMatchObject({ code: 1 })
+    // The files were generated before the start, so the install can be retried.
     expect(fs.existsSync(path.join(home, '.learnhouse', 'slow', 'docker-compose.yml'))).toBe(true)
+    expect(healthMock.waitForAppOrgSeed).not.toHaveBeenCalled()
+  })
+
+  it('setup --ci re-run on an existing install keeps its deployment id and secrets', async () => {
+    const opts = {
+      ci: true, name: 'rerun', domain: 'localhost', port: 8091,
+      adminEmail: 'admin@school.dev', adminPassword: 'password123', start: false,
+    }
+    const dir = path.join(home, '.learnhouse', 'rerun')
+    const envVar = (key: string) =>
+      fs.readFileSync(path.join(dir, '.env'), 'utf-8').match(new RegExp(`^${key}=(.*)$`, 'm'))?.[1]
+    await setupCommand(opts)
+    const first = JSON.parse(fs.readFileSync(path.join(dir, 'learnhouse.config.json'), 'utf-8'))
+    const dbPw = envVar('POSTGRES_PASSWORD')
+    const nextAuth = envVar('NEXTAUTH_SECRET')
+    expect(dbPw).toBeTruthy()
+    expect(nextAuth).toBeTruthy()
+
+    await setupCommand({ ...opts, orgName: 'Renamed Org' })
+    const second = JSON.parse(fs.readFileSync(path.join(dir, 'learnhouse.config.json'), 'utf-8'))
+    expect(second.deploymentId).toBe(first.deploymentId)
+    expect(envVar('POSTGRES_PASSWORD')).toBe(dbPw)
+    expect(envVar('NEXTAUTH_SECRET')).toBe(nextAuth)
+  })
+
+  it('setup --ci re-run keeps the running image and the external database', async () => {
+    const dir = path.join(home, '.learnhouse', 'rerun-ext')
+    const opts = {
+      ci: true, name: 'rerun-ext', domain: 'localhost', port: 8093,
+      adminEmail: 'admin@school.dev', adminPassword: 'password123', start: false,
+    }
+    await setupCommand({ ...opts, externalDb: 'postgresql://u:p@db.example.org:5432/lh' })
+    // Pin an older image, as an install that has not run `update` yet would have
+    const composePath = path.join(dir, 'docker-compose.yml')
+    fs.writeFileSync(composePath, fs.readFileSync(composePath, 'utf-8').replace(/ghcr\.io\/learnhouse\/app:\S+/, 'ghcr.io/learnhouse/app:1.2.3'))
+
+    await setupCommand(opts) // no --external-db this time
+    const compose = fs.readFileSync(composePath, 'utf-8')
+    expect(compose).toContain('ghcr.io/learnhouse/app:1.2.3') // no silent upgrade without migrations
+    expect(compose).not.toMatch(/^  db:\s*$/m) // still external, not a fresh empty local db
+    expect(fs.readFileSync(path.join(dir, '.env'), 'utf-8')).toContain('db.example.org')
+  })
+
+  it('setup --ci re-run moves a legacy install\'s uploads into the content volume before rewriting compose', async () => {
+    const dir = path.join(home, '.learnhouse', 'rerun-legacy')
+    const opts = {
+      ci: true, name: 'rerun-legacy', domain: 'localhost', port: 8096,
+      adminEmail: 'admin@school.dev', adminPassword: 'password123', start: false,
+    }
+    await setupCommand(opts)
+    // Legacy layout: no content volume mount on the app
+    const composePath = path.join(dir, 'docker-compose.yml')
+    fs.writeFileSync(composePath, fs.readFileSync(composePath, 'utf-8')
+      .replace(/    volumes:\n      - learnhouse_content_\w+:\/app\/api\/content\n/, ''))
+    expect(fs.readFileSync(composePath, 'utf-8')).not.toContain('/app/api/content')
+
+    const m = (await import('node:child_process')).execSync as unknown as ReturnType<typeof vi.fn>
+    m.mockClear()
+    await setupCommand(opts)
+    const cmds = m.mock.calls.map((c) => String(c[0]))
+    const stop = cmds.findIndex((c) => c.startsWith('docker compose stop learnhouse-app'))
+    const copy = cmds.findIndex((c) => c.startsWith('docker cp learnhouse-app-'))
+    expect(stop).toBeGreaterThanOrEqual(0)
+    expect(copy).toBeGreaterThan(stop)
+    expect(fs.readFileSync(composePath, 'utf-8')).toContain('/app/api/content')
+  })
+
+  it.each([
+    ['--name ".."', { name: '..' }],
+    ['a bad --channel', { name: 'badchan', channel: 'nightly' }],
+    ['a bad --org-slug', { name: 'badslug', orgSlug: 'Not A Slug!' }],
+  ])('setup --ci rejects %s before writing anything', async (_label, extra) => {
+    await expect(setupCommand({
+      ci: true, domain: 'localhost', port: 8092,
+      adminEmail: 'admin@school.dev', adminPassword: 'password123', start: false,
+      ...extra,
+    })).rejects.toMatchObject({ code: 1 })
+    expect(fs.existsSync(path.join(home, '.learnhouse'))).toBe(false)
+    expect(fs.existsSync(path.join(home, 'docker-compose.yml'))).toBe(false)
   })
 
   it('setup --ci with start exits on a generic startup failure', async () => {
@@ -2410,7 +2688,8 @@ describe('setup / update in-process', () => {
     }))
     fs.writeFileSync(path.join(dir, '.env'), 'LEARNHOUSE_DOMAIN=localhost\n')
     fs.writeFileSync(path.join(dir, 'docker-compose.yml'),
-      'name: learnhouse-dep1\nservices:\n  learnhouse-app:\n    image: ghcr.io/learnhouse/app:1.4.0\n    container_name: learnhouse-app-dep1\n')
+      'name: learnhouse-dep1\nservices:\n  learnhouse-app:\n    image: ghcr.io/learnhouse/app:1.4.0\n    container_name: learnhouse-app-dep1\n' +
+      '    networks:\n      - n\nnetworks:\n  n:\n')
   }
 
   it('update aborts when the default pre-upgrade backup fails', async () => {
@@ -2439,14 +2718,39 @@ describe('setup / update in-process', () => {
       .rejects.toBeInstanceOf(ProcessExit)
   })
 
-  it('update exits cleanly when a docker step throws unexpectedly', async () => {
-    seedInstall(path.join(home, '.learnhouse', 'test'))
+  it('update exits cleanly (and restores the compose file) when a docker step throws unexpectedly', async () => {
+    const dir = path.join(home, '.learnhouse', 'test')
+    seedInstall(dir)
     const m = (await import('node:child_process')).execSync as unknown as ReturnType<typeof vi.fn>
     m.mockImplementation(((cmd: string) => {
-      if (cmd.includes('compose down')) throw new Error('docker daemon crashed')
+      if (cmd.includes('compose pull')) throw new Error('docker daemon crashed')
       return Buffer.from('')
     }) as never)
-    await expect(updateCommand({ backup: false, migrate: false })).rejects.toBeInstanceOf(ProcessExit)
+    await expect(updateCommand({ backup: false, migrate: false })).rejects.toMatchObject({ code: 1 })
+    expect(fs.readFileSync(path.join(dir, 'docker-compose.yml'), 'utf-8')).toContain('ghcr.io/learnhouse/app:1.4.0')
+  })
+
+  it('update aborts (exit 1) when uploaded content cannot be moved into a volume', async () => {
+    const dir = path.join(home, '.learnhouse', 'test')
+    seedInstall(dir)
+    // No service-level networks block → the content-volume patch cannot be applied.
+    fs.writeFileSync(path.join(dir, 'docker-compose.yml'),
+      'name: learnhouse-dep1\nservices:\n  learnhouse-app:\n    image: ghcr.io/learnhouse/app:1.4.0\n    container_name: learnhouse-app-dep1\n')
+    const m = (await import('node:child_process')).execSync as unknown as ReturnType<typeof vi.fn>
+    await expect(updateCommand({ backup: false, migrate: false })).rejects.toMatchObject({ code: 1 })
+    // Aborted before the image was rewritten or pulled.
+    expect(fs.readFileSync(path.join(dir, 'docker-compose.yml'), 'utf-8')).toContain('ghcr.io/learnhouse/app:1.4.0')
+    expect(m.mock.calls.some(([c]) => String(c).includes('compose pull'))).toBe(false)
+  })
+
+  it('update restarts with compose up (never down) and exits 1 when the app stays unhealthy', async () => {
+    seedInstall(path.join(home, '.learnhouse', 'test'))
+    healthMock.waitForHealth.mockResolvedValue(false)
+    const m = (await import('node:child_process')).execSync as unknown as ReturnType<typeof vi.fn>
+    await expect(updateCommand({ backup: false, migrate: false })).rejects.toMatchObject({ code: 1 })
+    const cmds = m.mock.calls.map(([c]) => String(c))
+    expect(cmds.some((c) => c.includes('docker compose up -d'))).toBe(true)
+    expect(cmds.some((c) => c.includes('compose down'))).toBe(false)
   })
 
   it('update handles an already-mounted content volume', async () => {
@@ -2631,11 +2935,21 @@ describe('setup / update in-process', () => {
     await expect(setupEnterprise({ ci: true, start: false, ...(opts as Record<string, unknown>) })).rejects.toBeInstanceOf(ProcessExit)
   })
 
+  it('setup --ci EE agency tenancy without a DNS provider or --local-tls is rejected', async () => {
+    await expect(setupEnterprise({
+      ci: true, name: 'ee-agency-nodns', license: 'lh_live_TESTKEY',
+      domain: 'apps.school.dev', adminEmail: 'admin@school.dev',
+      adminPassword: 'password123', tenancy: 'agency', start: false,
+    })).rejects.toMatchObject({ code: 1 })
+    expect(fs.existsSync(path.join(home, '.learnhouse', 'ee-agency-nodns', 'docker-compose.yml'))).toBe(false)
+  })
+
   it('setup --ci EE agency tenancy generates wildcard-domain files', async () => {
     await setupEnterprise({
       ci: true, name: 'ee-agency', license: 'lh_live_TESTKEY',
       domain: 'apps.school.dev', adminEmail: 'admin@school.dev',
       adminPassword: 'password123', tenancy: 'agency', start: false,
+      dnsProvider: 'cloudflare', cfApiToken: 'cf_token', // wildcard cert via DNS-01
     })
     const dir = path.join(home, '.learnhouse', 'ee-agency')
     const cfg = JSON.parse(fs.readFileSync(path.join(dir, 'learnhouse.config.json'), 'utf-8'))
@@ -2648,7 +2962,7 @@ describe('setup / update in-process', () => {
     H.q.password.push('lh_live_TESTKEY', 'password123')
     H.q.text.push('learn.school.dev', 'ops@school.dev', 'admin@school.dev')
     H.q.confirm.push(false) // localTls
-    vi.spyOn(fs, 'writeFileSync').mockImplementation(() => { throw new Error('ENOSPC: disk full') })
+    failAtomicWrites()
     await expect(setupEnterprise({ name: 'ee-fail-int' })).rejects.toBeInstanceOf(ProcessExit)
   })
 
@@ -2785,7 +3099,7 @@ describe('setup / update in-process', () => {
   })
 
   it('EE setup exits when it cannot write the config files', async () => {
-    vi.spyOn(fs, 'writeFileSync').mockImplementation(() => { throw new Error('ENOSPC: disk full') })
+    failAtomicWrites()
     await expect(setupEnterprise({
       ci: true, name: 'eefail', license: 'lh_live_TESTKEY',
       domain: 'learn.school.dev', adminEmail: 'admin@school.dev',
@@ -2820,7 +3134,7 @@ describe('setup / update in-process', () => {
     fs.writeFileSync(path.join(dir, 'docker-compose.yml'),
       'name: learnhouse-dep1\nservices:\n  learnhouse-app:\n    image: ghcr.io/learnhouse/app:1.4.0\n    container_name: learnhouse-app-dep1\n    networks:\n      - n\nnetworks:\n  n:\n')
 
-    // resolveTag fetches a GHCR token then the manifest — make both succeed.
+    // resolveTag fetches a GHCR token then the manifest; make both succeed.
     vi.spyOn(globalThis, 'fetch').mockImplementation((async (u: unknown) =>
       String(u).includes('ghcr.io/token')
         ? new Response(JSON.stringify({ token: 't' }), { status: 200 })
@@ -2832,7 +3146,7 @@ describe('setup / update in-process', () => {
   })
 })
 
-// ─── prerequisites — docker preflight ───────────────────────────
+// ─── prerequisites: docker preflight ───────────────────────────
 
 describe('checkPrerequisites', () => {
   let execSyncMock: ReturnType<typeof vi.fn>
@@ -2863,7 +3177,7 @@ describe('checkPrerequisites', () => {
   })
 })
 
-// ─── dockerLogin — registry auth via spawnSync (password on stdin) ──
+// ─── dockerLogin: registry auth via spawnSync (password on stdin) ──
 
 describe('dockerLogin', () => {
   let spawnSyncMock: ReturnType<typeof vi.fn>

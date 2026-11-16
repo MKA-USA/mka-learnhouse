@@ -59,6 +59,7 @@ def _session(user_id=1, iteration_count=0, max_iterations=5):
         max_iterations=max_iterations,
         current_html="<div></div>",
         message_history=[],
+        revisions=[],
         user_id=user_id,
     )
 
@@ -70,6 +71,14 @@ async def _drain(gen):
 # ---------------------------------------------------------------------------
 # event_generator (lines 37-77)
 # ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _authoring_gate_passes():
+    """These tests cover the endpoint mechanics; the authoring-rights gate
+    added on top of org membership is exercised in the security suite."""
+    with patch.object(mb, "check_resource_access", new=AsyncMock()):
+        yield
 
 
 class TestEventGeneratorRefund:
@@ -177,7 +186,7 @@ class TestEventGeneratorRefund:
 
 
 # ---------------------------------------------------------------------------
-# start_magicblock_session — org membership 403 (lines 152-161)
+# start_magicblock_session: org membership 403 (lines 152-161)
 # ---------------------------------------------------------------------------
 
 
@@ -192,7 +201,7 @@ class TestStartMagicblockSession:
 
     async def test_non_member_raises_403(self):
         activity = SimpleNamespace(activity_uuid="act_1")
-        course = SimpleNamespace(org_id=10)
+        course = SimpleNamespace(org_id=10, course_uuid="course_1")
         org = SimpleNamespace(id=10)
         db = _db_returning(activity, course, org)
         current_user = MagicMock()
@@ -211,7 +220,7 @@ class TestStartMagicblockSession:
 
     async def test_member_proceeds_and_returns_streaming_response(self):
         activity = SimpleNamespace(activity_uuid="act_1")
-        course = SimpleNamespace(org_id=10)
+        course = SimpleNamespace(org_id=10, course_uuid="course_1")
         org = SimpleNamespace(id=10)
         db = _db_returning(activity, course, org)
         current_user = MagicMock()
@@ -252,7 +261,7 @@ class TestStartMagicblockSession:
 
 
 # ---------------------------------------------------------------------------
-# iterate_magicblock_session — ownership 404 + membership 403
+# iterate_magicblock_session: ownership 404 + membership 403
 # ---------------------------------------------------------------------------
 
 
@@ -288,7 +297,7 @@ class TestIterateMagicblockSession:
     async def test_non_member_raises_403(self):
         """Owned session, valid limits, but not an org member -> 403 (263-267)."""
         session = _session(user_id=1)
-        course = SimpleNamespace(org_id=10)
+        course = SimpleNamespace(org_id=10, course_uuid="course_1")
         org = SimpleNamespace(id=10)
         db = _db_returning(course, org)
 
@@ -307,7 +316,7 @@ class TestIterateMagicblockSession:
 
     async def test_member_proceeds(self):
         session = _session(user_id=1)
-        course = SimpleNamespace(org_id=10)
+        course = SimpleNamespace(org_id=10, course_uuid="course_1")
         org = SimpleNamespace(id=10)
         db = _db_returning(course, org)
 
@@ -346,7 +355,7 @@ class TestIterateMagicblockSession:
 
 
 # ---------------------------------------------------------------------------
-# get_session_state — ownership 404 / 200 (lines 320-337)
+# get_session_state: ownership 404 / 200 (lines 320-337)
 # ---------------------------------------------------------------------------
 
 

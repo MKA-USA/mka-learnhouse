@@ -1,15 +1,14 @@
 from fastapi import APIRouter, Depends
 from src.routers import admin as admin_router_module
-from src.routers import analytics as analytics_router_module
-from src.routers import audit as audit_router_module
 from src.routers import code_execution
 from src.routers import code_submissions
 from src.routers import health
-from src.routers import demo as demo_router_module
 from src.routers import instance
 from src.routers import plans
 from src.routers import moderation_flags as moderation_flags_router_module
 from src.routers import usergroups
+from src.routers import editor_templates as editor_templates_router_module
+from src.routers import editor_variables as editor_variables_router_module
 from src.routers import dev, trail, users, auth, orgs, roles, search
 from src.routers import mfa as mfa_router_module
 from src.routers import mka_profile as mka_profile_router_module  # MKA fork
@@ -17,10 +16,14 @@ from src.routers import mka_attributes as mka_attributes_router_module  # MKA fo
 from src.routers import mka_compliance as mka_compliance_router_module  # MKA fork
 from src.routers import mka_automation as mka_automation_router_module  # MKA fork
 from src.routers import mka_identity as mka_identity_router_module  # MKA fork
+from src.routers import mka_course_audience as mka_course_audience_router_module  # MKA fork
+from src.routers import mka_health as mka_health_router_module  # MKA fork
 from src.routers import monitoring
 from src.routers import nudges as nudges_router_module
 from src.routers import stream
 from src.routers import api_tokens
+from src.routers import mcp_oauth
+from src.routers import calendar as calendar_router_module
 from src.routers import webhooks
 from src.routers.integrations import zapier as zapier_integration
 from src.routers.ai import ai, magicblocks, courseplanning, rag, images, quiz, assignment_gen, scenario, audio
@@ -31,6 +34,8 @@ from src.routers.orgs import packs
 from src.routers.orgs import org_plan
 from src.routers.courses import chapters, courses, assignments, certifications
 from src.routers.folders import folders as folders_router_module
+from src.routers.paths import paths as paths_router_module
+from src.routers.messaging import messaging as messaging_router_module
 from src.routers.media import media as media_router_module
 from src.routers.courses import migration as migration_router_module
 from src.routers.communities import communities as communities_router_module
@@ -51,12 +56,12 @@ from src.security.api_token_utils import (
     require_authenticated_user_or_api_token,
     require_non_api_token_user,
 )
-from src.security.features_utils.plan_check import require_plan, require_plan_for_boards, require_plan_for_certifications, require_plan_for_community, require_plan_for_usergroups, require_plan_for_playgrounds
+from src.security.features_utils.plan_check import require_plan, require_plan_for_boards, require_plan_for_certifications, require_plan_for_community, require_plan_for_usergroups, require_plan_for_playgrounds, require_plan_for_paths
 
 
 v1_router = APIRouter(prefix="/api/v1")
 
-# Helper dependency to reject API token access (still admits AnonymousUser —
+# Helper dependency to reject API token access (still admits AnonymousUser;
 # use on routers that contain at least one deliberately-public endpoint).
 async def get_non_api_token_user(user = Depends(get_current_user)):
     """Dependency that rejects API token access."""
@@ -106,12 +111,23 @@ v1_router.include_router(  # MKA fork: identity sync (role + groups); admin sess
     tags=["mka-identity"],
     dependencies=[Depends(require_authenticated_user_or_api_token)],
 )
+v1_router.include_router(  # MKA fork: course audience; session (author/admin of the course) or org API token, gated per handler
+    mka_course_audience_router_module.router,
+    prefix="/mka/courses",
+    tags=["mka-course-audience"],
+    dependencies=[Depends(require_authenticated_user_or_api_token)],
+)
+v1_router.include_router(  # MKA fork: schema health; deliberately unauthenticated (deploy checks), returns counts only
+    mka_health_router_module.router,
+    prefix="/mka/health",
+    tags=["mka-health"],
+)
 v1_router.include_router(
     usergroups.router,
     prefix="/usergroups",
     tags=["usergroups"],
     # Admit API tokens (headless enrollment/usergroup management) while still
-    # rejecting anonymous callers — same pattern as /assignments. `usergroups`
+    # rejecting anonymous callers, same pattern as /assignments. `usergroups`
     # is already an allowed API-token resource type in the RBAC layer
     # (rbac.py authorization_verify_api_token_permissions), and every handler
     # authorizes through usergroups.rbac_check, which has an APITokenUser branch
@@ -162,6 +178,7 @@ v1_router.include_router(
     tags=["api-tokens"],
     dependencies=[Depends(require_authenticated_user), Depends(require_plan("pro", "API Access"))]
 )
+v1_router.include_router(mcp_oauth.router, prefix="/mcp", tags=["mcp"])
 v1_router.include_router(
     webhooks.router,
     prefix="/orgs",
@@ -185,7 +202,7 @@ v1_router.include_router(
     prefix="/orgs",
     tags=["custom-domains"],
 )
-# Public unsubscribe endpoints (no auth — the HMAC token in the link is the
+# Public unsubscribe endpoints (no auth: the HMAC token in the link is the
 # authorisation; a nudge recipient may have no session at all)
 v1_router.include_router(
     nudges_router_module.public_router,
@@ -267,10 +284,38 @@ v1_router.include_router(
 v1_router.include_router(chapters.router, prefix="/chapters", tags=["chapters"])
 v1_router.include_router(activities.router, prefix="/activities", tags=["activities"])
 v1_router.include_router(
+    editor_templates_router_module.router,
+    prefix="/editor-templates",
+    tags=["editor-templates"],
+    dependencies=[Depends(require_authenticated_user)],
+)
+v1_router.include_router(
+    editor_variables_router_module.router,
+    prefix="/editor-variables",
+    tags=["editor-variables"],
+    dependencies=[Depends(require_authenticated_user)],
+)
+v1_router.include_router(
     folders_router_module.router, prefix="/folders", tags=["folders"]
 )
 v1_router.include_router(
     media_router_module.router, prefix="/media", tags=["media"]
+)
+# Certificate verification first, so /paths/certificates/... never reads as
+# a path uuid, and outside the plan gate (see the router module).
+v1_router.include_router(
+    paths_router_module.certificates_router, prefix="/paths", tags=["paths"]
+)
+v1_router.include_router(
+    paths_router_module.router,
+    prefix="/paths",
+    tags=["paths"],
+    dependencies=[Depends(require_plan_for_paths("pro", "Paths"))],
+)
+# Messaging gates itself per org (feature + membership) inside the service,
+# since most routes only name a conversation, message or agent.
+v1_router.include_router(
+    messaging_router_module.router, prefix="/messaging", tags=["messaging"]
 )
 v1_router.include_router(
     communities_router_module.router,
@@ -309,6 +354,14 @@ v1_router.include_router(
     boards_router_module.internal_router,
     prefix="/boards",
     tags=["boards-internal"],
+)
+v1_router.include_router(
+    calendar_router_module.router,
+    prefix="/calendar",
+    tags=["calendar"],
+    # Personal data only: a real session is required (no anonymous callers,
+    # no API tokens). Every source applies its own per-item access checks.
+    dependencies=[Depends(require_authenticated_user)],
 )
 v1_router.include_router(
     trail.router,
@@ -389,20 +442,8 @@ v1_router.include_router(
     dependencies=[Depends(require_authenticated_user), Depends(require_plan_for_playgrounds("personal", "Playgrounds"))]
 )
 
-v1_router.include_router(
-    analytics_router_module.router,
-    prefix="/analytics",
-    tags=["analytics"],
-    dependencies=[Depends(require_authenticated_user)],
-)
-
-# Per-student audit & analytics (org-admin only; enforced inside the router)
-v1_router.include_router(
-    audit_router_module.router,
-    prefix="/audit",
-    tags=["audit"],
-    dependencies=[Depends(require_authenticated_user)],
-)
+# Org analytics (dashboards, the browser beacon, settings, the per-student
+# audit) is mounted by EE.
 
 v1_router.include_router(
     code_execution.router,
@@ -420,9 +461,6 @@ v1_router.include_router(
 
 # Instance info (public, no auth)
 v1_router.include_router(instance.router, prefix="/instance", tags=["instance"])
-# Demo: /demo/status is public (the onboarding page calls it before the
-# visitor has done anything); /demo/enter resolves the user itself.
-v1_router.include_router(demo_router_module.router, prefix="/demo", tags=["demo"])
 
 # Sentry feedback relay (rejects API tokens; works for both anonymous and
 # authenticated callers so the in-app feedback modal keeps working everywhere)
@@ -433,7 +471,7 @@ v1_router.include_router(
     dependencies=[Depends(get_non_api_token_user)],
 )
 
-# Plan limits (public, no auth — used by frontend pricing pages)
+# Plan limits (public, no auth; used by frontend pricing pages)
 v1_router.include_router(plans.router, prefix="/plans", tags=["plans"])
 
 # Register EE Routers if available

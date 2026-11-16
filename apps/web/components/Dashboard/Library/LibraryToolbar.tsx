@@ -1,7 +1,7 @@
 'use client'
 import React from 'react'
 
-// Folder color presets — key is stored on folder.color; maps to a soft icon
+// Folder color presets: key is stored on folder.color; maps to a soft icon
 // tile and a solid swatch for the picker. Keep these in sync with the picker.
 export const FOLDER_COLORS: Record<string, { tile: string; dot: string }> = {
   violet: { tile: 'bg-violet-50 text-violet-500', dot: 'bg-violet-500' },
@@ -18,9 +18,9 @@ export const folderTone = (color?: string) =>
   FOLDER_COLORS[color || DEFAULT_FOLDER_COLOR]?.tile || FOLDER_COLORS[DEFAULT_FOLDER_COLOR].tile
 
 export const PRIMARY_BTN =
-  'inline-flex items-center gap-2 rounded-lg bg-black px-4 py-2 text-sm font-semibold text-white nice-shadow hover:bg-neutral-800 transition-colors'
+  'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-black px-3 sm:px-4 py-2.5 sm:py-2 text-sm font-semibold text-white nice-shadow hover:bg-neutral-800 transition-colors'
 export const SECONDARY_BTN =
-  'inline-flex items-center gap-2 rounded-lg bg-white px-4 py-2 text-sm font-medium text-gray-700 nice-shadow hover:bg-gray-50 transition-colors'
+  'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-white px-3 sm:px-4 py-2.5 sm:py-2 text-sm font-medium text-gray-700 nice-shadow hover:bg-gray-50 transition-colors'
 
 export function StatPill({
   icon,

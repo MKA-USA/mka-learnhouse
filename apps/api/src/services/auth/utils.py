@@ -10,7 +10,11 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from src.core.events.database import get_db_session
 from src.db.users import User, UserCreate, UserRead
 from src.security.auth import get_current_user
-from src.services.users.users import create_user, create_user_without_org
+from src.services.users.users import (
+    create_user,
+    create_user_without_org,
+    inbox_unproven,
+)
 from src.services.security.rate_limiting import get_client_ip
 from src.services.security.account_lockout import update_login_info
 from src.services.audit.audit import record_audit_event
@@ -26,7 +30,7 @@ _LOGGED_MISSING_GOOGLE_CLIENT_ID = False
 
 # Accept either spelling. The API originally read only the _OAUTH_ name, while
 # the CLI env template and the web app provision the very same value as
-# LEARNHOUSE_GOOGLE_CLIENT_ID — so a deployment that had the client id all along
+# LEARNHOUSE_GOOGLE_CLIENT_ID, so a deployment that had the client id all along
 # still ran with audience verification disabled.
 GOOGLE_CLIENT_ID_ENV_VARS = (
     "LEARNHOUSE_GOOGLE_OAUTH_CLIENT_ID",
@@ -63,8 +67,8 @@ async def _verify_google_token_audience(access_token: str) -> None:
 
     expected_client_id = get_expected_google_client_id()
     if not expected_client_id:
-        # Fail closed. Falling through here meant the check was off by default —
-        # nothing in a stock deployment sets the variable — so any Google access
+        # Fail closed. Falling through here meant the check was off by default
+        # (nothing in a stock deployment sets the variable), so any Google access
         # token, including one minted by an attacker's own OAuth client for a
         # victim who signed in on the attacker's site, was accepted as proof of
         # identity and exchanged for a full LearnHouse session.
@@ -93,7 +97,7 @@ async def _verify_google_token_audience(access_token: str) -> None:
     body = r.json()
     aud = body.get("aud") or body.get("azp")
     if aud != expected_client_id:
-        # Do not echo the presented aud — it could leak which third-party
+        # Do not echo the presented aud; it could leak which third-party
         # app the attacker tried to reuse.
         logger.warning(
             "Google OAuth audience mismatch: token aud did not match our client_id"
@@ -120,6 +124,81 @@ async def get_google_user_info(access_token: str):
         )
 
     return response.json()
+
+
+async def _drop_unverified_sso_links(user_id: int, db_session: AsyncSession) -> None:
+    """Detach identity-provider links made before the owner proved the inbox.
+
+    Same reasoning as the password drop in the pre-hijack guard: an org's IdP
+    that provisioned or linked this account while it was unclaimed must not
+    keep signing in as the real owner. SSO lives in the Enterprise Edition, so
+    it does the removal through its hook; without EE there is nothing to drop.
+    """
+    from src.core.ee_hooks import get_ee_hooks
+
+    hooks = get_ee_hooks()
+    if hooks is not None and hasattr(hooks, "revoke_unverified_sso_links"):
+        await hooks.revoke_unverified_sso_links(user_id, db_session)
+
+
+async def claim_account_on_inbox_proof(
+    user: User,
+    db_session: AsyncSession,
+    *,
+    drop_admin_set_password: bool = True,
+    pending_changes: bool = False,
+) -> None:
+    """Run when a sign-in proves the caller controls the account's inbox
+    (Google, an emailed magic link).
+
+    Pre-hijack guard: a password set by someone who never proved control of
+    this inbox (an unverified or self-hosted signup, or one an org admin chose
+    through the admin API and the owner never changed) must not survive the
+    real owner signing in. Drop it and end any session it opened; the owner can
+    set a password via reset. SSO links made while the account was unclaimed
+    go too. ``drop_admin_set_password`` also drops a password an org admin
+    chose through the admin API that the owner never changed.
+    ``pending_changes`` commits the caller's own edits to ``user`` in the same
+    write.
+    """
+    untrusted_account = not user.email_verified or inbox_unproven(user)
+    untrusted_password = bool(user.password) and (
+        untrusted_account
+        or (
+            drop_admin_set_password
+            and user.signup_method == "admin_api"
+            and user.password_changed_at is None
+        )
+    )
+    if not (untrusted_account or untrusted_password):
+        if pending_changes:
+            db_session.add(user)
+            await db_session.commit()
+            await db_session.refresh(user)
+        return
+
+    if untrusted_password:
+        user.password = ""
+        # Whole seconds: the session minted right after this carries an
+        # integer ``iat`` and must not count as issued before the change.
+        user.password_changed_at = datetime.now(timezone.utc).replace(
+            tzinfo=None, microsecond=0
+        )
+    if untrusted_account:
+        user.email_verified = True
+        user.email_verified_at = datetime.now(timezone.utc).isoformat()
+
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+
+    if user.id is None:
+        return
+    if untrusted_password:
+        from src.security.auth import revoke_user_sessions_before
+
+        revoke_user_sessions_before(user.id)
+    await _drop_unverified_sso_links(user.id, db_session)
 
 
 async def signWithGoogle(
@@ -226,22 +305,13 @@ async def signWithGoogle(
 
             return user
 
-    # For existing users, ensure email is verified (Google already verified it)
-    needs_update = False
-    if not user.email_verified:
-        user.email_verified = True
-        user.email_verified_at = datetime.now(timezone.utc).isoformat()
-        needs_update = True
-
     # Backfill signup_method for existing users who sign in with Google
+    needs_update = False
     if not user.signup_method:
         user.signup_method = "google"
         needs_update = True
 
-    if needs_update:
-        db_session.add(user)
-        await db_session.commit()
-        await db_session.refresh(user)
+    await claim_account_on_inbox_proof(user, db_session, pending_changes=needs_update)
 
     # If the caller supplied (and the router validated, via a pending invite)
     # an ``org_id``, an *existing* user signing in with Google must still be
@@ -283,7 +353,7 @@ async def signWithGoogle(
             # user id, and it is what the frontend reads the org list from. Every
             # other membership change busts it (join_org, role changes, removals);
             # this one did not, so the user landed in the org they had just joined
-            # with the pre-join role list — no membership, member-only UI hidden —
+            # with the pre-join role list (no membership, member-only UI hidden)
             # until the cache expired on its own.
             from src.routers.users import _invalidate_session_cache
 
@@ -292,8 +362,16 @@ async def signWithGoogle(
             # Existing account joining a new org: the account-creation welcome
             # only fires for brand new users, so without this the OAuth-invite
             # path lands them in an org they were never told about.
+            from src.services.analytics import events as analytics_events
+            from src.services.analytics.analytics import track
             from src.services.orgs.join_notifications import notify_user_joined_org
 
+            await track(
+                event_name=analytics_events.USER_JOINED_ORG,
+                org_id=org_id,
+                user_id=user.id,
+                properties={"join_method": "google"},
+            )
             await notify_user_joined_org(request, db_session, user, org_id)
 
     # Update last login info
@@ -304,6 +382,7 @@ async def signWithGoogle(
     await record_audit_event(
         event_type=UserAuditEventType.LOGIN,
         user_id=user.id,
+        org_id=org_id,
         ip=client_ip,
         user_agent=request.headers.get("user-agent"),
         metadata={"method": "google"},

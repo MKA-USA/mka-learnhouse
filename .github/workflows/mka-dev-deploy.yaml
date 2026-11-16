@@ -67,6 +67,13 @@ jobs:
         with:
           url: https://ilm-dev.mkausa.org/api/v1/health
 
+      # Migrations run at container start (apps/api/scripts/mka-migrate.sh). Fail the deploy if the schema still drifts
+      # from the models or Alembic is not at head (see MKA_MIGRATE_FAILED / MKA_SCHEMA_DRIFT in the service log).
+      - name: Verify database schema
+        uses: ./.github/actions/mka-check-schema
+        with:
+          url: https://ilm-dev.mkausa.org/api/v1/mka/health/schema
+
       - name: Failure summary
         if: failure()
         run: |
@@ -75,6 +82,6 @@ jobs:
             echo
             echo "- Commit: \`${GITHUB_SHA}\`"
             echo "- Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-            echo "- Check the failed step above (Coolify restart call vs. health wait)."
+            echo "- Check the failed step above (Coolify restart call, health wait, or schema check). A schema-check failure means migrations did not apply: search the service log for MKA_MIGRATE_FAILED and MKA_SCHEMA_DRIFT."
             echo "- Coolify gives no build logs for compose services; check service status and the Service Startup log in the Coolify UI."
           } >> "$GITHUB_STEP_SUMMARY"

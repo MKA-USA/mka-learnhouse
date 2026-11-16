@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useTranslation } from 'react-i18next'
+import { planName, planNameByLabel, featureLabel, featureBadge, packLabel } from '../../_billing/planText'
 import {
   Dialog,
   DialogContent,
@@ -53,7 +54,7 @@ interface PlanUsageProps {
   subLoading: boolean
   usage?: OrgUsageResponse
   usageError?: boolean
-  /** `GET /orgs/{id}/active-users` — carries members_beyond_included, which the
+  /** `GET /orgs/{id}/active-users`. Carries members_beyond_included, which the
    *  usage payload omits. */
   activeUsers?: ActiveUsersSummary
   upcomingInvoice?: UpcomingInvoice | null
@@ -112,7 +113,7 @@ export default function PlanUsage({
   const showActiveMembers =
     !isFreePlan && usage?.mode === 'saas' && !!activeMembers
 
-  // The seats the plan itself includes — distinct from `members.limit`, which
+  // The seats the plan itself includes, distinct from `members.limit`, which
   // resolve_feature() may have raised via an override.
   const includedMembers = features?.members?.plan_limit ?? activeUsers?.plan_limit
   const includedMembersLabel =
@@ -237,7 +238,7 @@ export default function PlanUsage({
             <div className="flex items-center gap-4">
               {plan && (
                 <span className={`inline-flex px-2.5 py-1 text-xs font-semibold rounded-md border ${plan.badge}`}>
-                  {plan.name}
+                  {planName(t, plan)}
                 </span>
               )}
               <div>
@@ -267,7 +268,7 @@ export default function PlanUsage({
             <div className="flex items-center gap-4">
               {plan && (
                 <span className={`inline-flex px-2.5 py-1 text-xs font-semibold rounded-md border ${plan.badge}`}>
-                  {plan.name}
+                  {planName(t, plan)}
                 </span>
               )}
               <div>
@@ -322,7 +323,7 @@ export default function PlanUsage({
             <div className="px-5 py-5 space-y-4">
               {plan && (
                 <span className={`inline-flex px-2.5 py-1 text-xs font-semibold rounded-md border ${plan.badge}`}>
-                  {plan.name}
+                  {planName(t, plan)}
                 </span>
               )}
               <div className="flex items-baseline gap-1">
@@ -330,7 +331,7 @@ export default function PlanUsage({
                   {getCurrencySymbol(currentPlanId, priceOverrides)}
                   {price}
                 </span>
-                <span className="text-sm font-medium text-black/30">/mo</span>
+                <span className="text-sm font-medium text-black/30">{t('billing.pricing.per_month')}</span>
               </div>
               <p className="text-[11px] text-black/30 font-medium">
                 {subscription.billing === 'annual'
@@ -381,7 +382,7 @@ export default function PlanUsage({
                     ? t('billing.access_until', { defaultValue: 'Access until' })
                     : t('billing.next_payment', { defaultValue: 'Next payment' })}
                 </p>
-                <p className="mt-1 text-sm font-semibold text-black">{periodEnd ?? '—'}</p>
+                <p className="mt-1 text-sm font-semibold text-black">{periodEnd ?? 'n/a'}</p>
               </div>
               <div>
                 <p className="text-[11px] font-semibold text-black/30 uppercase tracking-wider">
@@ -400,10 +401,10 @@ export default function PlanUsage({
               <div className="px-5 py-4 border-b border-black/[0.05]">
                 <div className="flex items-center gap-2">
                   <p className="text-xs font-semibold text-black/35 uppercase tracking-wider">
-                    {t('billing.included_in', { defaultValue: `Included in ${plan.name}`, plan: plan.name })}
+                    {t('billing.included_in', { defaultValue: `Included in ${plan.name}`, plan: planName(t, plan) })}
                   </p>
                   {plan.inheritsFrom && (
-                    <span className="text-[10px] font-medium text-black/25">+ {plan.inheritsFrom}</span>
+                    <span className="text-[10px] font-medium text-black/25">+ {planNameByLabel(t, plan.inheritsFrom)}</span>
                   )}
                 </div>
               </div>
@@ -414,8 +415,8 @@ export default function PlanUsage({
                       key={f.label}
                       className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium text-black/45 bg-black/[0.03] rounded-md"
                     >
-                      {f.label}
-                      {f.badge ? ` · ${f.badge}` : ''}
+                      {featureLabel(t, f)}
+                      {f.badge ? ` · ${featureBadge(t, f)}` : ''}
                     </span>
                   ))}
                 </div>
@@ -445,7 +446,7 @@ export default function PlanUsage({
                 })
               : t('billing.usage_subtitle_paid', {
                   defaultValue:
-                    'Your plan includes these amounts. Going past the member limit is allowed and billed — nothing is blocked.',
+                    'Your plan includes these amounts. Going past the member limit is allowed and billed; nothing is blocked.',
                 })}
           </p>
         </div>
@@ -525,7 +526,7 @@ export default function PlanUsage({
                   />
                   <p className="text-[10px] text-black/25 font-medium mt-1.5 leading-relaxed">
                     {t('billing.active_members_hint', {
-                      defaultValue: `Counted when a member is active on 2+ days this month. The ${includedMembersLabel} seats your plan includes are free — you're billed $1/month for each active member beyond them.`,
+                      defaultValue: `Counted when a member is active on 2+ days this month. The ${includedMembersLabel} seats your plan includes are free; you're billed $1/month for each active member beyond them.`,
                       included: includedMembersLabel,
                     })}
                   </p>
@@ -608,7 +609,7 @@ export default function PlanUsage({
             </p>
           </div>
           <div className="px-6 py-6 space-y-6">
-            {/* Active add-ons — read-only (no pack-detail/cancel route in v1) */}
+            {/* Active add-ons, read-only (no pack-detail/cancel route in v1) */}
             {activePacks.length > 0 &&
               (() => {
                 const grouped = activePacks.reduce((acc: Record<string, any[]>, pack: any) => {
@@ -689,7 +690,7 @@ export default function PlanUsage({
                         )}
                       </div>
                       <div>
-                        <p className="text-[13px] font-semibold text-black">{pack.label}</p>
+                        <p className="text-[13px] font-semibold text-black">{packLabel(t, pack)}</p>
                         <p className="text-[11px] text-black/30 font-medium">
                           {getPackCurrencySymbol(pack.id, packPrices, priceOverrides)}
                           {getPackPrice(pack.id, packPrices)}/mo {t('billing.per_pack', { defaultValue: 'per pack' })}
@@ -736,7 +737,7 @@ export default function PlanUsage({
                     </div>
                     <div>
                       <p className="text-[15px] font-bold text-black">
-                        {t('billing.add_pack', { defaultValue: `Add ${disclaimerPack.label}`, pack: disclaimerPack.label })}
+                        {t('billing.add_pack', { defaultValue: `Add ${disclaimerPack.label}`, pack: packLabel(t, disclaimerPack) })}
                       </p>
                       <p className="text-[13px] text-black/40 mt-0.5 font-normal">
                         {getPackCurrencySymbol(disclaimerPack.id, packPrices, priceOverrides)}
@@ -764,7 +765,7 @@ export default function PlanUsage({
                     </li>
                     <li className="text-[12px] text-black/60 flex items-start gap-2">
                       <span className="text-emerald-500 mt-0.5">&#10003;</span>
-                      {t('billing.pack_cancel_anytime', { defaultValue: 'Cancel anytime — stays active until end of billing period' })}
+                      {t('billing.pack_cancel_anytime', { defaultValue: 'Cancel anytime; stays active until end of billing period' })}
                     </li>
                     {disclaimerPack.type === 'ai_credits' && (
                       <li className="text-[12px] text-black/60 flex items-start gap-2">

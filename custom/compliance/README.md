@@ -42,6 +42,11 @@ bun run lh reconcile --pilot --apply --confirm-staging
 through `course_map` (change detection per activity). Outputs: `out/idmap.json`, `out/apply-report.md`, `out/reconcile-report.md`, `out/data-gap-report.md`.
 Formats for yearly CSV data: `docs/data-formats.md`.
 
+## Targets: dev (default) and prod (guarded)
+`--target dev|prod` on every LearnHouse command (plan, apply, reconcile, publish, export-courses, push-*, assign-authors, sync-identity, identity-status).
+Prod needs `--confirm-prod ilm.mkausa.org` to select it, an extra `--write` for any write, and the prod token via `bun run lh:prod` (keychain `MKA_LH_PROD_API_TOKEN`; tokens must come from `bun run lh` / `lh:prod`, which tag them with their target); `course_map`, `idmap`, `enrollment_log` and `out/` are separate per target.
+See `docs/runbooks/cycle-rollout.md`, "First prod push".
+
 ## Publishing (explicit, never automatic)
 `plan`, `apply` and `reconcile` never publish: courses, activities and assignments stay drafts, and the API wrappers reject `published: true`.
 A human publishes with the separate command (staging only, **dry run by default**, prints exactly what it will flip):
@@ -51,6 +56,17 @@ bun run lh publish --all                                                # dry ru
 bun run lh publish --course <name|uuid> --execute --confirm-staging     # sets published=true on activities, assignments, then the course
 ```
 Courses stay `public: false` (visible to enrolled learners only).
+
+## Updating published courses (`apply --allow-published`)
+By default `apply` refuses any write to a course that is published (or whose state is unknown). `plan` marks those as `UPDATE (published)`.
+Use `--allow-published` when a published course needs a generated-page fix (e.g. the Contacts directory) and you must not unpublish it:
+```
+bun run lh apply --only maal --allow-published --confirm-staging        # dev
+bun run lh:prod apply --only maal --allow-published --confirm-published ilm.mkausa.org --confirm-prod ilm.mkausa.org --write    # prod: the extra --confirm-published <exact host> is required
+```
+Before writing it prints every published course it may touch. On a published course it only updates course/chapter metadata and generated page or assignment content:
+it never sends a `published` field or flips one, never adds chapters/activities (refused), and never removes any (refused). Author-owned pages stay untouched.
+Drafts in the same run behave as before. Re-run `plan --all`: it should show everything unchanged.
 
 ## Cycle -> courses mapping
 `bun run start export-courses` (also run by `apply`) writes `out/cycle-courses.json`: cycle, deadline, and per course the activity uuids plus the

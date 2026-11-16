@@ -2,22 +2,27 @@ from typing import List, Union, Optional
 from uuid import uuid4
 from datetime import datetime, timezone
 from enum import Enum
+from sqlalchemy import func
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 from fastapi import HTTPException, Request
 
+from src.core.ee_hooks import require_ee_resource_paid_access
 from src.db.users import PublicUser, AnonymousUser, APITokenUser, User, UserReadAuthor
 from src.security.auth import resolve_acting_user_id
 from src.db.communities.communities import Community
 from src.services.analytics.analytics import track
 from src.services.analytics import events as analytics_events
 from src.services.webhooks.dispatch import dispatch_webhooks
+from src.services.moderation_ai import schedule_moderation, forum_text
 from src.db.communities.discussions import (
     Discussion,
+    DiscussionReadWithCounts,
     DiscussionReadWithVoteStatus,
     DiscussionUpdate,
     DISCUSSION_LABELS,
 )
+from src.db.communities.discussion_comments import DiscussionComment
 from src.db.communities.discussion_votes import DiscussionVote
 from src.security.rbac import (
     check_resource_access,
@@ -29,7 +34,12 @@ from src.services.communities.moderation import (
     validate_discussion_content,
     enforce_posting_limits,
 )
-from src.services.moderation_ai import schedule_moderation, forum_text
+from src.services.communities.access import (
+    require_author_may_still_post,
+    require_community_participant,
+    require_token_in_community_org,
+)
+from src.security.api_token_utils import token_has_right
 
 
 class DiscussionSortBy(str, Enum):
@@ -73,6 +83,61 @@ def validate_label(label: str) -> str:
     return label
 
 
+async def _can_moderate(
+    request: Request,
+    current_user: Union[PublicUser, AnonymousUser, APITokenUser],
+    acting_user_id: int,
+    action: AccessAction,
+    community: Community,
+    db_session: AsyncSession,
+) -> bool:
+    """Whether the caller may moderate discussions of ``community``.
+
+    API tokens moderate through their own rights, never their creator's role.
+    """
+    if isinstance(current_user, APITokenUser):
+        decision = await check_resource_access(
+            request, db_session, current_user, community.community_uuid, action,
+            raise_on_deny=False,
+        )
+        return decision.allowed
+    return await authorization_verify_based_on_org_admin_status(
+        request, acting_user_id, action.value, community.community_uuid, db_session
+    )
+
+
+def _is_author(
+    current_user: Union[PublicUser, AnonymousUser, APITokenUser],
+    acting_user_id: int,
+    discussion: Discussion,
+) -> bool:
+    """A token edits its creator's posts only while it may post itself."""
+    if discussion.author_id != acting_user_id:
+        return False
+    if isinstance(current_user, APITokenUser):
+        return token_has_right(current_user, "discussions", "action_create")
+    return True
+
+
+async def _comment_counts(
+    db_session: AsyncSession, discussion_ids: List[int]
+) -> dict[int, int]:
+    """Comment totals per discussion, in one grouped query.
+
+    Counts exactly what ``get_comment_count`` counts: every comment row on the
+    discussion. Discussions without comments are absent from the map.
+    """
+    if not discussion_ids:
+        return {}
+    statement = (
+        select(DiscussionComment.discussion_id, func.count(DiscussionComment.id))
+        .where(DiscussionComment.discussion_id.in_(discussion_ids))  # type: ignore
+        .group_by(DiscussionComment.discussion_id)
+    )
+    rows = (await db_session.execute(statement)).all()
+    return {discussion_id: count for discussion_id, count in rows}
+
+
 async def create_discussion(
     request: Request,
     community_uuid: str,
@@ -86,8 +151,8 @@ async def create_discussion(
     """
     Create a new discussion in a community.
 
-    Requires authenticated user who can read the community.
-    Author automatically upvotes their own discussion.
+    Requires a member of the community's org allowed to post who can read
+    the community. Author automatically upvotes their own discussion.
     """
     # Verify user is not anonymous
     await authorization_verify_if_user_is_anon(current_user.id)
@@ -96,6 +161,7 @@ async def create_discussion(
     await check_resource_access(
         request, db_session, current_user, community_uuid, AccessAction.READ
     )
+    await require_ee_resource_paid_access(request, db_session, current_user, community_uuid)
 
     # Get the community
     community_statement = select(Community).where(
@@ -106,8 +172,10 @@ async def create_discussion(
     if not community:
         raise HTTPException(status_code=404, detail="Community not found")
 
+    author_id = await require_community_participant(current_user, community, db_session)
+
     # Apply per-user posting limits (slow mode, daily caps, account age, email)
-    await enforce_posting_limits(current_user.id, community, db_session)
+    await enforce_posting_limits(author_id, community, db_session)
 
     # Check content moderation
     await validate_discussion_content(title, content, community.id, db_session)
@@ -123,7 +191,7 @@ async def create_discussion(
         emoji=emoji,
         community_id=community.id,
         org_id=community.org_id,
-        author_id=current_user.id,
+        author_id=author_id,
         discussion_uuid=f"discussion_{uuid4()}",
         upvote_count=1,  # Author's auto-upvote
         is_pinned=False,
@@ -137,14 +205,14 @@ async def create_discussion(
     # author's auto-upvote vote row is written atomically with the discussion.
     # Previously the vote was committed in a *second* transaction after the
     # discussion was already persisted; if that second commit failed the
-    # discussion was left with upvote_count=1 but no matching vote row — a
+    # discussion was left with upvote_count=1 but no matching vote row, a
     # permanently inflated, unremovable phantom upvote.
     await db_session.flush()
 
     # Create auto-upvote from author in the same transaction
     vote = DiscussionVote(
         discussion_id=discussion.id,
-        user_id=current_user.id,
+        user_id=author_id,
         vote_uuid=f"vote_{uuid4()}",
         creation_date=str(datetime.now()),
     )
@@ -158,26 +226,30 @@ async def create_discussion(
     await track(
         event_name=analytics_events.DISCUSSION_POSTED,
         org_id=community.org_id,
-        user_id=current_user.id,
+        user_id=author_id,
         properties={
             "community_uuid": community_uuid,
             "discussion_uuid": discussion.discussion_uuid,
             "label": validated_label,
         },
     )
+    # Get author info (the real user, also for API-token callers)
+    author_statement = select(User).where(User.id == discussion.author_id)
+    author = (await db_session.execute(author_statement)).scalars().first()
+
     await dispatch_webhooks(
         event_name=analytics_events.DISCUSSION_POSTED,
         org_id=community.org_id,
         data={
-            "user": {"user_uuid": current_user.user_uuid, "email": current_user.email, "username": current_user.username},
+            "user": {
+                "user_uuid": author.user_uuid if author else "",
+                "email": author.email if author else "",
+                "username": author.username if author else "",
+            },
             "discussion": {"discussion_uuid": discussion.discussion_uuid, "title": discussion.title},
             "community": {"community_uuid": community_uuid},
         },
     )
-
-    # Get author info
-    author_statement = select(User).where(User.id == discussion.author_id)
-    author = (await db_session.execute(author_statement)).scalars().first()
 
     return DiscussionReadWithVoteStatus(
         **discussion.model_dump(),
@@ -191,7 +263,7 @@ async def get_discussion(
     discussion_uuid: str,
     current_user: Union[PublicUser, AnonymousUser, APITokenUser],
     db_session: AsyncSession,
-) -> DiscussionReadWithVoteStatus:
+) -> DiscussionReadWithCounts:
     """
     Get a discussion by UUID.
     """
@@ -210,6 +282,7 @@ async def get_discussion(
         raise HTTPException(status_code=404, detail="Community not found")
 
     await check_resource_access(request, db_session, current_user, community.community_uuid, AccessAction.READ)
+    await require_ee_resource_paid_access(request, db_session, current_user, community.community_uuid)
 
     # Get author info
     author_statement = select(User).where(User.id == discussion.author_id)
@@ -217,18 +290,22 @@ async def get_discussion(
 
     # Check if user has voted
     has_voted = False
-    if current_user.id != 0:
+    viewer_id = resolve_acting_user_id(current_user)
+    if viewer_id != 0:
         vote_statement = select(DiscussionVote).where(
             DiscussionVote.discussion_id == discussion.id,
-            DiscussionVote.user_id == current_user.id,
+            DiscussionVote.user_id == viewer_id,
         )
         vote = (await db_session.execute(vote_statement)).scalars().first()
         has_voted = vote is not None
 
-    return DiscussionReadWithVoteStatus(
+    comment_counts = await _comment_counts(db_session, [discussion.id])
+
+    return DiscussionReadWithCounts(
         **discussion.model_dump(),
         author=UserReadAuthor.model_validate(author.model_dump()) if author else None,
         has_voted=has_voted,
+        comment_count=comment_counts.get(discussion.id, 0),
     )
 
 
@@ -241,7 +318,7 @@ async def get_discussions_by_community(
     page: int = 1,
     limit: int = 10,
     label: Optional[str] = None,
-) -> List[DiscussionReadWithVoteStatus]:
+) -> List[DiscussionReadWithCounts]:
     """
     Get paginated list of discussions for a community with sorting.
     Pinned discussions are always returned first.
@@ -250,6 +327,7 @@ async def get_discussions_by_community(
     await check_resource_access(
         request, db_session, current_user, community_uuid, AccessAction.READ
     )
+    await require_ee_resource_paid_access(request, db_session, current_user, community_uuid)
 
     # Get the community
     community_statement = select(Community).where(
@@ -332,13 +410,17 @@ async def get_discussions_by_community(
 
     # Batch fetch user votes
     user_votes = set()
-    if current_user.id != 0 and discussion_ids:
+    viewer_id = resolve_acting_user_id(current_user)
+    if viewer_id != 0 and discussion_ids:
         votes_query = select(DiscussionVote).where(
             DiscussionVote.discussion_id.in_(discussion_ids),  # type: ignore
-            DiscussionVote.user_id == current_user.id,
+            DiscussionVote.user_id == viewer_id,
         )
         votes = (await db_session.execute(votes_query)).scalars().all()
         user_votes = {v.discussion_id for v in votes}
+
+    # Batch fetch comment counts for the page
+    comment_counts = await _comment_counts(db_session, discussion_ids)
 
     # Build response
     result = []
@@ -347,10 +429,11 @@ async def get_discussions_by_community(
         has_voted = discussion.id in user_votes
 
         result.append(
-            DiscussionReadWithVoteStatus(
+            DiscussionReadWithCounts(
                 **discussion.model_dump(),
                 author=UserReadAuthor.model_validate(author.model_dump()) if author else None,
                 has_voted=has_voted,
+                comment_count=comment_counts.get(discussion.id, 0),
             )
         )
 
@@ -391,17 +474,22 @@ async def update_discussion(
     if not community:
         raise HTTPException(status_code=404, detail="Community not found")
 
+    require_token_in_community_org(current_user, community)
+
     # Check if user is author or admin
-    is_author = discussion.author_id == acting_user_id
-    is_admin = await authorization_verify_based_on_org_admin_status(
-        request, acting_user_id, "update", community.community_uuid, db_session
+    is_author = _is_author(current_user, acting_user_id, discussion)
+    is_admin = await _can_moderate(
+        request, current_user, acting_user_id, AccessAction.UPDATE, community, db_session
     )
 
     if not is_author and not is_admin:
         raise HTTPException(status_code=403, detail="You don't have permission to update this discussion")
+    if not is_admin:
+        await require_author_may_still_post(
+            request, current_user, community, discussion, db_session
+        )
 
     # Check edit limit for authors (admins can edit unlimited)
-    is_author = discussion.author_id == acting_user_id
     max_edits = 2
 
     if is_author and discussion.edit_count >= max_edits:
@@ -486,8 +574,10 @@ async def pin_discussion(
     if not community:
         raise HTTPException(status_code=404, detail="Community not found")
 
-    is_admin = await authorization_verify_based_on_org_admin_status(
-        request, acting_user_id, "update", community.community_uuid, db_session
+    require_token_in_community_org(current_user, community)
+
+    is_admin = await _can_moderate(
+        request, current_user, acting_user_id, AccessAction.UPDATE, community, db_session
     )
 
     if not is_admin:
@@ -555,8 +645,10 @@ async def lock_discussion(
     if not community:
         raise HTTPException(status_code=404, detail="Community not found")
 
-    is_admin = await authorization_verify_based_on_org_admin_status(
-        request, acting_user_id, "update", community.community_uuid, db_session
+    require_token_in_community_org(current_user, community)
+
+    is_admin = await _can_moderate(
+        request, current_user, acting_user_id, AccessAction.UPDATE, community, db_session
     )
 
     if not is_admin:
@@ -627,10 +719,12 @@ async def delete_discussion(
     if not community:
         raise HTTPException(status_code=404, detail="Community not found")
 
+    require_token_in_community_org(current_user, community)
+
     # Check if user is author or admin
-    is_author = discussion.author_id == acting_user_id
-    is_admin = await authorization_verify_based_on_org_admin_status(
-        request, acting_user_id, "delete", community.community_uuid, db_session
+    is_author = _is_author(current_user, acting_user_id, discussion)
+    is_admin = await _can_moderate(
+        request, current_user, acting_user_id, AccessAction.DELETE, community, db_session
     )
 
     if not is_author and not is_admin:

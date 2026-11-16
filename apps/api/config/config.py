@@ -7,6 +7,25 @@ from dotenv import load_dotenv
 # One-shot guard for the missing-credential report below: config is loaded on
 # every request, and repeating the report drowns out every other startup log.
 _LOGGED_MISSING_INTERNAL_KEYS = False
+# Same, for the example-JWT-secret warning.
+_LOGGED_PLACEHOLDER_JWT_SECRET = False
+
+# Example values from .env.example files and the docs. A deployment that kept
+# one has a secret anyone can read. Keep in sync with apps/collab/src/index.ts.
+PLACEHOLDER_SECRETS = frozenset({
+    "your-jwt-secret-key",
+    "your-internal-key",
+    "CHANGE_ME_generate_with_openssl_rand_hex_32",
+    "replace-with-at-least-32-random-characters",
+    "replace-with-random-shared-secret",
+})
+
+
+def shared_secret_from_env(name: str) -> str:
+    """A service-to-service key from the environment, or "" when it is unset or
+    still an example value (which anyone can read, so it must open nothing)."""
+    value = os.getenv(name, "")
+    return "" if value in PLACEHOLDER_SECRETS else value
 
 
 class CookieConfig(BaseModel):
@@ -71,7 +90,7 @@ class AIConfig(BaseModel):
     api_key: str | None = None
     base_url: str | None = None
     # Three model tiers (provider-specific strings). Defaults to the Gemini 3 family when
-    # unset — see src/services/ai/llm/tiers.py.
+    # unset; see src/services/ai/llm/tiers.py.
     model_fast: str | None = None
     model_standard: str | None = None
     model_pro: str | None = None
@@ -87,7 +106,7 @@ class AIConfig(BaseModel):
     # Moonshot, Mistral, OpenRouter, Bedrock) that have no embeddings API of their own.
     gemini_api_key: str | None = None
     # Image generation model (Google "nano banana" family). Image generation is a
-    # Google-only path — it always uses the Google GenAI SDK regardless of the
+    # Google-only path: it always uses the Google GenAI SDK regardless of the
     # configured text `provider`, resolving its key from `api_key` (when provider
     # is Google) or `gemini_api_key`. Override the exact model id with
     # LEARNHOUSE_AI_IMAGE_MODEL; defaults to the GA `gemini-2.5-flash-image`
@@ -96,9 +115,24 @@ class AIConfig(BaseModel):
     # Text-to-speech / podcast model (Google Gemini TTS). Like image generation
     # this is a Google-only path resolving its key from `api_key` (when provider
     # is Google) or `gemini_api_key`. Override the exact model id with
-    # LEARNHOUSE_AI_TTS_MODEL; defaults to `gemini-2.5-flash-preview-tts`. All
-    # Gemini TTS models are currently preview, so keep this configurable.
+    # LEARNHOUSE_AI_TTS_MODEL; defaults to the GA `gemini-3.8-flash-tts`.
     tts_model: str | None = None
+    # Model used by the Atlas dashboard agent (resolved by the provider-agnostic
+    # LLM layer). Defaults to a fast tier because tool-use latency adds up fast;
+    # override via LEARNHOUSE_ATLAS_MODEL for harder reasoning tasks.
+    atlas_model: str | None = None
+
+
+class MCPConfig(BaseModel):
+    # The MCP server mounted at /mcp on the API, for external agents (Claude,
+    # ChatGPT, Cursor, ...). On by default: every call acts as a signed-in
+    # member (OAuth) or an API token, so it can do no more than that member or
+    # token already can. LEARNHOUSE_MCP_ENABLED=false turns the endpoint off.
+    enabled: bool = True
+    # Public URL of the endpoint, e.g. https://api.example.com/mcp. OAuth
+    # tokens are bound to it, so set it whenever a proxy rewrites the host or
+    # scheme. Derived from each request when unset.
+    public_url: str | None = None
 
 
 class S3ApiConfig(BaseModel):
@@ -123,6 +157,9 @@ class HostingConfig(BaseModel):
     self_hosted: bool
     cookie_config: CookieConfig
     content_delivery: ContentDeliveryConfig
+    # Cap for non-multipart request bodies (JSON, form-urlencoded, raw);
+    # 0 disables it. Multipart uploads keep their per-route limits.
+    max_request_body_mb: int = 25
 
 
 class MailingConfig(BaseModel):
@@ -172,6 +209,7 @@ class LearnHouseConfig(BaseModel):
     redis_config: RedisConfig
     security_config: SecurityConfig
     ai_config: AIConfig
+    mcp_config: MCPConfig = MCPConfig()
     mailing_config: MailingConfig
     payments_config: InternalPaymentsConfig
     tinybird_config: TinybirdConfig | None
@@ -183,7 +221,7 @@ def _env_bool(env_value, yaml_value):
     """Resolve a boolean setting from an env string, falling back to YAML.
 
     Env vars arrive as strings, and `"false" or yaml_value` evaluates to the
-    string "false" — which is truthy. So `LEARNHOUSE_SELF_HOSTED=false` used to
+    string "false", which is truthy. So `LEARNHOUSE_SELF_HOSTED=false` used to
     read as True and pin tenancy to "single", collapsing the CORS regex and
     making the session cookie host-only; `LEARNHOUSE_SSL=false` produced https
     magic links on a plain-HTTP install. Both failed with no error, and
@@ -295,7 +333,7 @@ _yaml_cache: dict = {}
 def _load_yaml_config(yaml_path: str) -> dict:
     """Parse config.yaml, memoised on (path, mtime, size).
 
-    Parsing dominates the cost of building the config — roughly 9ms of a 10ms
+    Parsing dominates the cost of building the config, roughly 9ms of a 10ms
     call, since this function is not otherwise cached and every caller re-reads
     the file. That was tolerable while config was read at startup, and stopped
     being tolerable once /instance/info began resolving deployment mode per
@@ -376,6 +414,21 @@ def get_learnhouse_config() -> LearnHouseConfig:
             "SECURITY ERROR: LEARNHOUSE_AUTH_JWT_SECRET_KEY must be set. "
             "Generate a secure key with: python -c \"import secrets; print(secrets.token_urlsafe(32))\""
         )
+    global _LOGGED_PLACEHOLDER_JWT_SECRET
+    if auth_jwt_secret_key in PLACEHOLDER_SECRETS and not _LOGGED_PLACEHOLDER_JWT_SECRET:
+        # Warn rather than refuse: the key also derives the encryption for
+        # stored webhook and MFA secrets and peppers API tokens, so rotating it
+        # is a planned migration, not something to force on an upgrade. Once
+        # per process: config is loaded on every request.
+        _LOGGED_PLACEHOLDER_JWT_SECRET = True
+        import logging as _cfg_log
+        _cfg_log.getLogger(__name__).critical(
+            "SECURITY: LEARNHOUSE_AUTH_JWT_SECRET_KEY is the example value from the docs, "
+            "so anyone can sign valid sessions for this instance. Rotate it to a random value "
+            "(python -c \"import secrets; print(secrets.token_urlsafe(32))\"). Rotating signs "
+            "everyone out and invalidates stored webhook secrets, API tokens and MFA enrolments "
+            "unless LEARNHOUSE_MFA_ENCRYPTION_KEY is set."
+        )
     if len(auth_jwt_secret_key) < 32:
         raise ValueError(
             "SECURITY ERROR: LEARNHOUSE_AUTH_JWT_SECRET_KEY must be at least 32 characters. "
@@ -427,8 +480,11 @@ def get_learnhouse_config() -> LearnHouseConfig:
     self_hosted = _env_bool(
         env_self_hosted, yaml_config.get("hosting_config", {}).get("self_hosted")
     )
+    max_request_body_mb = os.environ.get("LEARNHOUSE_MAX_REQUEST_BODY_MB") or yaml_config.get(
+        "hosting_config", {}
+    ).get("max_request_body_mb", 25)
 
-    # Tenancy mode — single explicit knob that supersedes the older overlapping
+    # Tenancy mode: a single explicit knob that supersedes the older overlapping
     # flags (`self_hosted`, `use_default_org`). Two values:
     #   - "multi":  slug.{LEARNHOUSE_DOMAIN} subdomain detection. Requires EE
     #               and a configured domain.
@@ -450,14 +506,14 @@ def get_learnhouse_config() -> LearnHouseConfig:
     else:
         # Inference picks "multi" only when there's a clear signal the
         # operator intends subdomain-based tenancy. Two signals qualify:
-        #   1. SaaS mode is on (LEARNHOUSE_SAAS=true) — SaaS deployments are
+        #   1. SaaS mode is on (LEARNHOUSE_SAAS=true). SaaS deployments are
         #      always multi-tenant by definition.
         #   2. EE is available AND a shared-subdomain cookie was configured
         #      (LEARNHOUSE_COOKIE_DOMAIN starts with "."). The dotted cookie
-        #      domain is the strong signal — operators only set it when they
+        #      domain is the strong signal; operators only set it when they
         #      want subdomains to share auth.
         # Plain EE on a VPS without a dotted cookie domain falls through to
-        # "single" — which is the right default for the EE-self-host case
+        # "single", which is the right default for the EE-self-host case
         # (one org on a custom domain, EE features available locally).
         try:
             from src.core.ee_hooks import is_ee_available as _is_ee_available
@@ -493,7 +549,7 @@ def get_learnhouse_config() -> LearnHouseConfig:
     # subdomain can read the session cookie. Refuse single-label public
     # parents outright (e.g. ".com"); warn on any other broad parent unless
     # the operator opts in with LEARNHOUSE_COOKIE_DOMAIN_ALLOW_BROAD=true.
-    # ".localhost" is exempt — it's an RFC 6761 reserved TLD, not routable.
+    # ".localhost" is exempt; it's an RFC 6761 reserved TLD, not routable.
     _eff_dev_mode = (
         env_development_mode
         if env_development_mode is not None
@@ -631,7 +687,8 @@ def get_learnhouse_config() -> LearnHouseConfig:
         else yaml_config.get("mailing_config", {}).get("smtp_use_tls", True)
     )
 
-    # Tinybird config — auto-enabled when API URL is set
+    # Legacy Tinybird credentials: only read by the Enterprise one-time import of old
+    # analytics data. Analytics itself no longer uses Tinybird.
     env_tinybird_api_url = os.environ.get("LEARNHOUSE_TINYBIRD_API_URL")
     env_tinybird_ingest_token = os.environ.get("LEARNHOUSE_TINYBIRD_INGEST_TOKEN")
     env_tinybird_read_token = os.environ.get("LEARNHOUSE_TINYBIRD_READ_TOKEN")
@@ -648,7 +705,7 @@ def get_learnhouse_config() -> LearnHouseConfig:
             read_token=tinybird_read_token,
         )
 
-    # Judge0 config — auto-enabled when API URL is set
+    # Judge0 config, auto-enabled when API URL is set
     env_judge0_api_url = os.environ.get("LEARNHOUSE_JUDGE0_API_URL")
     env_judge0_client_id = os.environ.get("LEARNHOUSE_JUDGE0_CLIENT_ID")
     env_judge0_client_secret = os.environ.get("LEARNHOUSE_JUDGE0_CLIENT_SECRET")
@@ -758,9 +815,10 @@ def get_learnhouse_config() -> LearnHouseConfig:
         self_hosted=bool(self_hosted),
         cookie_config=cookie_config,
         content_delivery=content_delivery,
+        max_request_body_mb=int(max_request_body_mb),
     )
 
-    # Tenancy validation and deprecation warnings — only enforce in non-test
+    # Tenancy validation and deprecation warnings: only enforce in non-test
     # contexts so unit tests can construct configs with arbitrary values.
     _TESTING_TENANCY = os.environ.get("TESTING", "").lower() in ("true", "1", "yes")
     if not _TESTING_TENANCY:
@@ -791,7 +849,7 @@ def get_learnhouse_config() -> LearnHouseConfig:
                 )
 
         if tenancy == "single":
-            # In single mode the cookie domain is always host-only — operators
+            # In single mode the cookie domain is always host-only; operators
             # who set LEARNHOUSE_COOKIE_DOMAIN expecting cross-subdomain auth
             # will be surprised. Warn loudly.
             if env_cookie_domain:
@@ -819,6 +877,11 @@ def get_learnhouse_config() -> LearnHouseConfig:
     )
 
     # AI Config
+    env_atlas_model = os.environ.get("LEARNHOUSE_ATLAS_MODEL")
+    atlas_model = env_atlas_model or yaml_config.get("ai_config", {}).get(
+        "atlas_model"
+    )
+
     ai_config = AIConfig(
         is_ai_enabled=bool(is_ai_enabled),
         provider=ai_provider,
@@ -833,19 +896,30 @@ def get_learnhouse_config() -> LearnHouseConfig:
         gemini_api_key=gemini_api_key,
         image_model=ai_image_model,
         tts_model=ai_tts_model,
+        atlas_model=atlas_model,
+    )
+
+    mcp_yaml = yaml_config.get("mcp_config", {}) or {}
+    mcp_config = MCPConfig(
+        enabled=_env_bool(
+            os.environ.get("LEARNHOUSE_MCP_ENABLED"), mcp_yaml.get("enabled", True)
+        ),
+        public_url=(
+            os.environ.get("LEARNHOUSE_MCP_PUBLIC_URL") or mcp_yaml.get("public_url") or None
+        ),
     )
 
     # Surface missing internal-service keys at boot rather than at first
-    # request — the per-endpoint handlers fail closed either way, but a
+    # request: the per-endpoint handlers fail closed either way, but a
     # 403 from a cron job is harder to diagnose than a startup log line.
     #
-    # These keys are SaaS-only — they secure RPC calls from the platform
+    # These keys are SaaS-only: they secure RPC calls from the platform
     # control plane (custom domains, plans, internal cron) to the per-tenant
     # backend. Self-hosted EE / OSS deployments don't run that control plane
     # and don't need them, so suppress the warning in those modes.
     # Reported ONCE per process, as a single aggregated line. This block used to
     # warn on every config load, which emitted the same two lines thousands of
-    # times a day and buried the one-shot warnings around them — a disabled
+    # times a day and buried the one-shot warnings around them; a disabled
     # Google audience check sat unnoticed in that noise. One loud line per
     # process is what actually gets read.
     global _LOGGED_MISSING_INTERNAL_KEYS
@@ -869,7 +943,7 @@ def get_learnhouse_config() -> LearnHouseConfig:
         ):
             missing.append(
                 "LEARNHOUSE_GOOGLE_OAUTH_CLIENT_ID (Google OAuth audience "
-                "verification — absent means it is DISABLED, not merely unset)"
+                "verification; absent means it is DISABLED, not merely unset)"
             )
         if missing:
             _log.critical(
@@ -894,6 +968,7 @@ def get_learnhouse_config() -> LearnHouseConfig:
         database_config=database_config,
         security_config=SecurityConfig(auth_jwt_secret_key=auth_jwt_secret_key),
         ai_config=ai_config,
+        mcp_config=mcp_config,
         redis_config=RedisConfig(redis_connection_string=redis_connection_string),
         mailing_config=MailingConfig(
             email_provider=email_provider,

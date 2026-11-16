@@ -15,7 +15,7 @@ _get_redis_client = get_redis_client
 
 logger = logging.getLogger(__name__)
 
-CACHE_TTL_COURSES_LIST = 60  # 1 min — public course list
+CACHE_TTL_COURSES_LIST = 60  # 1 min, public course list
 
 _KEY_PREFIX = "courses_cache"
 
@@ -54,8 +54,10 @@ def invalidate_courses_cache(org_slug: str) -> None:
         return
     try:
         # Delete all list keys for this org
+        # SCAN, not KEYS: KEYS walks the whole keyspace in one blocking call
+        # and stalls every other Redis client while it runs.
         pattern = f"{_KEY_PREFIX}:list:{org_slug}:*"
-        keys = r.keys(pattern)
+        keys = list(r.scan_iter(match=pattern, count=500))
         if keys:
             r.delete(*keys)
     except Exception:

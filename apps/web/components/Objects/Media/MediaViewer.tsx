@@ -7,17 +7,18 @@ import { useTranslation } from 'react-i18next'
 import { getMediaFileDirectory } from '@services/media/media-resource'
 import { formatFileSize, mediaKind, type MediaKind, type MediaLike } from '@/lib/media/mediaKind'
 import { toEmbedUrl } from '@/lib/media/embedUrl'
+import { urlEmbedSandboxFor } from '@/lib/media/embedSanitize'
 import { safeExternalUrl } from '@components/Dashboard/Library/resourceLink'
 import InlineAudioPlayer from '@components/Objects/Media/InlineAudioPlayer'
 
-// video.js touches window on import; keep it out of the server bundle.
+// The player is client-only (media elements, blob URLs); keep it out of the server bundle.
 const LearnHousePlayer = dynamic(
   () => import('@components/Objects/Activities/Video/LearnHousePlayer'),
   { ssr: false }
 )
 
 /*
- The actual in-app player/reader for a Library media asset — no modal chrome,
+ The actual in-app player/reader for a Library media asset: no modal chrome,
  no card. Used by MediaLightbox (library views) and by the Library editor block,
  so "watch / read / listen / download" behaves identically in both.
 */
@@ -95,6 +96,7 @@ export default function MediaViewer({
   mediaUuid,
   maxHeightClass = 'max-h-[70vh]',
 }: MediaViewerProps) {
+  const { t } = useTranslation()
   const [denied, setDenied] = React.useState(false)
   const kind: MediaKind = mediaKind(resource)
   const name = resource?.name || ''
@@ -125,10 +127,14 @@ export default function MediaViewer({
       <div className={`w-full ${maxHeightClass} aspect-video bg-black rounded-xl overflow-hidden`}>
         <iframe
           src={toEmbedUrl(url)}
-          title={name || 'Embedded media'}
+          title={name || t('media.embedded_media')}
           className="w-full h-full border-0"
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
           allowFullScreen
+          sandbox={urlEmbedSandboxFor(
+            toEmbedUrl(url),
+            typeof window !== 'undefined' ? window.location.origin : undefined,
+          )}
         />
       </div>
     )
@@ -147,7 +153,7 @@ export default function MediaViewer({
 
   if (kind === 'video') {
     return (
-      <div className={`w-full ${maxHeightClass} bg-black rounded-xl overflow-hidden`}>
+      <div className={`w-full ${maxHeightClass} rounded-[20px] overflow-hidden`}>
         <LearnHousePlayer src={fileUrl} />
       </div>
     )

@@ -32,7 +32,7 @@ export type ComplianceStatus =
 /** (open) the contract names RAG but not its literal values; W3 reference uses these. */
 export type ComplianceRag = 'green' | 'amber' | 'red' | 'none' | 'not_started'
 
-export type CourseKind = 'general' | 'department'
+export type CourseKind = 'general' | 'department' | 'majlis-plan'
 export type LearnerLevel = 'national' | 'regional' | 'local'
 
 export interface ComplianceCycle {

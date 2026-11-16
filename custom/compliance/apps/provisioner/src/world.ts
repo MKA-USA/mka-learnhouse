@@ -1,5 +1,5 @@
 import {
-  DEFAULT_THINKIFIC_DIR, THINKIFIC_SOURCE, activeDepartments, withoutExcluded, type ProvisionConfig, buildDepartmentCourse, buildGeneralCourse, foundationCourse, getCycleId, listTkCourses, loadFoundation, loadPlans, loadRoster,
+  DEFAULT_THINKIFIC_DIR, THINKIFIC_SOURCE, activeDepartments, withoutExcluded, type ProvisionConfig, buildDepartmentCourse, buildGeneralCourse, buildMajlisPlanCourse, foundationCourse, getCycleId, listTkCourses, loadFoundation, loadPlans, loadRoster,
   thinkificPlanRefs, type Db, type CourseSpec, type PlanInput, type RosterRow,
 } from "@mka/compliance-core";
 import { assertNotExcluded } from "./config";
@@ -10,7 +10,7 @@ export interface WorldSpec { spec: CourseSpec; thinkificCourseId?: number }
 
 const toPlan = (p: any): PlanInput => ({ departmentSlug: p.departmentSlug, level: p.level, responsibilitiesDoc: p.responsibilitiesDoc, okrsDoc: p.okrsDoc, resourcesDoc: p.resourcesDoc, stale: p.stale, source: p.source });
 
-export async function buildWorld(db: Db, o: { cycle: string; only?: string[]; includeGeneral: boolean; config: ProvisionConfig; thinkificDir?: string; carryOver?: string }): Promise<{ cycleId: number; specs: WorldSpec[]; warnings: string[] }> {
+export async function buildWorld(db: Db, o: { cycle: string; only?: string[]; includeGeneral: boolean; includeMajlisPlan?: boolean; config: ProvisionConfig; thinkificDir?: string; carryOver?: string }): Promise<{ cycleId: number; specs: WorldSpec[]; warnings: string[] }> {
   assertNotExcluded(o.only, o.config);
   const excluded = o.config.excludedDepartments; const DEPARTMENTS = activeDepartments(excluded);
   const cycleId = await getCycleId(db, o.cycle);
@@ -35,6 +35,10 @@ export async function buildWorld(db: Db, o: { cycle: string; only?: string[]; in
     if (!f) throw new Error("Foundation course not found in Thinkific export");
     const g = buildGeneralCourse({ cycle: o.cycle, deadline, foundation: loadFoundation(f) });
     specs.push({ spec: g.spec, thinkificCourseId: f.id });
+  }
+  if (o.includeMajlisPlan) {
+    const mp = buildMajlisPlanCourse({ cycle: o.cycle, deadline, departments: DEPARTMENTS, plansFor });
+    specs.push({ spec: mp.spec });
   }
   const depts = DEPARTMENTS.filter((d) => !o.only || o.only.includes(d.slug));
   for (const dept of depts) {

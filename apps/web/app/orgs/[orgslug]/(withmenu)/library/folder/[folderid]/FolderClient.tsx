@@ -14,6 +14,7 @@ import { type FolderSortMode } from '@components/Dashboard/Library/FolderSortDro
 import { getFolderById, removeFolderPrefix } from '@services/folders/folders'
 import { getUriWithOrg } from '@services/config/config'
 import { shareFolderLink } from '@components/Dashboard/Library/shareFolder'
+import ListShortcuts from '@components/Objects/Shortcuts/ListShortcuts'
 import { FolderSimple, LinkSimple } from '@phosphor-icons/react'
 import { FolderCard, LibraryItemCard } from '../../library-cards'
 import { useTrackView, AnalyticsEvent } from '@services/analytics'
@@ -33,7 +34,7 @@ function FolderClient({
 
   // Same org-level sort mode the dashboard reads, so learners see the folder in
   // the exact order an admin arranged it in. The folder query is independent of
-  // the org query, so the content can arrive first — until the org config is
+  // the org query, so the content can arrive first. Until the org config is
   // actually here, 'manual' keeps the (already correctly sorted) API order
   // instead of flashing A→Z or destroying a manual-mode drag order.
   const sortMode: FolderSortMode = org
@@ -83,6 +84,7 @@ function FolderClient({
     <FeatureGate feature="folders" orgslug={orgslug} context="public">
       <div className="w-full">
         <GeneralWrapperStyled>
+          <ListShortcuts />
           <div className="flex flex-col space-y-4 mb-2">
             <Breadcrumbs
               items={[

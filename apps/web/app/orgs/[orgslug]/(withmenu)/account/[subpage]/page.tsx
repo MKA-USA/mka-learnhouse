@@ -10,7 +10,7 @@ type MetadataProps = {
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>
 }
 
-const VALID_SUBPAGES = ['general', 'profile', 'security', 'purchases']
+const VALID_SUBPAGES = ['general', 'profile', 'security', 'purchases', 'ai-apps']
 
 const getSubpageTitle = (subpage: string): string => {
   const titles: Record<string, string> = {
@@ -18,6 +18,7 @@ const getSubpageTitle = (subpage: string): string => {
     'profile': 'Profile Builder',
     'security': 'Security',
     'purchases': 'Purchases',
+    'ai-apps': 'AI apps',
   }
   return titles[subpage] || 'Account'
 }
@@ -29,7 +30,7 @@ export async function generateMetadata(props: MetadataProps): Promise<Metadata> 
     tags: ['organizations'],
   })
 
-  const title = `${getSubpageTitle(params.subpage)} — ${org.name}`
+  const title = `${getSubpageTitle(params.subpage)} | ${org.name}`
   const description = `Manage your account settings at ${org.name}`
 
   return {

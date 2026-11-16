@@ -107,7 +107,7 @@ class TestMethodGate:
         # A session predating the feature carries no amr. That is "unknown", not
         # "used a forbidden method". Blocking it would lock out the org's entire
         # existing membership the moment an admin narrows the method list, while
-        # still showing them the org. It has no deadline yet either — it picks
+        # still showing them the org. It has no deadline yet either; it picks
         # one up on its next rotation.
         await _set_auth_policy(db, org.id, allowed_auth_methods=["password"])
         _prov(amr=None, org_id=None)
@@ -122,7 +122,7 @@ class TestMethodGate:
         from fastapi import HTTPException
 
         # The window must close. Rotation copies the missing claim forward, so
-        # these sessions never expire on their own — left open-ended they would
+        # these sessions never expire on their own; left open-ended they would
         # skip the policy for good.
         await _set_auth_policy(db, org.id, allowed_auth_methods=["password"])
         _prov(amr=None, org_id=None, legacy_grace_expires=int(time.time()) - 60)
@@ -153,6 +153,36 @@ class TestMethodGate:
         # policy must not apply to them.
         await _set_auth_policy(db, org.id, allowed_auth_methods=["sso"])
         _prov(amr="api_token", org_id=org.id)
+        await enforce_org_auth_policy(db, regular_user.id, org.id)
+
+    async def test_lti_session_is_admitted_by_its_own_org(self, db, org, regular_user):
+        # Registering the LMS is the org's opt-in; its launches are not one of
+        # the admin-selectable sign-in methods.
+        await _set_auth_policy(db, org.id, allowed_auth_methods=["sso"])
+        _prov(amr="lti", org_id=org.id)
+        await enforce_org_auth_policy(db, regular_user.id, org.id)
+
+    async def test_lti_session_from_another_org_is_refused(self, db, org, regular_user):
+        from fastapi import HTTPException
+
+        await _set_auth_policy(db, org.id, allowed_auth_methods=["sso"])
+        _prov(amr="lti", org_id=org.id + 999)
+        with pytest.raises(HTTPException) as exc:
+            await enforce_org_auth_policy(db, regular_user.id, org.id)
+        assert exc.value.detail["code"] == METHOD_NOT_ALLOWED_CODE
+
+    async def test_lti_session_never_reaches_another_org_even_with_sharing_on(self, db, org, regular_user):
+        """An LMS one org runs must not sign anyone in to their other orgs,
+        even under the default policy (all methods, sharing on)."""
+        from fastapi import HTTPException
+
+        _prov(amr="lti", org_id=org.id + 999)
+        with pytest.raises(HTTPException) as exc:
+            await enforce_org_auth_policy(db, regular_user.id, org.id)
+        assert exc.value.detail["code"] == SESSION_NOT_BOUND_CODE
+
+    async def test_lti_session_is_admitted_by_its_own_org_under_default_policy(self, db, org, regular_user):
+        _prov(amr="lti", org_id=org.id)
         await enforce_org_auth_policy(db, regular_user.id, org.id)
 
 
@@ -219,7 +249,7 @@ class TestSuperadminAndResilience:
 @pytest.mark.asyncio
 class TestGateWiring:
     """The policy must actually fire from the shared org gate, not just in
-    isolation — that is the seam every request funnels through."""
+    isolation; that is the seam every request funnels through."""
 
     async def test_require_org_membership_enforces_method_policy(self, db, org, regular_user):
         from fastapi import HTTPException
@@ -244,7 +274,7 @@ class TestGateWiring:
 class TestMalformedConfig:
     async def test_non_dict_security_falls_back_to_defaults(self, db, org):
         # A security blob of the wrong shape (a list) must not raise or lock the
-        # org — get_org_auth_policy swallows it and returns the permissive default.
+        # org; get_org_auth_policy swallows it and returns the permissive default.
         row = OrganizationConfig(
             org_id=org.id,
             config={"config_version": "2.0", "admin_toggles": {"security": ["bogus"]}},

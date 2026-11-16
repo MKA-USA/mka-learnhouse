@@ -6,6 +6,7 @@ from fastapi.responses import StreamingResponse
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.services.ai.ai import (
+    track_ai_message,
     ai_send_activity_chat_message,
     ai_start_activity_chat_session,
     ai_start_activity_chat_session_stream,
@@ -16,6 +17,7 @@ from src.services.ai.editor import (
     editor_ai_send_message_stream,
 )
 from src.services.ai.base import ask_ai_stream, save_message_to_history, generate_follow_up_suggestions
+from src.services.ai.llm.errors import ai_error_message, log_ai_failure
 from src.services.ai.schemas.ai import (
     ActivityAIChatSessionResponse,
     SendActivityAIChatMessage,
@@ -27,7 +29,7 @@ from src.services.ai.schemas.editor import (
 )
 from src.core.events.database import get_db_session
 from src.db.users import PublicUser
-from src.security.auth import get_authenticated_user
+from src.security.auth import get_authenticated_user, resolve_acting_user_id
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +60,7 @@ async def api_ai_start_activity_chat_session(
     return await ai_start_activity_chat_session(
         request, chat_session_object, current_user, db_session
     )
+
 
 @router.post(
     "/send/activity_chat_message",
@@ -93,6 +96,8 @@ async def activity_chat_event_generator(
     ai_friendly_text: str,
     ai_model: str,
     org_id: int | None = None,
+    user_id: int | None = None,
+    course_uuid: str | None = None,
 ):
     """Convert async generator to SSE format with follow-up suggestions.
 
@@ -114,8 +119,15 @@ async def activity_chat_event_generator(
             full_response += chunk
             yield f"data: {json.dumps({'type': 'chunk', 'content': chunk})}\n\n"
 
-        # Save the message exchange to history
-        save_message_to_history(aichat_uuid, user_message, full_response)
+        # Save the message exchange to history (and who owns the session)
+        save_message_to_history(
+            aichat_uuid, user_message, full_response,
+            user_id=user_id, course_uuid=course_uuid, org_id=org_id,
+        )
+        await track_ai_message(
+            org_id, user_id, "activity_chat", ai_model,
+            course_uuid=course_uuid, activity_uuid=activity_uuid,
+        )
 
         # Send done event immediately (without waiting for follow-ups)
         yield f"data: {json.dumps({'type': 'done', 'aichat_uuid': aichat_uuid, 'activity_uuid': activity_uuid})}\n\n"
@@ -147,10 +159,11 @@ async def activity_chat_event_generator(
         # (full_response empty), so a disconnect *after* a full response can't
         # be abused to get free AI. Re-raise so Starlette observes the cancel.
         raise
-    except Exception:
+    except Exception as e:
         stream_failed = True
-        logger.exception("Error in activity_chat_event_generator")
-        yield f"data: {json.dumps({'type': 'error', 'message': 'An internal error occurred while processing the AI chat request.'})}\n\n"
+        log_ai_failure(logger, e, "Error in activity_chat_event_generator")
+        message = ai_error_message(e, "An internal error occurred while processing the AI chat request.")
+        yield f"data: {json.dumps({'type': 'error', 'message': message})}\n\n"
     finally:
         # Refund credit if the model produced nothing useful.
         if org_id is not None and (stream_failed or not full_response):
@@ -206,6 +219,8 @@ async def api_ai_start_activity_chat_session_stream(
             context["ai_friendly_text"],
             context["ai_model"],
             org_id=getattr(context.get("course", None), "org_id", None),
+            user_id=resolve_acting_user_id(current_user),
+            course_uuid=getattr(context.get("course", None), "course_uuid", None),
         ),
         media_type="text/event-stream",
         headers={
@@ -262,6 +277,8 @@ async def api_ai_send_activity_chat_message_stream(
             context["ai_friendly_text"],
             context["ai_model"],
             org_id=getattr(context.get("course", None), "org_id", None),
+            user_id=resolve_acting_user_id(current_user),
+            course_uuid=getattr(context.get("course", None), "course_uuid", None),
         ),
         media_type="text/event-stream",
         headers={
@@ -292,6 +309,7 @@ async def editor_chat_event_generator(
     ai_friendly_text: str,
     ai_model: str,
     org_id: int | None = None,
+    user_id: int | None = None,
 ):
     """
     Convert async generator to SSE format for editor AI chat.
@@ -398,8 +416,15 @@ async def editor_chat_event_generator(
             else:
                 yield f"data: {json.dumps({'type': 'chat_chunk', 'content': buffer})}\n\n"
 
-        # Save the message exchange to history
-        save_message_to_history(aichat_uuid, user_message, full_response)
+        # Save the message exchange to history (and who owns the session, so
+        # a follow-up turn can only continue the caller's own session)
+        save_message_to_history(
+            aichat_uuid, user_message, full_response,
+            user_id=user_id, org_id=org_id, listed=False,
+        )
+        await track_ai_message(
+            org_id, user_id, "editor", ai_model, activity_uuid=activity_uuid,
+        )
 
         # Send done event
         yield f"data: {json.dumps({'type': 'done', 'aichat_uuid': aichat_uuid, 'activity_uuid': activity_uuid})}\n\n"
@@ -422,10 +447,11 @@ async def editor_chat_event_generator(
         # empty), so a disconnect *after* a full response can't be abused to
         # get free AI. Re-raise so Starlette observes the cancel.
         raise
-    except Exception:
+    except Exception as e:
         stream_failed = True
-        logger.exception("Error in editor_chat_event_generator")
-        yield f"data: {json.dumps({'type': 'error', 'message': 'An internal error occurred while processing the AI request.'})}\n\n"
+        log_ai_failure(logger, e, "Error in editor_chat_event_generator")
+        message = ai_error_message(e, "An internal error occurred while processing the AI request.")
+        yield f"data: {json.dumps({'type': 'error', 'message': message})}\n\n"
     finally:
         if org_id is not None and (stream_failed or not full_response):
             try:
@@ -480,6 +506,7 @@ async def api_editor_ai_start_chat_session_stream(
             context["ai_friendly_text"],
             context["ai_model"],
             org_id=getattr(context.get("course", None), "org_id", None),
+            user_id=resolve_acting_user_id(current_user),
         ),
         media_type="text/event-stream",
         headers={
@@ -536,6 +563,7 @@ async def api_editor_ai_send_message_stream(
             context["ai_friendly_text"],
             context["ai_model"],
             org_id=getattr(context.get("course", None), "org_id", None),
+            user_id=resolve_acting_user_id(current_user),
         ),
         media_type="text/event-stream",
         headers={

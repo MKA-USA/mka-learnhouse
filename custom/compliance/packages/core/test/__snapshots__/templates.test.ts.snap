@@ -2,9 +2,9 @@
 
 exports[`department course deterministic names, keys and hash 1`] = `
 [
-  "ch-role:page/goals+page/role",
+  "ch-role:page/role",
   "ch-plan:page/plan+assignment/knowledge-check",
-  "ch-contacts:page/directory+assignment/contact-selfcheck",
+  "ch-contacts:page/directory",
   "ch-attest:assignment/signoff",
 ]
 `;

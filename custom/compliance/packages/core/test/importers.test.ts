@@ -127,3 +127,35 @@ describe("overrides: appointed_on", () => {
     expect(roster.find((x) => x.learnerEmail === "maal.boston@mkausa.org")?.appointedOn ?? null).toBeNull();
   });
 });
+
+describe("stray quote sanitizer", () => {
+  test("drops an unmatched closing quote, keeps balanced pairs (straight and curly mixed)", async () => {
+    const { dropStrayQuotes, dropStrayQuotesInSegment } = await import("../src");
+    expect(dropStrayQuotesInSegment("minimum.\u201d").text).toBe("minimum.");
+    const mm = dropStrayQuotesInSegment("one \"Misaali (Exemplary) Waqar-e-Amal\u201d Note");
+    expect(mm.dropped).toBe(0); expect(mm.normalized).toBe(1); expect(mm.text).toBe("one \u201cMisaali (Exemplary) Waqar-e-Amal\u201d Note");
+    const rev = dropStrayQuotesInSegment("one \u201cMisaali\" Note");
+    expect(rev.dropped).toBe(0); expect(rev.text).toBe("one \u201cMisaali\u201d Note");
+    expect(dropStrayQuotesInSegment('say "plain" ok').text).toBe('say "plain" ok');
+    expect(dropStrayQuotesInSegment("\u201cCleaning my Soul\u201d every Thursday").dropped).toBe(0);
+    expect(dropStrayQuotesInSegment("an \u201copen quote never closed").text).toBe("an open quote never closed");
+    expect(dropStrayQuotesInSegment("plain text").dropped).toBe(0);
+    const md = "| Develop materials, two meetings per year minimum.\u201d | National | Q4 (Aug - Oct 2027) |\n| ok \u201cfine\u201d | Local | Q1 |\nA line with stray\u201d quote";
+    const r = dropStrayQuotes(md);
+    expect(r.dropped).toBe(2); expect(r.text).toContain("minimum. | National"); expect(r.text).toContain("\u201cfine\u201d"); expect(r.text).toContain("stray quote");
+  });
+  test("http links are upgraded to https, in link targets and bare URLs", async () => {
+    const { upgradeHttpLinks } = await import("../src");
+    expect(upgradeHttpLinks("(i.e [shelf.nu](http://shelf.nu)) and http://a.org/x, https://ok.org").text).toBe("(i.e [shelf.nu](https://shelf.nu)) and https://a.org/x, https://ok.org");
+    const csv = "department,level,responsibilities_md,okrs_md,resources_md\nmaal,all,Use [shelf.nu](http://shelf.nu) \"Misaali\u201d,,\n";
+    const { rows, issues } = parseDeptPlans(csv);
+    expect(rows[0]!.responsibilitiesMd).toBe("Use [shelf.nu](https://shelf.nu) \u201cMisaali\u201d");
+    expect(JSON.stringify(rows[0]!.responsibilitiesDoc)).toContain("https://shelf.nu"); expect(JSON.stringify(rows[0]!.responsibilitiesDoc)).not.toContain("http://");
+    expect(issues.map((i) => i.code)).toEqual(expect.arrayContaining(["http-link", "mismatched-quote"]));
+  });
+  test("parseDeptPlans cleans the three markdown columns and reports it as an info issue", () => {
+    const csv = "department,level,responsibilities_md,okrs_md,resources_md\nmaal,all,Duties.\u201d,\"Objective 1: Grow\\n\\n| a | b |\",\n";
+    const { rows, issues } = parseDeptPlans(csv);
+    expect(rows[0]!.responsibilitiesMd).toBe("Duties."); expect(issues.map((i) => i.code)).toContain("stray-quote");
+  });
+});
