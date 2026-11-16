@@ -20,6 +20,7 @@ const ShortcutHelp = dynamic(() => import('@components/Objects/Shortcuts/Shortcu
 const LiveNowBanner = dynamic(() => import('@ee/components/LiveSessions/LiveNowBanner'), { ssr: false })
 import Image from 'next/image'
 import Link from 'next/link'
+import mkaSymbol from '@public/logos/mka-usa-symbol-dark.svg' // MKA fork: static import; the /logos/ URL is rewritten by proxy.ts and 404s
 import { PageViewTracker } from '@components/Analytics/PageViewTracker'
 import { usePathname, useSearchParams } from 'next/navigation'
 import { getGoogleFontUrl, DEFAULT_FONT } from '@/lib/fonts'
@@ -46,7 +47,7 @@ function OrgFooter() {
         {showWatermark && (
           <Link href="https://mkausa.org" target="_blank" rel="noopener noreferrer">
             <Image
-              src="/logos/mka-usa-symbol-dark.svg"
+              src={mkaSymbol}
               alt="MKA Ilm"
               width={24}
               height={24}

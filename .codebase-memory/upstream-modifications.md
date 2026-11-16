@@ -1968,3 +1968,7 @@ spot (`grep -rn "MKA fork" apps/` to enumerate them).
   `jev_integration.should_route_to_general` / `intent_routing_active` are now unused; `test_rag_request_mode_defaults_to_none` was removed.
 - Upstream made org analytics, audit/user dossier, the demo org and the payments UI Enterprise-only or rewrote them; those
   upstream files were deleted from the OSS tree and the fork's edits to them were dropped (`apps/web/ee-stub/` supplies stand-ins).
+
+## Footer MKA symbol (post-1.4.5 fix, `apps/web/app/orgs/[orgslug]/(withmenu)/layout.tsx`)
+
+`<Image src="/logos/mka-usa-symbol-dark.svg">` 404ed on dev and prod: `/logos/...` is not excluded from the `proxy.ts` matcher, so the middleware rewrites it to an org route. The fork now imports the SVG statically (`import mkaSymbol from '@public/logos/mka-usa-symbol-dark.svg'`, `src={mkaSymbol}`), the same way `OrgMenu.tsx` and `Watermark.tsx` already do, instead of touching the upstream matcher.
