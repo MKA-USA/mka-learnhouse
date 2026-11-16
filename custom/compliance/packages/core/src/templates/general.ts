@@ -113,7 +113,7 @@ export function buildGeneralCourse(args: { cycle: string; deadline: string; foun
     flags: cflags,
     spec: { key: `${cycle}|general`, kind: "general", departmentSlug: "", cycle, name: courseName(cycle, "General"),
       description: `The foundation course every officeholder takes: Jama'at and Khuddam structure, the systems you will use, housekeeping rules and Huzoor's message, with short quizzes. About ${minutes} minutes. ${COMPLETION_SENTENCE} Complete by ${deadline}.`,
-      about: "Required annual foundation course: organizational structure, resources, housekeeping rules and Huzoor's message.",
+      about: `Required annual foundation course: organizational structure, resources, housekeeping rules and Huzoor's message. ${COMPLETION_SENTENCE}`,
       learnings: "Jama'at and Khuddam structure, officeholder resources, housekeeping rules", tags: `mka,compliance,${cycle},general`, chapters, flags: flagsOut },
   };
 }

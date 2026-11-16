@@ -89,7 +89,7 @@ export function buildMajlisPlanCourse(a: MajlisPlanInput): { spec: CourseSpec } 
   return { spec: {
     key: `${cycle}|majlis-plan`, kind: "majlis-plan", departmentSlug: "", cycle, name: courseName(cycle, "Majlis Plan"),
     description: `Every department's Local and Regional key results for your Majlis and region, then a knowledge check and sign-off. About ${MAJLIS_PLAN_MINUTES} minutes. ${COMPLETION_SENTENCE} Complete by ${a.deadline}.`,
-    about: "Required annual training for Qaideen and Naib Qaideen: all departments' Local and Regional key results, a knowledge check and a sign-off.",
+    about: `Required annual training for Qaideen and Naib Qaideen: all departments' Local and Regional key results, a knowledge check and a sign-off. ${COMPLETION_SENTENCE}`,
     learnings: "Each department's objectives and key results, who owns them, what your Majlis and region must deliver", tags: `mka,compliance,${cycle},majlis-plan`, chapters, flags,
   } };
 }

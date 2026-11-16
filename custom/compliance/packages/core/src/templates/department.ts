@@ -39,8 +39,8 @@ export function renderPlanSection(plans: PlanInput[], pick: (p: PlanInput) => PM
     out.push(...(aud ? [audience(audienceId(cycle, r.departmentSlug, r.level), aud.groups, aud.label, section)] : section));
   }
   // A level with no key results still gets its (audience-gated) section, so regional and local officeholders are told so instead of seeing nothing.
-  // Skipped when an `all`-level plan exists: that content already applies to every level.
-  if (opts.fillMissingLevels && !rows.some((r) => r.level === "all")) {
+  // Also when an `all`-level plan exists: a regional or local viewer must always see their own section.
+  if (opts.fillMissingLevels) {
     for (const lvl of ["region", "majlis"]) {
       if (rows.some((r) => r.level === lvl)) continue;
       const aud = LEVEL_AUDIENCE[lvl]!;
@@ -152,7 +152,7 @@ export function buildDepartmentCourse(a: DepartmentCourseInput): CourseSpec {
     key: `${cycle}|dept:${dept.slug}`, kind: "department", departmentSlug: dept.slug, cycle,
     name: courseName(cycle, dept.name),
     description: `Your role, this year's ${dept.name} plan and the people to contact, then a short knowledge check and sign-off. About ${DEPT_COURSE_MINUTES} minutes. ${COMPLETION_SENTENCE} Complete by ${a.deadline}.`,
-    about: `Required annual training for ${roleTitle} and counterparts: goals, the annual plan, your contacts and a final sign-off.`,
+    about: `Required annual training for ${roleTitle} and counterparts: goals, the annual plan, your contacts and a final sign-off. ${COMPLETION_SENTENCE}`,
     learnings: "Your responsibilities, this year's plan, who to contact, attestation",
     tags: `mka,compliance,${cycle},${dept.slug}`, chapters, flags,
   };
